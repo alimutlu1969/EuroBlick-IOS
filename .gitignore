@@ -1,0 +1,38 @@
+# Xcode
+.DS_Store
+xcuserdata/
+*.xcuserstate
+project.xcworkspace/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+Package.pins
+Package.resolved
+
+# CocoaPods
+Pods/
+*.xcworkspace
+
+# Carthage
+Carthage/Build/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# Code Injection
+injected_container.swift
+
+# Other
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+DerivedData/
+.idea/ 
