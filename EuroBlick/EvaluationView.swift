@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 import os.log
 import UIKit
-import Darwin // Für cos und sin
+import Foundation // Für mathematische Funktionen
 
 struct EvaluationView: View {
     let accounts: [Account]
@@ -277,6 +277,7 @@ struct EvaluationView: View {
                             HStack {
                                 // Einnahmen (links, grün)
                                 VStack {
+                                    Spacer()
                                     Rectangle()
                                         .fill(Color.green)
                                         .frame(width: 80, height: CGFloat(abs(data.income)) * scaleFactor)
@@ -287,11 +288,6 @@ struct EvaluationView: View {
                                                 transactionsTitle = "Einnahmen"
                                                 transactionsToShow = data.incomeTransactions
                                                 shouldShowTransactionsSheet = true
-                                                print("transactionsToShow: \(transactionsToShow.count) Einträge")
-                                                print("transactionsTitle: \(transactionsTitle)")
-                                                print("shouldShowTransactionsSheet: \(shouldShowTransactionsSheet)")
-                                            } else {
-                                                print("Keine Daten für ausgewählten Monat gefunden")
                                             }
                                         }
                                     Text("Einnahmen")
@@ -299,13 +295,14 @@ struct EvaluationView: View {
                                         .font(.caption)
                                         .padding(.top, 8)
                                     Text("\(String(format: "%.2f €", data.income))")
-                                        .foregroundColor(data.income >= 0 ? .green : .red)
+                                        .foregroundColor(.green)
                                         .font(.caption)
                                         .padding(.top, 4)
                                 }
                                 Spacer()
                                 // Ausgaben (mitte, rot)
                                 VStack {
+                                    Spacer()
                                     Rectangle()
                                         .fill(Color.red)
                                         .frame(width: 80, height: CGFloat(abs(data.expenses)) * scaleFactor)
@@ -316,11 +313,6 @@ struct EvaluationView: View {
                                                 transactionsTitle = "Ausgaben"
                                                 transactionsToShow = data.expenseTransactions
                                                 shouldShowTransactionsSheet = true
-                                                print("transactionsToShow: \(transactionsToShow.count) Einträge")
-                                                print("transactionsTitle: \(transactionsTitle)")
-                                                print("shouldShowTransactionsSheet: \(shouldShowTransactionsSheet)")
-                                            } else {
-                                                print("Keine Daten für ausgewählten Monat gefunden")
                                             }
                                         }
                                     Text("Ausgaben")
@@ -328,15 +320,16 @@ struct EvaluationView: View {
                                         .font(.caption)
                                         .padding(.top, 8)
                                     Text("\(String(format: "%.2f €", data.expenses))")
-                                        .foregroundColor(data.expenses >= 0 ? .green : .red)
+                                        .foregroundColor(.red)
                                         .font(.caption)
                                         .padding(.top, 4)
                                 }
                                 Spacer()
-                                // Überschuss (rechts, blau)
+                                // Überschuss (rechts, dynamische Farbe)
                                 VStack {
+                                    Spacer()
                                     Rectangle()
-                                        .fill(Color.blue)
+                                        .fill(data.surplus >= 0 ? Color.green : Color.red)
                                         .frame(width: 80, height: CGFloat(abs(data.surplus)) * scaleFactor)
                                     Text("Überschuss")
                                         .foregroundColor(.white)
@@ -349,7 +342,7 @@ struct EvaluationView: View {
                                 }
                             }
                             .padding(.horizontal)
-                            .frame(height: 200)
+                            .frame(height: maxHeight + 60) // Höhe für Balken + Text
                         }
 
                         // Pie-Chart für Kategorien
@@ -1152,8 +1145,8 @@ struct OverlayAnnotationsView: View {
         
         // Startpunkt am äußeren Rand des Tortendiagramms
         let startPoint = CGPoint(
-            x: center.x + cos(midAngle) * (radius * 0.8),
-            y: center.y + sin(midAngle) * (radius * 0.8)
+            x: center.x + CGFloat(cos(midAngle)) * (radius * 0.8),
+            y: center.y + CGFloat(sin(midAngle)) * (radius * 0.8)
         )
         
         // Bestimme die Richtung der Beschriftung (links oder rechts)
@@ -1164,8 +1157,8 @@ struct OverlayAnnotationsView: View {
         
         // Endpunkt der Linie
         let endPoint = CGPoint(
-            x: center.x + cos(midAngle) * radius + (isRightSide ? lineLength : -lineLength),
-            y: center.y + sin(midAngle) * radius
+            x: center.x + CGFloat(cos(midAngle)) * radius + (isRightSide ? lineLength : -lineLength),
+            y: center.y + CGFloat(sin(midAngle)) * radius
         )
         
         // Position der Beschriftung
@@ -1407,28 +1400,70 @@ struct ForecastChartView: View {
     private func barHeight(for value: Double, scaleFactor: CGFloat) -> CGFloat {
         CGFloat(abs(value)) * scaleFactor
     }
+    
+    // Berechne tägliche Durchschnittswerte
+    private func calculateDailyAverages() -> (income: Double, expenses: Double, surplus: Double)? {
+        guard let data = monthlyData else { return nil }
+        
+        let calendar = Calendar.current
+        let today = Date()
+        let currentDay = Double(calendar.component(.day, from: today))
+        
+        let dailyIncome = data.income / currentDay
+        let dailyExpenses = data.expenses / currentDay
+        let dailySurplus = dailyIncome - dailyExpenses
+        
+        return (dailyIncome, dailyExpenses, dailySurplus)
+    }
 
     var body: some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 20) {
             Text("Prognostizierter Kontostand am Monatsende")
                 .foregroundColor(.white)
-                .font(.caption)
+                .font(.headline)
                 .padding(.horizontal)
+            
+            // Tägliche Durchschnittswerte
+            if let averages = calculateDailyAverages() {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Tägliche Durchschnittswerte:")
+                        .foregroundColor(.white)
+                        .font(.subheadline)
+                    
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("Einnahmen: \(String(format: "%.2f €", averages.income))")
+                                .foregroundColor(.green)
+                            Text("Ausgaben: \(String(format: "%.2f €", averages.expenses))")
+                                .foregroundColor(.red)
+                            Text("Überschuss: \(String(format: "%.2f €", averages.surplus))")
+                                .foregroundColor(colorForValue(averages.surplus))
+                        }
+                        .font(.caption)
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical, 10)
+                .background(Color.black.opacity(0.3))
+                .cornerRadius(10)
+                .padding(.horizontal)
+            }
+
             if let forecast = forecastData.first {
                 let maxValue = max(abs(forecast.einnahmen), abs(forecast.ausgaben), abs(forecast.balance))
                 let maxHeight: CGFloat = 150
                 let scaleFactor = maxValue > 0 ? maxHeight / maxValue : 1.0
 
                 HStack {
-                    // Prognostizierte Einnahmen (grün)
+                    // Prognostizierte Einnahmen
                     VStack {
+                        Spacer()
                         Rectangle()
                             .fill(Color.green)
-                            .frame(width: 100, height: barHeight(for: forecast.einnahmen, scaleFactor: scaleFactor))
+                            .frame(width: 80, height: barHeight(for: forecast.einnahmen, scaleFactor: scaleFactor))
                             .onTapGesture {
                                 transactionsTitle = "Prognostizierte Einnahmen"
                                 transactionsToShow = monthlyData?.incomeTransactions ?? []
-                                os_log(.info, "Prognostizierte Einnahmen Transaktionen: %d Einträge", transactionsToShow.count)
                                 showTransactionsSheet = true
                             }
                         Text("Einnahmen")
@@ -1436,20 +1471,20 @@ struct ForecastChartView: View {
                             .font(.caption)
                             .padding(.top, 8)
                         Text(String(format: "%.2f €", forecast.einnahmen))
-                            .foregroundColor(colorForValue(forecast.einnahmen))
+                            .foregroundColor(.green)
                             .font(.caption)
                             .padding(.top, 4)
                     }
                     Spacer()
-                    // Prognostizierte Ausgaben (rot)
+                    // Prognostizierte Ausgaben
                     VStack {
+                        Spacer()
                         Rectangle()
                             .fill(Color.red)
-                            .frame(width: 100, height: barHeight(for: forecast.ausgaben, scaleFactor: scaleFactor))
+                            .frame(width: 80, height: barHeight(for: forecast.ausgaben, scaleFactor: scaleFactor))
                             .onTapGesture {
                                 transactionsTitle = "Prognostizierte Ausgaben"
                                 transactionsToShow = monthlyData?.expenseTransactions ?? []
-                                os_log(.info, "Prognostizierte Ausgaben Transaktionen: %d Einträge", transactionsToShow.count)
                                 showTransactionsSheet = true
                             }
                         Text("Ausgaben")
@@ -1457,16 +1492,17 @@ struct ForecastChartView: View {
                             .font(.caption)
                             .padding(.top, 8)
                         Text(String(format: "%.2f €", forecast.ausgaben))
-                            .foregroundColor(colorForValue(forecast.ausgaben))
+                            .foregroundColor(.red)
                             .font(.caption)
                             .padding(.top, 4)
                     }
                     Spacer()
-                    // Prognostizierter Kontostand (gelb)
+                    // Prognostizierter Kontostand
                     VStack {
+                        Spacer()
                         Rectangle()
-                            .fill(Color.yellow)
-                            .frame(width: 100, height: barHeight(for: forecast.balance, scaleFactor: scaleFactor))
+                            .fill(colorForValue(forecast.balance))
+                            .frame(width: 80, height: barHeight(for: forecast.balance, scaleFactor: scaleFactor))
                         Text("Kontostand")
                             .foregroundColor(.white)
                             .font(.caption)
@@ -1478,9 +1514,12 @@ struct ForecastChartView: View {
                     }
                 }
                 .padding(.horizontal)
-                .frame(height: 200)
+                .frame(height: maxHeight + 60)
             }
         }
+        .padding(.vertical)
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
     }
 }
 
