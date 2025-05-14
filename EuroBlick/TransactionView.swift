@@ -659,34 +659,10 @@ struct TransactionView: View {
     }
 
     private func loadTransactionForEditing(_ transaction: Transaction) {
-        isLoadingTransaction = true
-        loadingError = nil
-        showEditTransactionSheet = true  // Sheet sofort öffnen
-        
-        let timeout = DispatchTime.now() + .seconds(5)
-        
-        viewModel.loadTransaction(withID: transaction.id) { [self] loadedTransaction in
+        viewModel.loadTransaction(transaction) { loadedTransaction in
             if let loadedTransaction = loadedTransaction {
-                DispatchQueue.main.async {
-                    self.selectedTransactionID = loadedTransaction.id
-                    self.transactionCache[loadedTransaction.id] = loadedTransaction
-                    self.isLoadingTransaction = false
-                    print("✅ Transaktion erfolgreich für Bearbeitung geladen: id=\(loadedTransaction.id)")
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.loadingError = "Transaktion konnte nicht geladen werden"
-                    self.isLoadingTransaction = false
-                    print("❌ Fehler beim Laden der Transaktion für Bearbeitung")
-                }
-            }
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: timeout) {
-            if self.isLoadingTransaction {
-                self.isLoadingTransaction = false
-                self.loadingError = "Zeitüberschreitung beim Laden der Transaktion"
-                print("⚠️ Timeout beim Laden der Transaktion")
+                self.transactionToEdit = loadedTransaction
+                self.showEditTransactionSheet = true
             }
         }
     }

@@ -24,6 +24,8 @@ class TransactionViewModel: ObservableObject {
     @Published var accountGroups: [AccountGroup] = []
     @Published var categories: [Category] = []
     @Published var transactionsUpdated: Bool = false // Neue Property für Benachrichtigungen
+    @Published var isLoadingTransaction: Bool = false
+    @Published var loadingError: String? = nil
     private let context: NSManagedObjectContext
     private let backgroundContext: NSManagedObjectContext
     
@@ -518,17 +520,25 @@ class TransactionViewModel: ObservableObject {
                 sourceTransaction.targetAccount = target
                 sourceTransaction.usage = usage
                 
-                let targetTransaction = Transaction(context: self.context)
-                targetTransaction.id = UUID()
-                targetTransaction.type = "umbuchung"
-                targetTransaction.amount = amount
-                targetTransaction.date = date // Korrigierter Code: Setze das Datum für targetTransaction
-                targetTransaction.account = target
-                targetTransaction.targetAccount = account
-                targetTransaction.usage = usage
+                // Prüfe, ob es sich um eine Bargeld-zu-Giro Umbuchung handelt
+                let isBarToGiro = account.name?.lowercased().contains("bargeld") ?? false &&
+                                 target.name?.lowercased().contains("giro") ?? false
+                
+                // Nur wenn es KEINE Bargeld-zu-Giro Umbuchung ist, erstelle die Zieltransaktion
+                if !isBarToGiro {
+                    let targetTransaction = Transaction(context: self.context)
+                    targetTransaction.id = UUID()
+                    targetTransaction.type = "umbuchung"
+                    targetTransaction.amount = amount
+                    targetTransaction.date = date
+                    targetTransaction.account = target
+                    targetTransaction.targetAccount = account
+                    targetTransaction.usage = usage
+                    
+                    self.setCategoryForTransaction(targetTransaction, categoryName: category)
+                }
                 
                 self.setCategoryForTransaction(sourceTransaction, categoryName: category)
-                self.setCategoryForTransaction(targetTransaction, categoryName: category)
                 
                 self.saveContext(self.context) { error in
                     if let error = error {
@@ -645,17 +655,25 @@ class TransactionViewModel: ObservableObject {
                     sourceTransaction.targetAccount = target
                     sourceTransaction.usage = usage
                     
-                    let targetTransaction = Transaction(context: self.context)
-                    targetTransaction.id = UUID()
-                    targetTransaction.type = "umbuchung"
-                    targetTransaction.amount = amount
-                    targetTransaction.date = date
-                    targetTransaction.account = target
-                    targetTransaction.targetAccount = account
-                    targetTransaction.usage = usage
+                    // Prüfe, ob es sich um eine Bargeld-zu-Giro Umbuchung handelt
+                    let isBarToGiro = account.name?.lowercased().contains("bargeld") ?? false &&
+                                     target.name?.lowercased().contains("giro") ?? false
+                    
+                    // Nur wenn es KEINE Bargeld-zu-Giro Umbuchung ist, erstelle die Zieltransaktion
+                    if !isBarToGiro {
+                        let targetTransaction = Transaction(context: self.context)
+                        targetTransaction.id = UUID()
+                        targetTransaction.type = "umbuchung"
+                        targetTransaction.amount = amount
+                        targetTransaction.date = date
+                        targetTransaction.account = target
+                        targetTransaction.targetAccount = account
+                        targetTransaction.usage = usage
+                        
+                        self.setCategoryForTransaction(targetTransaction, categoryName: category)
+                    }
                     
                     self.setCategoryForTransaction(sourceTransaction, categoryName: category)
-                    self.setCategoryForTransaction(targetTransaction, categoryName: category)
                     
                     self.saveContext(self.context) { error in
                         if let error = error {
@@ -1650,6 +1668,30 @@ class TransactionViewModel: ObservableObject {
         } catch {
             print("Fehler beim Laden der CSV-Datei \(fileURL.lastPathComponent): \(error.localizedDescription)")
             throw error
+        }
+    }
+
+    // Lade eine einzelne Transaktion
+    func loadTransaction(_ transaction: Transaction, completion: @escaping (Transaction?) -> Void) {
+        isLoadingTransaction = true
+        loadingError = nil
+        
+        context.perform {
+            // Stelle sicher, dass die Transaktion im aktuellen Kontext ist
+            let objectID = transaction.objectID
+            guard let loadedTransaction = try? self.context.existingObject(with: objectID) as? Transaction else {
+                DispatchQueue.main.async {
+                    self.loadingError = "Transaktion konnte nicht geladen werden"
+                    self.isLoadingTransaction = false
+                    completion(nil)
+                }
+                return
+            }
+            
+            DispatchQueue.main.async {
+                self.isLoadingTransaction = false
+                completion(loadedTransaction)
+            }
         }
     }
 }

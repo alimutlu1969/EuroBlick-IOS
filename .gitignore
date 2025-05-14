@@ -35,4 +35,10 @@ injected_container.swift
 *.xccheckout
 *.xcscmblueprint
 DerivedData/
-.idea/ 
+.idea/
+
+Stabile Version 1.0.3 
+
+- Verbesserte Umbuchungslogik für Bargeld zu Giro Transaktionen
+- Verhindert Doppelbuchungen bei CSV-Import
+- Optimierte Transaktionsverarbeitung 
