@@ -18,6 +18,7 @@ struct EditTransactionView: View {
     @State private var categoryError: String = ""
     @State private var accountError: String = ""
     @State private var isCancelled: Bool = false
+    @State private var showTargetAccountPicker: Bool = false
     
     @StateObject private var keyboard = KeyboardResponder()
     @FocusState private var focusedField: Field?
@@ -114,18 +115,28 @@ struct EditTransactionView: View {
             accountGroups: viewModel.accountGroups
         )
         .scrollContentBackground(.hidden)
-        .onChange(of: keyboard.keyboardHeight) { newHeight in
-            if newHeight > 0 {
+        .onChange(of: keyboard.keyboardHeight) { oldValue, newValue in
+            if newValue > 0 {
                 withAnimation {
                     proxy.scrollTo("bottomButtons", anchor: .bottom)
                 }
             }
         }
-        .onChange(of: focusedField) { newFocus in
-            if let field = newFocus {
+        .onChange(of: focusedField) { oldValue, newValue in
+            if let field = newValue {
                 withAnimation {
                     proxy.scrollTo(field, anchor: .center)
                 }
+            }
+        }
+        .onChange(of: type) { oldValue, newValue in
+            if newValue == "umbuchung" {
+                showTargetAccountPicker = true
+            }
+        }
+        .onChange(of: account) { oldValue, newValue in
+            if let account = newValue {
+                self.account = account
             }
         }
     }

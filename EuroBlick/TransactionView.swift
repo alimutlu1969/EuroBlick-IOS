@@ -265,7 +265,7 @@ struct TransactionView: View {
                             .foregroundColor(.white)
                             .cornerRadius(8)
                             .padding(.horizontal)
-                            .onChange(of: searchText) {
+                            .onChange(of: searchText) { oldValue, newValue in
                                 applyFilter()
                             }
                     }
@@ -446,7 +446,7 @@ struct TransactionView: View {
             .onAppear {
                 fetchTransactions()
             }
-            .onChange(of: viewModel.transactionsUpdated) { _ in
+            .onChange(of: viewModel.transactionsUpdated) { oldValue, newValue in
                 fetchTransactions()
             }
         }
@@ -815,7 +815,7 @@ struct TransactionListView: View {
                             .foregroundColor(.white)
                             .font(.system(size: 12))
                         Spacer()
-                        Text(group.dailyBalance.isNaN ? "0.00 €" : "\(String(format: group.dailyBalance >= 0 ? "+%.2f €" : "%.2f €", group.dailyBalance)))")
+                        Text(group.dailyBalance.isNaN ? "(0.00 €)" : "(\(String(format: group.dailyBalance >= 0 ? "+%.2f €" : "%.2f €", group.dailyBalance)))")
                             .foregroundColor(group.dailyBalance >= 0 ? .green : .red)
                             .font(.system(size: 12))
                         Text(group.cumulativeBalance.isNaN ? "0.00 €" : "\(String(format: "%.2f €", group.cumulativeBalance))")
@@ -955,7 +955,7 @@ struct DatePickerSheetView: View {
                 .foregroundColor(.white)
                 .background(Color.gray.opacity(0.2))
                 .cornerRadius(10)
-                .onChange(of: selectedMonth) { newValue in
+                .onChange(of: selectedMonth) { oldValue, newValue in
                     if newValue == "Benutzerdefinierter Zeitraum" {
                         showDatePickerSheet = false
                         showCustomDateRangeSheet = true

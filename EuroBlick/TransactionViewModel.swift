@@ -1663,8 +1663,9 @@ class TransactionViewModel: ObservableObject {
             let firstLine = contents.components(separatedBy: "\n").first ?? ""
             print("Kopfzeile der CSV-Datei: \(firstLine)")
             
-            // Verwende die neue flexible Import-Methode
-            try importBankCSV(contents: contents, context: context)
+            // Verwende die neue flexible Import-Methode und überprüfe das Ergebnis
+            let result = try importBankCSV(contents: contents, context: context)
+            print("Import abgeschlossen: \(result.summary)")
         } catch {
             print("Fehler beim Laden der CSV-Datei \(fileURL.lastPathComponent): \(error.localizedDescription)")
             throw error

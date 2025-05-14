@@ -52,7 +52,7 @@ struct AddTransactionView: View {
                     .scrollDismissesKeyboard(.interactively)
                 }
             }
-            .onChange(of: usage) { newValue in
+            .onChange(of: usage) { oldValue, newValue in
                 print("AddTransactionView usage aktualisiert: '\(newValue)'")
             }
             .alert(isPresented: $showAlert) {
@@ -102,15 +102,15 @@ struct AddTransactionView: View {
             accountGroups: viewModel.accountGroups
         )
         .scrollContentBackground(.hidden)
-        .onChange(of: keyboard.keyboardHeight) { newHeight in
-            if newHeight > 0 {
+        .onChange(of: keyboard.keyboardHeight) { oldValue, newValue in
+            if newValue > 0 {
                 withAnimation {
                     proxy.scrollTo("bottomButtons", anchor: .bottom)
                 }
             }
         }
-        .onChange(of: focusedField) { newFocus in
-            if let field = newFocus {
+        .onChange(of: focusedField) { oldValue, newValue in
+            if let field = newValue {
                 withAnimation {
                     proxy.scrollTo(field, anchor: .center)
                 }

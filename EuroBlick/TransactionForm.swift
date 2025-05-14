@@ -26,14 +26,14 @@ struct TransactionForm: View {
                 .padding(.all, 10)
                 .focused($amountFieldFocused)
                 .id(AddTransactionView.Field.amount)
-                .onChange(of: amountFieldFocused) { newValue in
+                .onChange(of: amountFieldFocused) { oldValue, newValue in
                     if newValue {
                         focusedField = .amount
                     } else if focusedField == .amount {
                         focusedField = nil
                     }
                 }
-                .onChange(of: amount) { newValue in
+                .onChange(of: amount) { oldValue, newValue in
                     let filtered = newValue.filter { "0123456789,.".contains($0) }
                     if filtered != newValue {
                         amount = filtered
@@ -66,7 +66,7 @@ struct TransactionForm: View {
                     .padding(.all, 10)
                     .focused($newCategoryFieldFocused)
                     .id(AddTransactionView.Field.newCategory)
-                    .onChange(of: newCategoryFieldFocused) { newValue in
+                    .onChange(of: newCategoryFieldFocused) { oldValue, newValue in
                         if newValue {
                             focusedField = .newCategory
                         } else if focusedField == .newCategory {
@@ -100,14 +100,14 @@ struct TransactionForm: View {
                 .padding(.all, 10)
                 .focused($usageFieldFocused)
                 .id(AddTransactionView.Field.usage)
-                .onChange(of: usageFieldFocused) { newValue in
+                .onChange(of: usageFieldFocused) { oldValue, newValue in
                     if newValue {
                         focusedField = .usage
                     } else if focusedField == .usage {
                         focusedField = nil
                     }
                 }
-                .onChange(of: usage) { newValue in
+                .onChange(of: usage) { oldValue, newValue in
                     let filtered = newValue.unicodeScalars
                         .filter { scalar in
                             let isAllowed = scalar.isASCII && CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,").contains(scalar)

@@ -440,113 +440,16 @@ struct EvaluationView: View {
                 )
             }
             .sheet(isPresented: $showCustomDateRangeSheet) {
-                ZStack {
-                    Color.black.edgesIgnoringSafeArea(.all)
-                    VStack {
-                        Text("Benutzerdefinierten Zeitraum auswählen")
-                            .foregroundColor(.white)
-                            .font(.subheadline)
-                            .padding()
-
-                        // Startdatum
-                        VStack(alignment: .leading) {
-                            Text("Startdatum")
-                                .foregroundColor(.white)
-                                .font(.caption)
-                            DatePicker("Startdatum", selection: $tempStartDate, displayedComponents: .date)
-                                .datePickerStyle(.compact)
-                                .foregroundColor(.white)
-                                .accentColor(.blue)
-                                .padding(.horizontal)
-                                .onChange(of: tempStartDate) { newValue in
-                                    startDateString = dateFormatter.string(from: newValue)
-                                }
-                            TextField("dd.MM.yyyy", text: $startDateString, onEditingChanged: { isEditing in
-                                if !isEditing {
-                                    updateStartDateFromString()
-                                }
-                            })
-                                .padding(8)
-                                .background(Color.gray.opacity(0.6))
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                                .padding(.horizontal)
-                                .keyboardType(.numbersAndPunctuation)
-                        }
-
-                        // Enddatum
-                        VStack(alignment: .leading) {
-                            Text("Enddatum")
-                                .foregroundColor(.white)
-                                .font(.caption)
-                            DatePicker("Enddatum", selection: $tempEndDate, displayedComponents: .date)
-                                .datePickerStyle(.compact)
-                                .foregroundColor(.white)
-                                .accentColor(.blue)
-                                .padding(.horizontal)
-                                .onChange(of: tempEndDate) { newValue in
-                                    endDateString = dateFormatter.string(from: newValue)
-                                }
-                            TextField("dd.MM.yyyy", text: $endDateString, onEditingChanged: { isEditing in
-                                if !isEditing {
-                                    updateEndDateFromString()
-                                }
-                            })
-                                .padding(8)
-                                .background(Color.gray.opacity(0.6))
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                                .padding(.horizontal)
-                                .keyboardType(.numbersAndPunctuation)
-                        }
-
-                        Button(action: {
-                            var start = tempStartDate
-                            var end = tempEndDate
-                            // Tausche Start- und Enddatum, wenn Start nach End liegt
-                            if start > end {
-                                let temp = start
-                                start = end
-                                end = temp
-                                // Aktualisiere die UI-Werte
-                                tempStartDate = start
-                                tempEndDate = end
-                                // Aktualisiere die Textfelder
-                                startDateString = dateFormatter.string(from: start)
-                                endDateString = dateFormatter.string(from: end)
-                            }
-                            customDateRange = (start: start, end: end)
-                            loadMonthlyData()
-                            showCustomDateRangeSheet = false
-                        }) {
-                            Text("Bestätigen")
-                                .foregroundColor(.blue)
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .background(Color.gray.opacity(0.2))
-                                .cornerRadius(10)
-                        }
-                        .padding(.horizontal)
-
-                        Button(action: {
-                            customDateRange = nil
-                            selectedMonth = DateFormatter.monthFormatter.string(from: Date())
-                            loadMonthlyData()
-                            showCustomDateRangeSheet = false
-                        }) {
-                            Text("Abbrechen")
-                                .foregroundColor(.red)
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .background(Color.gray.opacity(0.2))
-                                .cornerRadius(10)
-                        }
-                        .padding(.horizontal)
-
-                        Spacer()
+                CustomDateRangeSheetView(
+                    tempStartDate: $tempStartDate,
+                    tempEndDate: $tempEndDate,
+                    customDateRange: $customDateRange,
+                    selectedMonth: $selectedMonth,
+                    showCustomDateRangeSheet: $showCustomDateRangeSheet,
+                    onFilter: {
+                        loadMonthlyData()
                     }
-                    .padding(.top, 20)
-                }
+                )
             }
             .sheet(isPresented: $shouldShowTransactionsSheet) {
                 TransactionSheet(
@@ -1060,7 +963,7 @@ struct MonthPickerSheet: View {
             .foregroundColor(.white)
             .background(Color.gray.opacity(0.2))
             .cornerRadius(10)
-            .onChange(of: selectedMonth) { newValue in
+            .onChange(of: selectedMonth) { oldValue, newValue in
                 if newValue == "Benutzerdefinierter Zeitraum" {
                     showMonthPickerSheet = false
                     showCustomDateRangeSheet = true
