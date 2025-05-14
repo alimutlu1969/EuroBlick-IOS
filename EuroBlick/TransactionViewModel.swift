@@ -2,23 +2,33 @@ import Foundation
 import CoreData
 import SwiftUI
 import Charts
+import os.log
 
-// Struktur für monatliche Daten (für das Balkendiagramm)
-struct MonthlyData: Identifiable {
-    let id = UUID()
-    let month: String
-    let einnahmen: Double
-    let ausgaben: Double
-    let ueberschuss: Double
-}
-
-// Struktur für Kategorien-Daten (für das Tortendiagramm)
-struct CategoryData: Identifiable {
-    let id = UUID()
-    let name: String
-    let value: Double
-    let color: Color
-}
+// Zuordnungstabelle für usage → Kategorie
+private let usageToCategoryMapping: [String: String] = [
+    "Edelgard Carl-Uzer": "Steuerberater",
+    "Acai": "Wareneinkauf",
+    "Helen Schmiedle":"Personal",
+    "Sevim Mutlu":"Personal",
+    "Ferhat Keziban":"Personal",
+    "EK Hanseatische Krankenkasse":"KV-Beiträge",
+    "EK Techniker Krankenkasse":"KV-Beiträge",
+    "HV Raimund Petersen":"Raumkosten",
+    // Weitere Zuordnungen können hier hinzugefügt werden, z. B.:
+    "STRATO GmbH": "Sonstiges",
+    "AOK Nordost": "KV-Beiträge",
+    "Uber Payments B.V.": "Einnahmen",
+    "Wolt License Services Oy": "Einnahmen",
+    "SIGNAL IDUNA Gruppe": "Priv. KV",
+    "SGB Energie GmbH": "Strom/Gas",
+    "ALBA Berlin GmbH": "Sonstiges",
+    "Finanzamt Charlottenburg":"Steuern",
+    "finanzamt friedrichshain kreuzberg":"Steuern",
+    "reCup GmbH":"Verpackung",
+    "ILLE Papier-Service GmbH":"Reinigung",
+    "Bundesknappschaft":"Sozialkassen",
+    "Vodafone GmbH": "Telefon"
+]
 
 class TransactionViewModel: ObservableObject {
     @Published var accountGroups: [AccountGroup] = []
@@ -28,32 +38,6 @@ class TransactionViewModel: ObservableObject {
     @Published var loadingError: String? = nil
     private let context: NSManagedObjectContext
     private let backgroundContext: NSManagedObjectContext
-    
-    // Zuordnungstabelle für usage → Kategorie
-    private let usageToCategoryMapping: [String: String] = [
-        "Edelgard Carl-Uzer": "Steuerberater",
-        "Acai": "Wareneinkauf",
-        "Helen Schmiedle":"Personal",
-        "Sevim Mutlu":"Personal",
-        "Ferhat Keziban":"Personal",
-        "EK Hanseatische Krankenkasse":"KV-Beiträge",
-        "EK Techniker Krankenkasse":"KV-Beiträge",
-        "HV Raimund Petersen":"Raumkosten",
-        // Weitere Zuordnungen können hier hinzugefügt werden, z. B.:
-        "STRATO GmbH": "Sonstiges",
-        "AOK Nordost": "KV-Beiträge",
-        "Uber Payments B.V.": "Einnahmen",
-        "Wolt License Services Oy": "Einnahmen",
-        "SIGNAL IDUNA Gruppe": "Priv. KV",
-        "SGB Energie GmbH": "Strom/Gas",
-        "ALBA Berlin GmbH": "Sonstiges",
-        "Finanzamt Charlottenburg":"Steuern",
-        "finanzamt friedrichshain kreuzberg":"Steuern",
-        "reCup GmbH":"Verpackung",
-        "ILLE Papier-Service GmbH":"Reinigung",
-        "Bundesknappschaft":"Sozialkassen",
-        "Vodafone GmbH": "Telefon"
-    ]
     
     init(context: NSManagedObjectContext = PersistenceController.shared.container.viewContext) {
         self.context = context
@@ -725,7 +709,7 @@ class TransactionViewModel: ObservableObject {
             }
             let colors: [Color] = [.red, .blue, .green, .yellow, .purple, .orange]
             return categoryTotals.enumerated().map { (index, element) in
-                CategoryData(name: element.key, value: element.value, color: colors[index % colors.count])
+                CategoryData(name: element.key, value: element.value, color: colors[index % colors.count], transactions: transactions.filter { $0.categoryRelationship?.name == element.key })
             }
         }
     }
@@ -750,7 +734,7 @@ class TransactionViewModel: ObservableObject {
             return allMonths.sorted().map { month in
                 let einnahmen = monthlyEinnahmen[month] ?? 0.0
                 let ausgaben = monthlyAusgaben[month] ?? 0.0
-                return MonthlyData(month: month, einnahmen: einnahmen, ausgaben: ausgaben, ueberschuss: einnahmen - ausgaben)
+                return MonthlyData(month: month, einnahmen: einnahmen, ausgaben: ausgaben, ueberschuss: einnahmen - ausgaben, incomeTransactions: [], expenseTransactions: [])
             }
         }
     }
@@ -1108,7 +1092,7 @@ class TransactionViewModel: ObservableObject {
     }
 
     // Aktualisierte Methode für monatliche Daten mit Filter
-    func buildMonthlyData(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [EvaluationView.MonthlyData] {
+    func buildMonthlyData(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [MonthlyData] {
         let filteredTransactions = filterTransactions(accounts: accounts, filterType: filterType, selectedMonth: selectedMonth, customDateRange: customDateRange)
         var monthlyEinnahmen: [String: Double] = [:]
         var monthlyAusgaben: [String: Double] = [:]
@@ -1131,28 +1115,26 @@ class TransactionViewModel: ObservableObject {
             let txs = monthlyTransactions[month] ?? []
             let ins = txs.filter { $0.type == "einnahme" }
             let outs = txs.filter { $0.type == "ausgabe" }
-            return EvaluationView.MonthlyData(
-                month: month,
-                income: ins.reduce(0) { $0 + $1.amount },
-                expenses: outs.reduce(0) { $0 + $1.amount },
-                surplus: ins.reduce(0) { $0 + $1.amount } + outs.reduce(0) { $0 + $1.amount },
-                incomeTransactions: ins,
-                expenseTransactions: outs
-            )
+            return MonthlyData(month: month, einnahmen: monthlyEinnahmen[month] ?? 0.0, ausgaben: monthlyAusgaben[month] ?? 0.0, ueberschuss: (monthlyEinnahmen[month] ?? 0.0) - (monthlyAusgaben[month] ?? 0.0), incomeTransactions: ins, expenseTransactions: outs)
         }
     }
 
     // Aktualisierte Methode für Kategorien-Daten mit Filter
-    func buildCategoryData(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [EvaluationView.CategoryData] {
+    func buildCategoryData(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [CategoryData] {
         let filteredTransactions = filterTransactions(accounts: accounts, filterType: filterType, selectedMonth: selectedMonth, customDateRange: customDateRange)
         let expenseTransactions = filteredTransactions.filter { $0.type == "ausgabe" }
-        let grouped = Dictionary(grouping: expenseTransactions, by: { $0.categoryRelationship?.name ?? "Unbekannt" })
-        let colors: [Color] = [.red, .blue, .green, .yellow, .purple, .orange]
-        return grouped.map { (category, transactions) in
-            let value = transactions.reduce(0.0) { $0 + $1.amount }
+        let grouped = Dictionary(grouping: expenseTransactions) { $0.categoryRelationship?.name ?? "Unbekannt" }
+        let colors: [Color] = [.blue, .green, .purple, .orange, .pink, .yellow, .gray]
+        return grouped.map { category, txs in
+            let value = abs(txs.reduce(0.0) { $0 + $1.amount })
             let colorIndex = grouped.keys.sorted().firstIndex(of: category) ?? 0
-            return EvaluationView.CategoryData(name: category, value: value, color: colors[colorIndex % colors.count], transactions: transactions)
-        }.sorted { $0.name < $1.name }
+            return CategoryData(
+                name: category,
+                value: value,
+                color: colors[colorIndex % colors.count],
+                transactions: txs
+            )
+        }.sorted { $0.value > $1.value }
     }
     
     // Bereinige Transaktionen mit ungültigen Daten
@@ -1694,5 +1676,66 @@ class TransactionViewModel: ObservableObject {
                 completion(loadedTransaction)
             }
         }
+    }
+
+    func generateMonthlyReport(for transactions: [Transaction]) -> [MonthlyData] {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMM yyyy"
+        dateFormatter.locale = Locale(identifier: "de_DE")
+        
+        // Group transactions by month
+        let grouped = Dictionary(grouping: transactions) { transaction in
+            dateFormatter.string(from: transaction.date)
+        }
+        
+        return grouped.map { month, txs in
+            let ins = txs.filter { $0.type == "einnahme" }
+            let outs = txs.filter { $0.type == "ausgabe" }
+            let einnahmen = ins.reduce(0.0) { $0 + $1.amount }
+            let ausgaben = abs(outs.reduce(0.0) { $0 + $1.amount })
+            return MonthlyData(
+                month: month,
+                einnahmen: einnahmen,
+                ausgaben: ausgaben,
+                ueberschuss: einnahmen - ausgaben,
+                incomeTransactions: ins,
+                expenseTransactions: outs
+            )
+        }.sorted { $0.month < $1.month }
+    }
+
+    func generateCategoryReport(for transactions: [Transaction]) -> [CategoryData] {
+        let expenseTransactions = transactions.filter { $0.type == "ausgabe" }
+        let grouped = Dictionary(grouping: expenseTransactions) { $0.categoryRelationship?.name ?? "Unbekannt" }
+        
+        let colors: [Color] = [.blue, .green, .purple, .orange, .pink, .yellow, .gray]
+        
+        return grouped.map { category, txs in
+            let value = abs(txs.reduce(0.0) { $0 + $1.amount })
+            let colorIndex = grouped.keys.sorted().firstIndex(of: category) ?? 0
+            return CategoryData(
+                name: category,
+                value: value,
+                color: colors[colorIndex % colors.count],
+                transactions: txs
+            )
+        }.sorted { $0.value > $1.value }
+    }
+
+    func generateForecastReport(monthlyData: MonthlyData) -> [ForecastData] {
+        // Calculate forecast based on current month's data
+        let currentEinnahmen = monthlyData.einnahmen
+        let currentAusgaben = monthlyData.ausgaben
+        let currentBalance = currentEinnahmen - currentAusgaben
+        
+        // Simple forecast: project same income/expenses for next month
+        return [
+            ForecastData(
+                month: monthlyData.month,
+                einnahmen: currentEinnahmen,
+                ausgaben: currentAusgaben,
+                balance: currentBalance
+            )
+        ]
     }
 }

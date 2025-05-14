@@ -52,32 +52,6 @@ struct EvaluationView: View {
         _endDateString = State(initialValue: dateFormatter.string(from: endOfMonth))
     }
 
-    struct MonthlyData: Identifiable {
-        let id = UUID()
-        let month: String
-        let income: Double
-        let expenses: Double
-        let surplus: Double
-        let incomeTransactions: [Transaction]
-        let expenseTransactions: [Transaction]
-    }
-
-    struct CategoryData: Identifiable {
-        let id = UUID()
-        let name: String
-        let value: Double
-        let color: Color
-        let transactions: [Transaction]
-    }
-
-    struct ForecastData: Identifiable {
-        let id = UUID()
-        let month: String
-        let einnahmen: Double
-        let ausgaben: Double
-        let balance: Double
-    }
-
     // Erweiterte Farbenliste für mehr Abwechslung im Tortendiagramm
     private let colors: [Color] = [
         .red, .green, .blue, .yellow, .purple, .orange, .pink, .cyan,
@@ -137,11 +111,24 @@ struct EvaluationView: View {
     private var categoryData: [CategoryData] {
         let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.expenseTransactions })
         let grouped = Dictionary(grouping: filteredTransactions, by: { $0.categoryRelationship?.name ?? "Unbekannt" })
+        
+        // Erstelle eine Map von Kategorienamen zu festen Farben
+        let categoryColors: [String: Color] = [
+            "Personal": .blue,
+            "Raumkosten": .green,
+            "Versicherung": .purple,
+            "Steuern": .orange,
+            "Büro": .pink,
+            "Marketing": .yellow,
+            "Sonstiges": .gray
+        ]
+        
         return grouped.map { (category, transactions) in
             let value = transactions.reduce(0.0) { $0 + $1.amount }
-            let colorIndex = grouped.keys.sorted().firstIndex(of: category) ?? 0
-            return CategoryData(name: category, value: value, color: colors[colorIndex % colors.count], transactions: transactions)
-        }.sorted { $0.name < $1.name }
+            // Verwende die vordefinierte Farbe oder eine aus dem colors Array
+            let color = categoryColors[category] ?? colors[abs(category.hashValue) % colors.count]
+            return CategoryData(name: category, value: abs(value), color: color, transactions: transactions)
+        }.sorted { abs($0.value) > abs($1.value) } // Sortiere nach absolutem Wert absteigend
     }
 
     private var totalCategoryExpenses: Double {
@@ -151,11 +138,24 @@ struct EvaluationView: View {
     private var usageData: [CategoryData] {
         let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.expenseTransactions })
         let grouped = Dictionary(grouping: filteredTransactions, by: { $0.usage ?? "Unbekannt" })
+        
+        // Erstelle eine Map von Verwendungszwecken zu festen Farben
+        let usageColors: [String: Color] = [
+            "Miete": .purple,
+            "Gehalt": .blue,
+            "Versicherung": .orange,
+            "Steuer": .yellow,
+            "Büromaterial": .pink,
+            "Werbung": .mint,
+            "Sonstiges": .gray
+        ]
+        
         return grouped.map { (usage, transactions) in
             let value = transactions.reduce(0.0) { $0 + $1.amount }
-            let colorIndex = grouped.keys.sorted().firstIndex(of: usage) ?? 0
-            return CategoryData(name: usage, value: value, color: colors[colorIndex % colors.count], transactions: transactions)
-        }.sorted { $0.name < $1.name }
+            // Verwende die vordefinierte Farbe oder eine aus dem colors Array
+            let color = usageColors[usage] ?? colors[abs(usage.hashValue) % colors.count]
+            return CategoryData(name: usage, value: abs(value), color: color, transactions: transactions)
+        }.sorted { abs($0.value) > abs($1.value) } // Sortiere nach absolutem Wert absteigend
     }
 
     private var totalUsageExpenses: Double {
@@ -354,8 +354,7 @@ struct EvaluationView: View {
 
                         // Pie-Chart für Kategorien
                         CategoryChartView(
-                            data: categoryData,
-                            selectedData: $selectedCategory,
+                            categoryData: categoryData,
                             totalExpenses: totalCategoryExpenses,
                             showTransactions: { transactions, title in
                                 loadMonthlyData()
@@ -369,8 +368,7 @@ struct EvaluationView: View {
 
                         // Pie-Chart für Verwendungszweck
                         UsageChartView(
-                            data: usageData,
-                            selectedData: $selectedUsage,
+                            usageData: usageData,
                             totalExpenses: totalUsageExpenses,
                             showTransactions: { transactions, title in
                                 loadMonthlyData()
@@ -485,9 +483,9 @@ struct EvaluationView: View {
             let expenses = outs.reduce(0) { $0 + abs($1.amount) }
             return MonthlyData(
                 month: month,
-                income: income,
-                expenses: expenses,
-                surplus: income - expenses, // Korrigierte Berechnung
+                einnahmen: income,
+                ausgaben: expenses,
+                ueberschuss: income - expenses,
                 incomeTransactions: ins,
                 expenseTransactions: outs
             )
@@ -942,8 +940,8 @@ struct MonthPickerSheet: View {
     @Binding var showMonthPickerSheet: Bool
     @Binding var showCustomDateRangeSheet: Bool
     let availableMonths: [String]
-    @Binding var selectedCategory: EvaluationView.CategoryData?
-    @Binding var selectedUsage: EvaluationView.CategoryData?
+    @Binding var selectedCategory: CategoryData?
+    @Binding var selectedUsage: CategoryData?
     let onFilter: () -> Void
 
     var body: some View {
@@ -1005,14 +1003,29 @@ struct TransactionSheet: View {
         formatter.dateFormat = "dd.MM.yyyy"
         return formatter
     }()
+    
+    // Berechne die Gesamtsumme der Transaktionen
+    private var totalAmount: Double {
+        transactions.reduce(0) { $0 + $1.amount }  // Entferne abs() um Vorzeichen zu behalten
+    }
+    
+    // Bestimme die Farbe basierend auf dem Vorzeichen
+    private var totalAmountColor: Color {
+        totalAmount >= 0 ? .green : .red
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack {
-                    Text(transactionsTitle)
-                        .foregroundColor(.white)
-                        .font(.headline)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(transactionsTitle)
+                            .foregroundColor(.white)
+                            .font(.headline)
+                        Text("Gesamtsumme: \(String(format: "%.2f €", totalAmount))")
+                            .foregroundColor(totalAmountColor)
+                            .font(.subheadline)
+                    }
                     Spacer()
                     Button(action: {
                         isPresented = false
@@ -1078,363 +1091,311 @@ struct TransactionSheet: View {
     }
 }
 
-// Struktur für Segment-Daten, internal für Zugriff in CategoryChartView, UsageChartView und OverlayAnnotationsView
-struct SegmentData: Identifiable {
-    let id: UUID
-    let name: String
-    let value: Double
-    let startAngle: Double
-    let endAngle: Double
-}
-
-// Sub-View für den Pfeil
-struct ArrowView: View {
-    let points: [CGPoint]
-    
-    var body: some View {
-        Path { path in
-            path.move(to: points[0])
-            path.addLine(to: points[1])
-            path.addLine(to: points[2])
-            path.move(to: points[3])
-            path.addLine(to: points[4])
-        }
-        .stroke(.white, lineWidth: 1)
-    }
-}
-
-// Sub-View für die Beschriftung
-struct LabelView: View {
-    let name: String
-    let position: CGPoint
-    
-    var body: some View {
-        Text(name)
-            .foregroundColor(.white)
-            .font(.caption)
-            .position(x: position.x, y: position.y)
-    }
-}
-
-// Sub-View für einzelne Annotationen (Pfeil und Beschriftung)
-struct AnnotationView: View {
-    let segment: SegmentData
-    let arrowStart: CGPoint
-    let arrowEnd: CGPoint
-    let labelPosition: CGPoint
-    let midAngle: CGFloat
-    let arrowLength: CGFloat
-    let angleOffset: CGFloat
-
-    var body: some View {
-        Group {
-            ArrowView(points: computeArrowPoints())
-            LabelView(name: segment.name, position: labelPosition)
-        }
-    }
-
-    private func computeArrowPoints() -> [CGPoint] {
-        // Pfeilanfang und -ende bleiben unverändert
-        let p1 = arrowStart
-        let p2 = arrowEnd
-
-        // 1. Winkel- und trigonometrische Berechnung für das erste Segment
-        let anglePlus  = Double(midAngle + angleOffset)       // CGFloat -> Double
-        let cosPlus    = CGFloat(cos(anglePlus))              // Double -> CGFloat
-        let sinPlus    = CGFloat(sin(anglePlus))              // Double -> CGFloat
-        let dxPlus     = arrowLength * cosPlus
-        let dyPlus     = arrowLength * sinPlus
-        let p3 = CGPoint(
-            x: arrowEnd.x - dxPlus,
-            y: arrowEnd.y - dyPlus
-        )
-
-        // 2. Winkel- und trigonometrische Berechnung für das zweite Segment
-        let angleMinus = Double(midAngle - angleOffset)
-        let cosMinus   = CGFloat(cos(angleMinus))
-        let sinMinus   = CGFloat(sin(angleMinus))
-        let dxMinus    = arrowLength * cosMinus
-        let dyMinus    = arrowLength * sinMinus
-        let p5 = CGPoint(
-            x: arrowEnd.x - dxMinus,
-            y: arrowEnd.y - dyMinus
-        )
-
-        return [p1, p2, p3, p2, p5]
-    }
-}
-
-// Sub-View für Pie-Chart-Beschriftungen und Pfeile
 struct OverlayAnnotationsView: View {
     let segments: [SegmentData]
     let geometry: GeometryProxy
-
-    var body: some View {
-        ForEach(segments, id: \.id) { segment in
-            let (arrowStart, arrowEnd, labelPosition, midAngle) = computeAnnotationPositions(segment: segment, geometry: geometry)
-            AnnotationView(
-                segment: segment,
-                arrowStart: arrowStart,
-                arrowEnd: arrowEnd,
-                labelPosition: labelPosition,
-                midAngle: midAngle,
-                arrowLength: 5,
-                angleOffset: .pi / 6
-            )
-        }
+    let style: LabelStyle
+    
+    enum LabelStyle {
+        case straight
+        case angled
     }
 
-    private func computeAnnotationPositions(segment: SegmentData, geometry: GeometryProxy) -> (CGPoint, CGPoint, CGPoint, CGFloat) {
+    var body: some View {
+        // Filtere Segmente, die größer als 5% sind (vorher 10%)
+        let significantSegments = segments.filter { segment in
+            let percentage = (segment.endAngle - segment.startAngle) / (2 * .pi) * 100
+            return percentage >= 5
+        }
+        
+        ForEach(significantSegments) { segment in
+            let (startPoint, endPoint, labelPosition) = computeLinePositions(segment: segment, geometry: geometry)
+            
+            ZStack {
+                // Bezugslinie
+                Path { path in
+                    path.move(to: startPoint)
+                    if style == .angled {
+                        let midPoint = CGPoint(
+                            x: endPoint.x,
+                            y: startPoint.y
+                        )
+                        path.addLine(to: midPoint)
+                        path.addLine(to: endPoint)
+                    } else {
+                        path.addLine(to: endPoint)
+                    }
+                }
+                .stroke(Color.white, lineWidth: 1)
+                
+                // Beschriftung mit Hintergrund und Prozentangabe
+                let percentage = Int((segment.endAngle - segment.startAngle) / (2 * .pi) * 100)
+                Text("\(segment.name) (\(percentage)%)")
+                    .foregroundColor(.white)
+                    .font(.caption)
+                    .padding(.horizontal, 4)
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(4)
+                    .offset(x: labelPosition.x - geometry.size.width/2,
+                           y: labelPosition.y - geometry.size.height/2)
+            }
+        }
+    }
+    
+    private func computeLinePositions(segment: SegmentData, geometry: GeometryProxy) -> (start: CGPoint, end: CGPoint, label: CGPoint) {
+        let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+        let radius = min(geometry.size.width, geometry.size.height) / 2.8 // Noch etwas kleinerer Radius
+        let labelPadding: CGFloat = 30
+        
+        // Berechne den Mittelpunkt des Segments
         let midAngle = segment.startAngle + (segment.endAngle - segment.startAngle) / 2
-        let outerRadius = min(geometry.size.width, geometry.size.height) / 2
-        let labelRadius = outerRadius * 1.1 // Reduzierter Abstand für Beschriftungen
         
-        // Typkonvertierungen für trigonometrische Berechnungen
-        let angle = Double(midAngle)
-        let cosAngle = CGFloat(cos(angle))
-        let sinAngle = CGFloat(sin(angle))
-        
-        let arrowStart = CGPoint(
-            x: geometry.size.width / 2 + cosAngle * outerRadius * 0.8,
-            y: geometry.size.height / 2 + sinAngle * outerRadius * 0.8
-        )
-        let arrowEnd = CGPoint(
-            x: geometry.size.width / 2 + cosAngle * labelRadius,
-            y: geometry.size.height / 2 + sinAngle * labelRadius
+        // Startpunkt am äußeren Rand des Tortendiagramms
+        let startPoint = CGPoint(
+            x: center.x + cos(midAngle) * (radius * 0.8),
+            y: center.y + sin(midAngle) * (radius * 0.8)
         )
         
-        // Berechne die vorläufige Beschriftungsposition
-        var labelPosition = CGPoint(
-            x: geometry.size.width / 2 + cosAngle * (labelRadius + 10), // Reduzierter zusätzlicher Abstand
-            y: geometry.size.height / 2 + sinAngle * (labelRadius + 10)
+        // Bestimme die Richtung der Beschriftung (links oder rechts)
+        let isRightSide = cos(midAngle) > 0
+        
+        // Berechne die Länge der Linie basierend auf der Segmentgröße
+        let lineLength = radius * 0.4
+        
+        // Endpunkt der Linie
+        let endPoint = CGPoint(
+            x: center.x + cos(midAngle) * radius + (isRightSide ? lineLength : -lineLength),
+            y: center.y + sin(midAngle) * radius
         )
         
-        // Begrenze die Beschriftungsposition auf den sichtbaren Bereich
-        let padding: CGFloat = 20
-        let minX = padding
-        let maxX = geometry.size.width - padding
-        let minY = padding
-        let maxY = geometry.size.height - padding
+        // Position der Beschriftung
+        let labelPosition = CGPoint(
+            x: endPoint.x + (isRightSide ? labelPadding : -labelPadding),
+            y: endPoint.y
+        )
         
-        labelPosition.x = min(max(labelPosition.x, minX), maxX)
-        labelPosition.y = min(max(labelPosition.y, minY), maxY)
-        
-        return (arrowStart, arrowEnd, labelPosition, CGFloat(midAngle))
+        return (startPoint, endPoint, labelPosition)
     }
 }
 
 // Unterkomponente für das Kategorien-Diagramm
 struct CategoryChartView: View {
-    let data: [EvaluationView.CategoryData]
-    @Binding var selectedData: EvaluationView.CategoryData?
+    let categoryData: [CategoryData]
     let totalExpenses: Double
     let showTransactions: ([Transaction], String) -> Void
 
-    private func colorForValue(_ value: Double) -> Color {
-        value >= 0 ? .green : .red
-    }
-
     var body: some View {
         VStack {
-            Text("Ausgaben nach Kategorie: \(String(format: "%.2f €", totalExpenses))")
-                .foregroundColor(colorForValue(totalExpenses))
-                .font(.caption)
-                .padding(.horizontal)
+            Text("Ausgaben nach Kategorie")
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.bottom, 5)
+            
             GeometryReader { geometry in
                 ZStack {
-                    PieChartContent(
-                        data: data,
-                        selectedData: $selectedData,
-                        geometry: geometry,
-                        showTransactions: showTransactions
-                    )
+                    // Tortendiagramm
+                    ForEach(computeSegments()) { segment in
+                        Path { path in
+                            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                            let radius = min(geometry.size.width, geometry.size.height) / 2.8
+                            path.move(to: center)
+                            path.addArc(center: center,
+                                      radius: radius,
+                                      startAngle: .radians(segment.startAngle),
+                                      endAngle: .radians(segment.endAngle),
+                                      clockwise: false)
+                            path.closeSubpath()
+                        }
+                        .fill(categoryColor(for: segment.name))
+                        .onTapGesture {
+                            if let categoryData = categoryData.first(where: { $0.name == segment.name }) {
+                                showTransactions(categoryData.transactions, "Kategorie: \(segment.name)")
+                            }
+                        }
+                    }
+                    
+                    // Beschriftungen
                     OverlayAnnotationsView(
                         segments: computeSegments(),
-                        geometry: geometry
+                        geometry: geometry,
+                        style: .angled
                     )
                 }
             }
-            .frame(height: 400)
-            if let selected = selectedData {
-                Text("\(selected.name): \(String(format: "%.2f €", selected.value))")
-                    .foregroundColor(colorForValue(selected.value))
-                    .font(.caption)
-                    .padding(.horizontal)
-            }
+            .frame(height: 300)
         }
+        .padding()
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
     }
-
+    
     private func computeSegments() -> [SegmentData] {
-        let totalValue = data.reduce(0.0) { $0 + abs($1.value) }
-        var cumulativeAngle: Double = -.pi / 2 // Start bei 12 Uhr
-        return data.sorted { abs($0.value) > abs($1.value) }
-            .prefix(3)
-            .filter { abs($0.value) / totalValue > 0.1 }
-            .map { datum in
-                let proportion = abs(datum.value) / totalValue
-                let angle = proportion * 2 * .pi
-                let startAngle = cumulativeAngle
-                let endAngle = cumulativeAngle + angle
-                cumulativeAngle += angle
-                return SegmentData(
-                    id: datum.id,
-                    name: datum.name,
-                    value: datum.value,
-                    startAngle: startAngle,
-                    endAngle: endAngle
-                )
-            }
-    }
-}
-
-// Sub-View für den Pie-Chart-Inhalt
-struct PieChartContent: View {
-    let data: [EvaluationView.CategoryData]
-    @Binding var selectedData: EvaluationView.CategoryData?
-    let geometry: GeometryProxy
-    let showTransactions: ([Transaction], String) -> Void
-
-    var body: some View {
-        Chart(data) { datum in
-            SectorMark(
-                angle: .value("Wert", abs(datum.value)),
-                innerRadius: .ratio(0.5),
-                angularInset: 0.5
+        var startAngle: Double = 0
+        return categoryData.map { category in
+            let percentage = abs(category.value) / totalExpenses
+            let angle = 2 * .pi * percentage
+            let segment = SegmentData(
+                id: UUID(),
+                name: category.name,
+                value: abs(category.value),
+                startAngle: startAngle,
+                endAngle: startAngle + angle
             )
-            .foregroundStyle(datum.color)
-            .cornerRadius(5)
-            .opacity(selectedData == nil || selectedData?.id == datum.id ? 1.0 : 0.3)
-        }
-        .chartLegend(position: .bottom, alignment: .center, spacing: 10)
-        .chartLegend(.visible)
-        .frame(height: 350)
-        .padding(.horizontal)
-        .onTapGesture { location in
-            let chartFrame = CGRect(x: 0, y: 0, width: geometry.size.width, height: 350)
-            let (selected, _) = chartDataAtLocation(location: location, in: data, chartFrame: chartFrame)
-            if let selected = selected {
-                os_log(.info, "Selected category: %@ with value %.2f", selected.name, selected.value)
-                selectedData = selected
-                showTransactions(selected.transactions, "Transaktionen für Kategorie: \(selected.name)")
-            } else {
-                os_log(.info, "No category selected at location: (%f, %f)", location.x, location.y)
-                selectedData = nil
-            }
-        }
+            startAngle += angle
+            return segment
+        }.sorted { $0.percentage > $1.percentage } // Sortiere nach Größe
     }
 
-    private func chartDataAtLocation(location: CGPoint, in data: [EvaluationView.CategoryData], chartFrame: CGRect) -> (EvaluationView.CategoryData?, CGPoint?) {
-        let center = CGPoint(x: chartFrame.midX, y: chartFrame.midY)
-        let outerRadius = min(chartFrame.width, chartFrame.height) / 2
-        let innerRadius = outerRadius * 0.5
-        let distance = sqrt(pow(location.x - center.x, 2) + pow(location.y - center.y, 2))
-
-        if distance <= outerRadius && distance >= innerRadius {
-            let angle = atan2(location.y - center.y, location.x - center.x) + .pi / 2
-            var normalizedAngle = angle < 0 ? angle + 2 * .pi : angle
-
-            normalizedAngle = normalizedAngle < 0 ? normalizedAngle + 2 * .pi : normalizedAngle
-
-            let totalValue = data.reduce(0.0) { $0 + abs($1.value) }
-            let angularInset: Double = 0.5 * .pi / 180
-            var cumulativeAngle: Double = 0
-
-            // Verwende die gleiche Sortierung und Filterung wie in computeSegments
-            let filteredData = data.sorted { abs($0.value) > abs($1.value) }
-                .prefix(3)
-                .filter { abs($0.value) / totalValue > 0.1 }
-
-            for datum in filteredData {
-                let segmentAngle = (abs(datum.value) / totalValue) * 2 * .pi - angularInset
-                let startAngle = cumulativeAngle
-                let endAngle = cumulativeAngle + segmentAngle
-
-                os_log(.info, "Category: %@", datum.name)
-                os_log(.info, "Value: %.2f", datum.value)
-                os_log(.info, "Segment Angle: %.2f", segmentAngle)
-                os_log(.info, "Cumulative Angle: %.2f to %.2f", startAngle, endAngle)
-
-                if normalizedAngle >= startAngle && normalizedAngle <= endAngle {
-                    return (datum, location)
-                }
-                cumulativeAngle += segmentAngle + angularInset
-            }
-            os_log(.info, "Normalized angle: %.2f not found in any segment", normalizedAngle)
-        } else {
-            os_log(.info, "Click outside chart radius: %.2f (inner: %.2f, outer: %.2f)", distance, innerRadius, outerRadius)
+    private func categoryColor(for name: String) -> Color {
+        // Vordefinierte Farben für häufige Kategorien
+        let categoryColors: [(pattern: String, color: Color)] = [
+            ("personal", .blue),
+            ("raumkosten", .green),
+            ("priv. kv", .purple),
+            ("kv-beiträge", .mint),
+            ("steuern", .orange),
+            ("büro", .pink),
+            ("marketing", .yellow),
+            ("versicherung", .cyan),
+            ("wareneinkauf", .red),
+            ("instandhaltung", .indigo),
+            ("reparatur", .brown),
+            ("sonstiges", .gray)
+        ]
+        
+        // Suche nach einem passenden Muster
+        let lowercaseName = name.lowercased()
+        if let match = categoryColors.first(where: { lowercaseName.contains($0.pattern) }) {
+            return match.color
         }
-        return (nil, nil)
+        
+        // Wenn kein Muster passt, verwende eine Farbe aus der Ersatzpalette
+        let fallbackColors: [Color] = [
+            .blue, .green, .purple, .orange, .pink, .yellow,
+            .mint, .cyan, .indigo, .red, .brown
+        ]
+        
+        // Konsistente Farbauswahl basierend auf dem Namen
+        let index = abs(name.hashValue) % fallbackColors.count
+        return fallbackColors[index]
     }
 }
 
 // Unterkomponente für das Verwendungszweck-Diagramm
 struct UsageChartView: View {
-    let data: [EvaluationView.CategoryData]
-    @Binding var selectedData: EvaluationView.CategoryData?
+    let usageData: [CategoryData]
     let totalExpenses: Double
     let showTransactions: ([Transaction], String) -> Void
 
-    private func colorForValue(_ value: Double) -> Color {
-        value >= 0 ? .green : .red
-    }
-
     var body: some View {
         VStack {
-            Text("Ausgaben nach V-Zweck: \(String(format: "%.2f €", totalExpenses))")
-                .foregroundColor(colorForValue(totalExpenses))
-                .font(.caption)
-                .padding(.horizontal)
+            Text("Ausgaben nach Verwendungszweck")
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.bottom, 5)
+            
             GeometryReader { geometry in
                 ZStack {
-                    PieChartContent(
-                        data: data,
-                        selectedData: $selectedData,
-                        geometry: geometry,
-                        showTransactions: showTransactions
-                    )
+                    // Tortendiagramm
+                    ForEach(computeSegments()) { segment in
+                        Path { path in
+                            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                            let radius = min(geometry.size.width, geometry.size.height) / 2.8
+                            path.move(to: center)
+                            path.addArc(center: center,
+                                      radius: radius,
+                                      startAngle: .radians(segment.startAngle),
+                                      endAngle: .radians(segment.endAngle),
+                                      clockwise: false)
+                            path.closeSubpath()
+                        }
+                        .fill(usageColor(for: segment.name))
+                        .onTapGesture {
+                            if let usageData = usageData.first(where: { $0.name == segment.name }) {
+                                showTransactions(usageData.transactions, "Verwendungszweck: \(segment.name)")
+                            }
+                        }
+                    }
+                    
+                    // Beschriftungen
                     OverlayAnnotationsView(
                         segments: computeSegments(),
-                        geometry: geometry
+                        geometry: geometry,
+                        style: .angled
                     )
                 }
             }
-            .frame(height: 400)
-            if let selected = selectedData {
-                Text("\(selected.name): \(String(format: "%.2f €", selected.value))")
-                    .foregroundColor(colorForValue(selected.value))
-                    .font(.caption)
-                    .padding(.horizontal)
-            }
+            .frame(height: 300)
         }
+        .padding()
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
+    }
+    
+    private func computeSegments() -> [SegmentData] {
+        var startAngle: Double = 0
+        return usageData.map { usage in
+            let percentage = abs(usage.value) / totalExpenses
+            let angle = 2 * .pi * percentage
+            let segment = SegmentData(
+                id: UUID(),
+                name: usage.name,
+                value: abs(usage.value),
+                startAngle: startAngle,
+                endAngle: startAngle + angle
+            )
+            startAngle += angle
+            return segment
+        }.sorted { $0.percentage > $1.percentage } // Sortiere nach Größe
     }
 
-    private func computeSegments() -> [SegmentData] {
-        let totalValue = data.reduce(0.0) { $0 + abs($1.value) }
-        var cumulativeAngle: Double = -.pi / 2 // Start bei 12 Uhr
-        return data.sorted { abs($0.value) > abs($1.value) }
-            .prefix(3)
-            .filter { abs($0.value) / totalValue > 0.1 }
-            .map { datum in
-                let proportion = abs(datum.value) / totalValue
-                let angle = proportion * 2 * .pi
-                let startAngle = cumulativeAngle
-                let endAngle = cumulativeAngle + angle
-                cumulativeAngle += angle
-                return SegmentData(
-                    id: datum.id,
-                    name: datum.name,
-                    value: datum.value,
-                    startAngle: startAngle,
-                    endAngle: endAngle
-                )
-            }
+    private func usageColor(for name: String) -> Color {
+        // Vordefinierte Farben für häufige Verwendungszwecke
+        let usageColors: [(pattern: String, color: Color)] = [
+            ("miete", .purple),
+            ("gehalt", .blue),
+            ("versicherung", .orange),
+            ("steuer", .yellow),
+            ("finanzamt", .red),
+            ("krankenkasse", .mint),
+            ("vodafone", .cyan),
+            ("strom", .green),
+            ("gas", .indigo),
+            ("alba", .brown),
+            ("signal iduna", .pink),
+            ("raimund", .blue),
+            ("ferhat", .orange),
+            ("sevim", .green),
+            ("helen", .purple),
+            ("soner", .mint),
+            ("birgi", .yellow)
+        ]
+        
+        // Suche nach einem passenden Muster
+        let lowercaseName = name.lowercased()
+        if let match = usageColors.first(where: { lowercaseName.contains($0.pattern) }) {
+            return match.color
+        }
+        
+        // Wenn kein Muster passt, verwende eine Farbe aus der Ersatzpalette
+        let fallbackColors: [Color] = [
+            .purple, .blue, .orange, .yellow, .red, .mint,
+            .cyan, .green, .indigo, .brown, .pink
+        ]
+        
+        // Berechne einen Hash-Wert für den Namen für konsistente Farbzuweisung
+        var hash = 0
+        for char in name {
+            hash = ((hash << 5) &+ hash) &+ Int(char.asciiValue ?? 0)
+        }
+        return fallbackColors[abs(hash) % fallbackColors.count]
     }
 }
 
 // Sub-View für das Prognose-Diagramm
 struct ForecastChartView: View {
-    let forecastData: [EvaluationView.ForecastData]
-    let monthlyData: EvaluationView.MonthlyData?
+    let forecastData: [ForecastData]
+    let monthlyData: MonthlyData?
     @Binding var transactionsTitle: String
     @Binding var transactionsToShow: [Transaction]
     @Binding var showTransactionsSheet: Bool

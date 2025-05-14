@@ -1,11 +1,27 @@
 import PDFKit
 import SwiftUI
+import Foundation
+import UIKit
 
 class ReportPDFGenerator {
+    let monthlyData: [MonthlyData]
+    let categoryData: [CategoryData]
+    let forecastData: [ForecastData]
+    let selectedMonth: String
+    let customDateRange: (start: Date, end: Date)?
+    
+    init(monthlyData: [MonthlyData], categoryData: [CategoryData], forecastData: [ForecastData], selectedMonth: String, customDateRange: (start: Date, end: Date)?) {
+        self.monthlyData = monthlyData
+        self.categoryData = categoryData
+        self.forecastData = forecastData
+        self.selectedMonth = selectedMonth
+        self.customDateRange = customDateRange
+    }
+    
     static func generatePDF(
-        monthlyData: [EvaluationView.MonthlyData],
-        categoryData: [EvaluationView.CategoryData],
-        forecastData: [EvaluationView.ForecastData],
+        monthlyData: [MonthlyData],
+        categoryData: [CategoryData],
+        forecastData: [ForecastData],
         incomeChartImage: UIImage?,
         categoryChartImage: UIImage?
     ) -> Data {
