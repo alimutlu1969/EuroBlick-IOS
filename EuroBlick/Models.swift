@@ -5,28 +5,24 @@ import CoreData
 struct MonthlyData: Identifiable {
     let id = UUID()
     let month: String
-    let einnahmen: Double
-    let ausgaben: Double
-    let ueberschuss: Double
+    let income: Double
+    let expenses: Double
+    let surplus: Double
     let incomeTransactions: [Transaction]
     let expenseTransactions: [Transaction]
     
-    var income: Double { einnahmen }
-    var expenses: Double { ausgaben }
-    var surplus: Double { ueberschuss }
-    
     init(
         month: String,
-        einnahmen: Double,
-        ausgaben: Double,
-        ueberschuss: Double,
+        income: Double,
+        expenses: Double,
+        surplus: Double,
         incomeTransactions: [Transaction],
         expenseTransactions: [Transaction]
     ) {
         self.month = month
-        self.einnahmen = einnahmen
-        self.ausgaben = ausgaben
-        self.ueberschuss = ueberschuss
+        self.income = income
+        self.expenses = expenses
+        self.surplus = surplus
         self.incomeTransactions = incomeTransactions
         self.expenseTransactions = expenseTransactions
     }

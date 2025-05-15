@@ -734,7 +734,14 @@ class TransactionViewModel: ObservableObject {
             return allMonths.sorted().map { month in
                 let einnahmen = monthlyEinnahmen[month] ?? 0.0
                 let ausgaben = monthlyAusgaben[month] ?? 0.0
-                return MonthlyData(month: month, einnahmen: einnahmen, ausgaben: ausgaben, ueberschuss: einnahmen - ausgaben, incomeTransactions: [], expenseTransactions: [])
+                return MonthlyData(
+                    month: month,
+                    income: einnahmen,
+                    expenses: ausgaben,
+                    surplus: einnahmen - ausgaben,
+                    incomeTransactions: [],
+                    expenseTransactions: []
+                )
             }
         }
     }
@@ -1115,7 +1122,14 @@ class TransactionViewModel: ObservableObject {
             let txs = monthlyTransactions[month] ?? []
             let ins = txs.filter { $0.type == "einnahme" }
             let outs = txs.filter { $0.type == "ausgabe" }
-            return MonthlyData(month: month, einnahmen: monthlyEinnahmen[month] ?? 0.0, ausgaben: monthlyAusgaben[month] ?? 0.0, ueberschuss: (monthlyEinnahmen[month] ?? 0.0) - (monthlyAusgaben[month] ?? 0.0), incomeTransactions: ins, expenseTransactions: outs)
+            return MonthlyData(
+                month: month,
+                income: monthlyEinnahmen[month] ?? 0.0,
+                expenses: monthlyAusgaben[month] ?? 0.0,
+                surplus: (monthlyEinnahmen[month] ?? 0.0) - (monthlyAusgaben[month] ?? 0.0),
+                incomeTransactions: ins,
+                expenseTransactions: outs
+            )
         }
     }
 
@@ -1695,9 +1709,9 @@ class TransactionViewModel: ObservableObject {
             let ausgaben = abs(outs.reduce(0.0) { $0 + $1.amount })
             return MonthlyData(
                 month: month,
-                einnahmen: einnahmen,
-                ausgaben: ausgaben,
-                ueberschuss: einnahmen - ausgaben,
+                income: einnahmen,
+                expenses: ausgaben,
+                surplus: einnahmen - ausgaben,
                 incomeTransactions: ins,
                 expenseTransactions: outs
             )
@@ -1724,16 +1738,16 @@ class TransactionViewModel: ObservableObject {
 
     func generateForecastReport(monthlyData: MonthlyData) -> [ForecastData] {
         // Calculate forecast based on current month's data
-        let currentEinnahmen = monthlyData.einnahmen
-        let currentAusgaben = monthlyData.ausgaben
-        let currentBalance = currentEinnahmen - currentAusgaben
+        let currentIncome = monthlyData.income
+        let currentExpenses = monthlyData.expenses
+        let currentBalance = currentIncome - currentExpenses
         
         // Simple forecast: project same income/expenses for next month
         return [
             ForecastData(
                 month: monthlyData.month,
-                einnahmen: currentEinnahmen,
-                ausgaben: currentAusgaben,
+                einnahmen: currentIncome,
+                ausgaben: currentExpenses,
                 balance: currentBalance
             )
         ]
