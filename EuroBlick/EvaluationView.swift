@@ -135,6 +135,32 @@ struct EvaluationView: View {
         categoryData.reduce(0.0) { $0 + $1.value }
     }
 
+    // Neue Funktion für Einnahmen nach Kategorie
+    private var incomeCategoryData: [CategoryData] {
+        let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.incomeTransactions })
+        let grouped = Dictionary(grouping: filteredTransactions, by: { $0.categoryRelationship?.name ?? "Unbekannt" })
+        
+        // Erstelle eine Map von Kategorienamen zu festen Farben für Einnahmen
+        let categoryColors: [String: Color] = [
+            "Gehalt": .blue,
+            "Honorar": .green,
+            "Provision": .purple,
+            "Zinsen": .orange,
+            "Erstattung": .pink,
+            "Sonstiges": .gray
+        ]
+        
+        return grouped.map { (category, transactions) in
+            let value = transactions.reduce(0.0) { $0 + $1.amount }
+            let color = categoryColors[category] ?? colors[abs(category.hashValue) % colors.count]
+            return CategoryData(name: category, value: abs(value), color: color, transactions: transactions)
+        }.sorted { abs($0.value) > abs($1.value) }
+    }
+
+    private var totalCategoryIncome: Double {
+        incomeCategoryData.reduce(0.0) { $0 + $1.value }
+    }
+
     private var usageData: [CategoryData] {
         let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.expenseTransactions })
         let grouped = Dictionary(grouping: filteredTransactions, by: { $0.usage ?? "Unbekannt" })
@@ -345,6 +371,20 @@ struct EvaluationView: View {
                             .frame(height: maxHeight + 60) // Höhe für Balken + Text
                         }
 
+                        // Einnahmen-Tortendiagramm
+                        IncomeCategoryChartView(
+                            categoryData: incomeCategoryData,
+                            totalIncome: totalCategoryIncome,
+                            showTransactions: { transactions, title in
+                                loadMonthlyData()
+                                transactionsTitle = title
+                                transactionsToShow = transactions
+                                os_log(.info, "%@: %d Einträge", title, transactions.count)
+                                shouldShowTransactionsSheet = true
+                            }
+                        )
+                        .padding(.vertical, 20)
+
                         // Pie-Chart für Kategorien
                         CategoryChartView(
                             categoryData: categoryData,
@@ -447,7 +487,8 @@ struct EvaluationView: View {
                     transactionsTitle: transactionsTitle,
                     transactions: transactionsToShow,
                     isPresented: $showTransactionsSheet,
-                    showTransactionsSheet: $shouldShowTransactionsSheet
+                    showTransactionsSheet: $shouldShowTransactionsSheet,
+                    viewModel: viewModel
                 )
             }
         }
@@ -587,185 +628,187 @@ struct TransactionSheet: View {
     let transactions: [Transaction]
     @Binding var isPresented: Bool
     @Binding var showTransactionsSheet: Bool
-
-    // DateFormatter für das Datum
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd.MM.yyyy"
-        return formatter
-    }()
+    @ObservedObject var viewModel: TransactionViewModel
     
-    // Berechne die Gesamtsumme der Transaktionen
-    private var totalAmount: Double {
-        transactions.reduce(0) { $0 + $1.amount }  // Entferne abs() um Vorzeichen zu behalten
-    }
+    @State private var editingTransaction: Transaction?
     
-    // Bestimme die Farbe basierend auf dem Vorzeichen
-    private var totalAmountColor: Color {
-        totalAmount >= 0 ? .green : .red
-    }
-
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(transactionsTitle)
-                            .foregroundColor(.white)
-                            .font(.headline)
-                        Text("Gesamtsumme: \(String(format: "%.2f €", totalAmount))")
-                            .foregroundColor(totalAmountColor)
-                            .font(.subheadline)
-                    }
-                    Spacer()
-                    Button(action: {
-                        isPresented = false
-                        showTransactionsSheet = false
-                    }) {
-                        Text("Schließen")
-                            .foregroundColor(.blue)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.gray.opacity(0.2))
-                            .cornerRadius(10)
-                    }
+        VStack {
+            // Header
+            HStack {
+                Text(transactionsTitle)
+                    .font(.headline)
+                    .foregroundColor(.white)
+                Spacer()
+                Button("Schließen") {
+                    isPresented = false
+                    showTransactionsSheet = false
                 }
-                .padding()
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(transactions, id: \.self) { tx in
-                            VStack(alignment: .leading, spacing: 8) {
-                                // Datum
-                                HStack {
-                                    Text("Datum:")
-                                        .foregroundColor(.gray)
-                                    Text(dateFormatter.string(from: tx.date))
-                                        .foregroundColor(.white)
-                                }
-
-                                // Betrag
-                                HStack {
-                                    Text("Betrag:")
-                                        .foregroundColor(.gray)
-                                    Text(String(format: "%.2f EUR", tx.amount))
-                                        .foregroundColor(tx.amount >= 0 ? .green : .red)
-                                }
-
-                                // Kategorie
-                                HStack {
-                                    Text("Kategorie:")
-                                        .foregroundColor(.gray)
-                                    Text(tx.categoryRelationship?.name ?? "Unbekannt")
-                                        .foregroundColor(.white)
-                                }
-
-                                // Verwendungszweck
-                                HStack {
-                                    Text("Verwendungszweck:")
-                                        .foregroundColor(.gray)
-                                    Text(tx.usage ?? "Unbekannt")
-                                        .foregroundColor(.white)
-                                }
-                            }
-                            .padding()
-                            Divider().background(Color.gray)
+                .foregroundColor(.blue)
+            }
+            .padding()
+            
+            // Transactions List
+            List {
+                ForEach(transactions, id: \.self) { transaction in
+                    VStack(alignment: .leading) {
+                        Text(transaction.date, style: .date)
+                            .foregroundColor(.white)
+                        Text("Betrag: \(String(format: "%.2f €", transaction.amount))")
+                            .foregroundColor(transaction.amount >= 0 ? .green : .red)
+                        Text("Kategorie: \(transaction.categoryRelationship?.name ?? "Unbekannt")")
+                            .foregroundColor(.white)
+                        if let usage = transaction.usage {
+                            Text("Verwendungszweck: \(usage)")
+                                .foregroundColor(.white)
                         }
                     }
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        editingTransaction = transaction
+                    }
                 }
-                .background(Color.black)
+                .listRowBackground(Color.black)
             }
-            .background(Color.black)
-            .onAppear {
-                print("TransactionSheet angezeigt mit Titel: \(transactionsTitle), \(transactions.count) Einträge")
-            }
+            .listStyle(PlainListStyle())
+        }
+        .background(Color.black.edgesIgnoringSafeArea(.all))
+        .sheet(item: $editingTransaction) { transaction in
+            EditView(
+                transaction: transaction,
+                isPresented: Binding(
+                    get: { editingTransaction != nil },
+                    set: { if !$0 { editingTransaction = nil } }
+                ),
+                viewModel: viewModel
+            )
         }
     }
 }
 
-struct OverlayAnnotationsView: View {
-    let segments: [SegmentData]
-    let geometry: GeometryProxy
-    let style: LabelStyle
+struct EditView: View {
+    let transaction: Transaction
+    @Binding var isPresented: Bool
+    let viewModel: TransactionViewModel
     
-    enum LabelStyle {
-        case straight
-        case angled
-    }
-
-    var body: some View {
-        // Filtere Segmente, die größer als 5% sind (vorher 10%)
-        let significantSegments = segments.filter { segment in
-            let percentage = (segment.endAngle - segment.startAngle) / (2 * .pi) * 100
-            return percentage >= 5
-        }
+    @State private var editedAmount: String
+    @State private var editedUsage: String
+    @State private var editedCategory: String
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    
+    init(transaction: Transaction, isPresented: Binding<Bool>, viewModel: TransactionViewModel) {
+        self.transaction = transaction
+        self._isPresented = isPresented
+        self.viewModel = viewModel
         
-        ForEach(significantSegments) { segment in
-            let (startPoint, endPoint, labelPosition) = computeLinePositions(segment: segment, geometry: geometry)
-            
+        // Initialize state variables with the transaction values
+        let amount = abs(transaction.amount)
+        _editedAmount = State(initialValue: String(format: "%.2f", amount))
+        _editedUsage = State(initialValue: transaction.usage ?? "")
+        _editedCategory = State(initialValue: transaction.categoryRelationship?.name ?? "")
+        
+        print("Initializing EditView with values:")
+        print("Amount: \(amount)")
+        print("Usage: \(transaction.usage ?? "")")
+        print("Category: \(transaction.categoryRelationship?.name ?? "")")
+    }
+    
+    var body: some View {
+        NavigationView {
             ZStack {
-                // Bezugslinie
-                Path { path in
-                    path.move(to: startPoint)
-                    if style == .angled {
-                        let midPoint = CGPoint(
-                            x: endPoint.x,
-                            y: startPoint.y
-                        )
-                        path.addLine(to: midPoint)
-                        path.addLine(to: endPoint)
-                    } else {
-                        path.addLine(to: endPoint)
+                Color.black.edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 20) {
+                    Group {
+                        VStack(alignment: .leading) {
+                            Text("Betrag:")
+                                .foregroundColor(.gray)
+                            TextField("Betrag", text: $editedAmount)
+                                .keyboardType(.decimalPad)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .foregroundColor(.white)
+                                .background(Color.black.opacity(0.3))
+                                .cornerRadius(8)
+                        }
+                        
+                        VStack(alignment: .leading) {
+                            Text("Kategorie:")
+                                .foregroundColor(.gray)
+                            TextField("Kategorie", text: $editedCategory)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .foregroundColor(.white)
+                                .background(Color.black.opacity(0.3))
+                                .cornerRadius(8)
+                        }
+                        
+                        VStack(alignment: .leading) {
+                            Text("Verwendungszweck:")
+                                .foregroundColor(.gray)
+                            TextField("Verwendungszweck", text: $editedUsage)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .foregroundColor(.white)
+                                .background(Color.black.opacity(0.3))
+                                .cornerRadius(8)
+                        }
+                    }
+                    .padding(.horizontal)
+                    
+                    Spacer()
+                }
+                .padding(.top, 20)
+            }
+            .navigationTitle("Transaktion bearbeiten")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(
+                leading: Button("Abbrechen") {
+                    isPresented = false
+                },
+                trailing: Button("Speichern") {
+                    saveChanges()
+                }
+            )
+            .alert("Hinweis", isPresented: $showAlert) {
+                Button("OK") {
+                    if alertMessage == "Änderungen gespeichert" {
+                        isPresented = false
                     }
                 }
-                .stroke(Color.white, lineWidth: 1)
-                
-                // Beschriftung mit Hintergrund und Prozentangabe
-                let percentage = Int((segment.endAngle - segment.startAngle) / (2 * .pi) * 100)
-                Text("\(segment.name) (\(percentage)%)")
-                    .foregroundColor(.white)
-                    .font(.caption)
-                    .padding(.horizontal, 4)
-                    .background(Color.black.opacity(0.5))
-                    .cornerRadius(4)
-                    .offset(x: labelPosition.x - geometry.size.width/2,
-                           y: labelPosition.y - geometry.size.height/2)
+            } message: {
+                Text(alertMessage)
             }
         }
     }
     
-    private func computeLinePositions(segment: SegmentData, geometry: GeometryProxy) -> (start: CGPoint, end: CGPoint, label: CGPoint) {
-        let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-        let radius = min(geometry.size.width, geometry.size.height) / 2.8 // Noch etwas kleinerer Radius
-        let labelPadding: CGFloat = 30
+    private func saveChanges() {
+        guard let amountValue = Double(editedAmount.replacingOccurrences(of: ",", with: ".")) else {
+            alertMessage = "Ungültiger Betrag"
+            showAlert = true
+            return
+        }
         
-        // Berechne den Mittelpunkt des Segments
-        let midAngle = segment.startAngle + (segment.endAngle - segment.startAngle) / 2
+        let finalAmount = transaction.amount >= 0 ? abs(amountValue) : -abs(amountValue)
         
-        // Startpunkt am äußeren Rand des Tortendiagramms
-        let startPoint = CGPoint(
-            x: center.x + CGFloat(cos(midAngle)) * (radius * 0.8),
-            y: center.y + CGFloat(sin(midAngle)) * (radius * 0.8)
+        guard let account = transaction.account else {
+            alertMessage = "Konto nicht gefunden"
+            showAlert = true
+            return
+        }
+        
+        viewModel.updateTransaction(
+            transaction,
+            type: transaction.type ?? (finalAmount >= 0 ? "einnahme" : "ausgabe"),
+            amount: finalAmount,
+            category: editedCategory,
+            account: account,
+            targetAccount: transaction.targetAccount,
+            usage: editedUsage,
+            date: transaction.date
         )
         
-        // Bestimme die Richtung der Beschriftung (links oder rechts)
-        let isRightSide = cos(midAngle) > 0
-        
-        // Berechne die Länge der Linie basierend auf der Segmentgröße
-        let lineLength = radius * 0.4
-        
-        // Endpunkt der Linie
-        let endPoint = CGPoint(
-            x: center.x + CGFloat(cos(midAngle)) * radius + (isRightSide ? lineLength : -lineLength),
-            y: center.y + CGFloat(sin(midAngle)) * radius
-        )
-        
-        // Position der Beschriftung
-        let labelPosition = CGPoint(
-            x: endPoint.x + (isRightSide ? labelPadding : -labelPadding),
-            y: endPoint.y
-        )
-        
-        return (startPoint, endPoint, labelPosition)
+        alertMessage = "Änderungen gespeichert"
+        showAlert = true
     }
 }
 
@@ -788,7 +831,7 @@ struct CategoryChartView: View {
                     ForEach(computeSegments()) { segment in
                         Path { path in
                             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                            let radius = min(geometry.size.width, geometry.size.height) / 2.8
+                            let radius = min(geometry.size.width, geometry.size.height) / 3.2 // Kleinerer Radius
                             path.move(to: center)
                             path.addArc(center: center,
                                       radius: radius,
@@ -813,7 +856,7 @@ struct CategoryChartView: View {
                     )
                 }
             }
-            .frame(height: 300)
+            .frame(height: 250)
         }
         .padding()
         .background(Color.black.opacity(0.2))
@@ -872,6 +915,197 @@ struct CategoryChartView: View {
     }
 }
 
+// Neue View für die Einnahmen-Kategorie-Tabelle
+struct IncomeCategoryTableView: View {
+    let categoryData: [CategoryData]
+    let totalIncome: Double
+    let showTransactions: ([Transaction], String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Tabellenkopf
+            HStack(spacing: 0) {
+                Text("Kategorie")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Anteil")
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Text("Betrag")
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(Color.gray.opacity(0.3))
+            .foregroundColor(.white)
+            .font(.subheadline)
+            
+            // Tabellenzeilen
+            ForEach(categoryData) { category in
+                HStack(spacing: 0) {
+                    // Kategorie mit Farbindikator
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(categoryColor(for: category.name))
+                            .frame(width: 12, height: 12)
+                        Text(category.name)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Prozentanteil
+                    Text(String(format: "%.1f%%", (category.value / totalIncome) * 100))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    
+                    // Betrag
+                    Text(String(format: "%.2f €", category.value))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color.clear)
+                .foregroundColor(.white)
+                .font(.callout)
+                .onTapGesture {
+                    showTransactions(category.transactions, "Einnahmen: \(category.name)")
+                }
+                
+                Divider()
+                    .background(Color.gray.opacity(0.3))
+            }
+        }
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
+    }
+    
+    private func categoryColor(for name: String) -> Color {
+        // Vordefinierte Farben für häufige Einnahme-Kategorien
+        let categoryColors: [(pattern: String, color: Color)] = [
+            ("gehalt", .blue),
+            ("honorar", .green),
+            ("provision", .purple),
+            ("zinsen", .orange),
+            ("erstattung", .pink),
+            ("sonstiges", .gray)
+        ]
+        
+        // Suche nach einem passenden Muster
+        let lowercaseName = name.lowercased()
+        if let match = categoryColors.first(where: { lowercaseName.contains($0.pattern) }) {
+            return match.color
+        }
+        
+        // Wenn kein Muster passt, verwende eine Farbe aus der Ersatzpalette
+        let fallbackColors: [Color] = [
+            .blue, .green, .purple, .orange, .pink, .yellow,
+            .mint, .cyan, .indigo, .red, .brown
+        ]
+        
+        let index = abs(name.hashValue) % fallbackColors.count
+        return fallbackColors[index]
+    }
+}
+
+// Aktualisiere die IncomeCategoryChartView um die Tabelle einzubinden
+struct IncomeCategoryChartView: View {
+    let categoryData: [CategoryData]
+    let totalIncome: Double
+    let showTransactions: ([Transaction], String) -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Einnahmen nach Kategorie")
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.bottom, 5)
+            
+            GeometryReader { geometry in
+                ZStack {
+                    ForEach(computeSegments()) { segment in
+                        let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                        let radius = min(geometry.size.width, geometry.size.height) / 3.2
+                        
+                        Path { path in
+                            path.move(to: center)
+                            path.addArc(
+                                center: center,
+                                radius: radius,
+                                startAngle: .radians(segment.startAngle),
+                                endAngle: .radians(segment.endAngle),
+                                clockwise: false
+                            )
+                            path.closeSubpath()
+                        }
+                        .fill(categoryColor(for: segment.name))
+                        .onTapGesture {
+                            if let categoryData = categoryData.first(where: { $0.name == segment.name }) {
+                                showTransactions(categoryData.transactions, "Einnahmen: \(segment.name)")
+                            }
+                        }
+                    }
+                    
+                    OverlayAnnotationsView(
+                        segments: computeSegments(),
+                        geometry: geometry,
+                        style: .angled
+                    )
+                }
+            }
+            .frame(height: 250)
+            
+            IncomeCategoryTableView(
+                categoryData: categoryData,
+                totalIncome: totalIncome,
+                showTransactions: showTransactions
+            )
+        }
+        .padding()
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
+    }
+    
+    private func computeSegments() -> [SegmentData] {
+        var startAngle: Double = 0
+        return categoryData.map { category in
+            let percentage = abs(category.value) / totalIncome
+            let angle = 2 * .pi * percentage
+            let segment = SegmentData(
+                id: UUID(),
+                name: category.name,
+                value: abs(category.value),
+                startAngle: startAngle,
+                endAngle: startAngle + angle
+            )
+            startAngle += angle
+            return segment
+        }.sorted { $0.percentage > $1.percentage }
+    }
+
+    private func categoryColor(for name: String) -> Color {
+        // Vordefinierte Farben für häufige Einnahme-Kategorien
+        let categoryColors: [(pattern: String, color: Color)] = [
+            ("gehalt", .blue),
+            ("honorar", .green),
+            ("provision", .purple),
+            ("zinsen", .orange),
+            ("erstattung", .pink),
+            ("sonstiges", .gray)
+        ]
+        
+        // Suche nach einem passenden Muster
+        let lowercaseName = name.lowercased()
+        if let match = categoryColors.first(where: { lowercaseName.contains($0.pattern) }) {
+            return match.color
+        }
+        
+        // Wenn kein Muster passt, verwende eine Farbe aus der Ersatzpalette
+        let fallbackColors: [Color] = [
+            .blue, .green, .purple, .orange, .pink, .yellow,
+            .mint, .cyan, .indigo, .red, .brown
+        ]
+        
+        let index = abs(name.hashValue) % fallbackColors.count
+        return fallbackColors[index]
+    }
+}
+
 // Unterkomponente für das Verwendungszweck-Diagramm
 struct UsageChartView: View {
     let usageData: [CategoryData]
@@ -891,7 +1125,7 @@ struct UsageChartView: View {
                     ForEach(computeSegments()) { segment in
                         Path { path in
                             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                            let radius = min(geometry.size.width, geometry.size.height) / 2.8
+                            let radius = min(geometry.size.width, geometry.size.height) / 3.2 // Kleinerer Radius
                             path.move(to: center)
                             path.addArc(center: center,
                                       radius: radius,
@@ -916,7 +1150,7 @@ struct UsageChartView: View {
                     )
                 }
             }
-            .frame(height: 300)
+            .frame(height: 250)
         }
         .padding()
         .background(Color.black.opacity(0.2))
@@ -1118,6 +1352,87 @@ struct ForecastChartView: View {
         .padding(.vertical)
         .background(Color.black.opacity(0.2))
         .cornerRadius(10)
+    }
+}
+
+// OverlayAnnotationsView wiederherstellen
+struct OverlayAnnotationsView: View {
+    let segments: [SegmentData]
+    let geometry: GeometryProxy
+    let style: LabelStyle
+    
+    enum LabelStyle {
+        case straight
+        case angled
+    }
+
+    var body: some View {
+        // Filtere Segmente, die größer als 5% sind
+        let significantSegments = segments.filter { segment in
+            let percentage = (segment.endAngle - segment.startAngle) / (2 * .pi) * 100
+            return percentage >= 5
+        }
+        
+        ForEach(significantSegments) { segment in
+            let (startPoint, endPoint, labelPosition) = computeLinePositions(segment: segment, geometry: geometry)
+            
+            ZStack {
+                // Bezugslinie
+                Path { path in
+                    path.move(to: startPoint)
+                    if style == .angled {
+                        let midPoint = CGPoint(
+                            x: endPoint.x,
+                            y: startPoint.y
+                        )
+                        path.addLine(to: midPoint)
+                        path.addLine(to: endPoint)
+                    } else {
+                        path.addLine(to: endPoint)
+                    }
+                }
+                .stroke(Color.white, lineWidth: 1)
+                
+                // Beschriftung mit Hintergrund und Prozentangabe
+                let percentage = Int((segment.endAngle - segment.startAngle) / (2 * .pi) * 100)
+                Text("\(segment.name) (\(percentage)%)")
+                    .foregroundColor(.white)
+                    .font(.caption)
+                    .padding(.horizontal, 4)
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(4)
+                    .offset(x: labelPosition.x - geometry.size.width/2,
+                           y: labelPosition.y - geometry.size.height/2)
+            }
+        }
+    }
+    
+    private func computeLinePositions(segment: SegmentData, geometry: GeometryProxy) -> (start: CGPoint, end: CGPoint, label: CGPoint) {
+        let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+        let radius = min(geometry.size.width, geometry.size.height) / 3.2
+        let labelPadding: CGFloat = 30
+        
+        let midAngle = segment.startAngle + (segment.endAngle - segment.startAngle) / 2
+        
+        let startPoint = CGPoint(
+            x: center.x + CGFloat(cos(midAngle)) * (radius * 0.8),
+            y: center.y + CGFloat(sin(midAngle)) * (radius * 0.8)
+        )
+        
+        let isRightSide = cos(midAngle) > 0
+        let lineLength = radius * 0.4
+        
+        let endPoint = CGPoint(
+            x: center.x + CGFloat(cos(midAngle)) * radius + (isRightSide ? lineLength : -lineLength),
+            y: center.y + CGFloat(sin(midAngle)) * radius
+        )
+        
+        let labelPosition = CGPoint(
+            x: endPoint.x + (isRightSide ? labelPadding : -labelPadding),
+            y: endPoint.y
+        )
+        
+        return (startPoint, endPoint, labelPosition)
     }
 }
 
