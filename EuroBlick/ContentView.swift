@@ -49,11 +49,30 @@ struct AccountRowView: View {
     let balance: Double
     let viewModel: TransactionViewModel
 
+    private var accountIcon: (systemName: String, color: Color) {
+        let accountName = (account.name ?? "").lowercased()
+        if accountName.contains("bar") || accountName.contains("kasse") {
+            return ("banknote.fill", .green)
+        } else if accountName.contains("giro") {
+            return ("building.columns.fill", .blue)
+        } else if accountName == "bk" {
+            return ("person.circle.fill", .orange)
+        } else if accountName.contains("konto") {
+            return ("building.columns.fill", .blue)
+        } else {
+            return ("building.columns.fill", .gray)
+        }
+    }
+
     var body: some View {
         NavigationLink(
             destination: TransactionView(account: account, viewModel: viewModel)
         ) {
             HStack {
+                Image(systemName: accountIcon.systemName)
+                    .foregroundColor(accountIcon.color)
+                    .font(.title2)
+                    .padding(.trailing, 8)
                 Text(account.name ?? "Unbekanntes Konto")
                     .foregroundColor(.white)
                     .font(.headline)
@@ -70,7 +89,7 @@ struct AccountRowView: View {
             )
         }
         .padding(.horizontal)
-        .buttonStyle(PlainButtonStyle()) // Entfernt zusätzliche Stile von NavigationLink
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -86,10 +105,35 @@ struct AccountGroupView: View {
     @State private var groupBalance: Double = 0.0
     @State private var accountBalances: [(account: Account, balance: Double)] = []
 
+    private var groupIcon: (systemName: String, color: Color) {
+        let groupName = (group.name ?? "").lowercased()
+        if groupName.contains("kaffee") {
+            return ("cup.and.saucer.fill", .brown)
+        } else if groupName.contains("bank") || groupName.contains("giro") {
+            return ("building.columns.fill", .blue)
+        } else if groupName.contains("bar") || groupName.contains("kasse") {
+            return ("banknote.fill", .green)
+        } else {
+            return ("folder.fill", .gray)
+        }
+    }
+
+    private var regularAccounts: [(account: Account, balance: Double)] {
+        accountBalances.filter { ($0.account.name ?? "").lowercased() != "bk" }
+    }
+
+    private var bkAccounts: [(account: Account, balance: Double)] {
+        accountBalances.filter { ($0.account.name ?? "").lowercased() == "bk" }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Gruppenkopf mit Name und Gesamtbilanz
             HStack {
+                Image(systemName: groupIcon.systemName)
+                    .foregroundColor(groupIcon.color)
+                    .font(.title2)
+                    .padding(.trailing, 4)
                 Text(group.name ?? "Unbekannte Gruppe")
                     .font(.title2)
                     .foregroundColor(.white)
@@ -97,7 +141,7 @@ struct AccountGroupView: View {
                 Spacer()
                 Text("\(String(format: "%.2f €", groupBalance))")
                     .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
-                    .font(.title3)
+                    .font(.subheadline) // Gleiche Größe wie Kontosalden
                 Button(action: {
                     groupToEdit = group
                     newGroupName = group.name ?? ""
@@ -119,29 +163,57 @@ struct AccountGroupView: View {
                 alignment: .bottom
             )
 
-            // Liste der Konten
-            ForEach(accountBalances, id: \.account.objectID) { item in
+            // Reguläre Konten
+            ForEach(regularAccounts, id: \.account.objectID) { item in
                 AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
                     .padding(.vertical, 2)
+            }
+
+            // Trennlinie und BK-Konten
+            if !bkAccounts.isEmpty {
+                Divider()
+                    .background(Color.gray.opacity(0.5))
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+
+                ForEach(bkAccounts, id: \.account.objectID) { item in
+                    AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
+                        .padding(.vertical, 2)
+                }
             }
 
             // Link zu Auswertungen
             NavigationLink(
                 destination: EvaluationView(accounts: accountBalances.map { $0.account }, viewModel: viewModel)
             ) {
-                Text("Auswertungen")
-                    .foregroundColor(.blue)
-                    .font(.subheadline)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.gray.opacity(0.2))
-                    )
+                HStack(spacing: 8) {
+                    ZStack {
+                        Image(systemName: "chart.pie.fill")
+                            .foregroundColor(.blue)
+                            .font(.title2)
+                        Image(systemName: "chart.bar.fill")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                            .offset(x: 4, y: 4)
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .foregroundColor(.orange)
+                            .font(.caption)
+                            .offset(x: -4, y: -4)
+                    }
+                    .frame(width: 30, height: 30)
+                    Text("Auswertung")
+                        .font(.headline)
+                }
+                .foregroundColor(.white)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 16)
+                .background(Color.blue)
+                .cornerRadius(10)
+                .shadow(radius: 3)
             }
             .padding(.horizontal)
             .padding(.top, 5)
-            .buttonStyle(PlainButtonStyle()) // Entfernt zusätzliche Stile von NavigationLink
+            .buttonStyle(PlainButtonStyle())
         }
         .padding(.vertical)
         .onAppear {
@@ -154,16 +226,135 @@ struct AccountGroupView: View {
 
     private func calculateBalances() {
         let accounts = (group.accounts?.allObjects as? [Account]) ?? []
-        groupBalance = accounts.reduce(0.0) { total, account in
-            let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
-            return total + balance
-        }
+        
+        // Berechne alle Kontostände
         accountBalances = accounts
             .sorted { $0.name ?? "" < $1.name ?? "" }
             .map { account in
                 let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
                 return (account, balance)
             }
+        
+        // Berechne Gruppensaldo ohne BK-Konten
+        groupBalance = accountBalances
+            .filter { ($0.account.name ?? "").lowercased() != "bk" }
+            .reduce(0.0) { total, item in
+                total + item.balance
+            }
+    }
+}
+
+// View für Programminformationen
+struct AboutView: View {
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Header mit Logo
+                    HStack {
+                        Image(systemName: "eurosign.circle.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 60, height: 60)
+                            .foregroundColor(.blue)
+                        VStack(alignment: .leading) {
+                            Text("EuroBlick")
+                                .font(.title)
+                                .bold()
+                            Text("Version 1.0.0")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.bottom, 20)
+                    
+                    // Funktionen
+                    GroupBox(label: Text("Funktionen").bold()) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            FeatureRow(icon: "banknote.fill", title: "Kontoführung", description: "Verwalten Sie Ihre Bankkonten und Bargeldbestände")
+                            FeatureRow(icon: "folder.fill", title: "Kontogruppen", description: "Organisieren Sie Ihre Konten in übersichtlichen Gruppen")
+                            FeatureRow(icon: "arrow.left.arrow.right", title: "Transaktionen", description: "Erfassen Sie Einnahmen, Ausgaben und Umbuchungen")
+                            FeatureRow(icon: "chart.pie.fill", title: "Auswertungen", description: "Detaillierte Analysen Ihrer Finanzen mit Diagrammen")
+                            FeatureRow(icon: "tag.fill", title: "Kategorisierung", description: "Ordnen Sie Transaktionen Kategorien zu")
+                            FeatureRow(icon: "arrow.clockwise", title: "Backup", description: "Sichern und Wiederherstellen Ihrer Daten")
+                            FeatureRow(icon: "faceid", title: "Sicherheit", description: "Geschützt durch Face ID / Touch ID")
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .groupBoxStyle(TransparentGroupBoxStyle())
+                    
+                    // Datenschutz
+                    GroupBox(label: Text("Datenschutz").bold()) {
+                        Text("Ihre Daten werden ausschließlich lokal auf Ihrem Gerät gespeichert. Es erfolgt keine Übertragung an externe Server.")
+                            .padding(.vertical, 8)
+                    }
+                    .groupBoxStyle(TransparentGroupBoxStyle())
+                    
+                    // Copyright
+                    GroupBox(label: Text("Rechtliches").bold()) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("© 2025 A.E.M.")
+                            Text("Alle Rechte vorbehalten")
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .groupBoxStyle(TransparentGroupBoxStyle())
+                }
+                .padding()
+            }
+            .background(Color.black)
+            .navigationTitle("Über EuroBlick")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Fertig") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .foregroundColor(.white)
+    }
+}
+
+// Hilfsstruct für Feature-Zeilen
+struct FeatureRow: View {
+    let icon: String
+    let title: String
+    let description: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(.blue)
+                .font(.title2)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
+            }
+        }
+    }
+}
+
+// Transparenter GroupBox Style
+struct TransparentGroupBoxStyle: GroupBoxStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading) {
+            configuration.label
+                .font(.headline)
+                .foregroundColor(.white)
+            configuration.content
+        }
+        .padding()
+        .background(Color.gray.opacity(0.2))
+        .cornerRadius(10)
     }
 }
 
@@ -174,17 +365,33 @@ struct ContentToolbar: ToolbarContent {
     @Binding var showAddSheet: Bool
     @Binding var showAddGroupSheet: Bool
     @Binding var showSelectGroupSheet: Bool
+    @Binding var showAboutView: Bool
 
     // Manuelle Steuerung für Debug-Buttons
     private let isDebugMode = true // Aktiviere Debug-Buttons
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
-            Button("Abmelden") {
+            Button(action: {
                 authManager.logout()
                 print("Abmelden ausgelöst")
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .red)
+                        .font(.system(size: 16))
+                    Text("Abmelden")
+                        .foregroundColor(.white)
+                        .font(.system(size: 16, weight: .medium))
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.red.opacity(0.2))
+                )
             }
-            .foregroundColor(.white)
         }
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
@@ -214,11 +421,14 @@ struct ContentToolbar: ToolbarContent {
                     }) {
                         Label("UserDefaults zurücksetzen (Debug)", systemImage: "gear")
                     }
-                    Label("Über das Programm", systemImage: "info.circle")
-                    Label("Version 1.0.0", systemImage: "info.circle")
-                    Label("© 2025 A.E.M.", systemImage: "info.circle")
                 }
                 #endif
+                Divider()
+                Button(action: {
+                    showAboutView = true
+                }) {
+                    Label("Über EuroBlick", systemImage: "info.circle")
+                }
             } label: {
                 Image(systemName: "plus")
                     .foregroundColor(.white)
@@ -286,6 +496,7 @@ struct ContentView: View {
     @State private var showAddAccountSheet = false
     @State private var showSelectGroupSheet = false
     @State private var showEditGroupSheet = false
+    @State private var showAboutView = false
     @State private var groupToEdit: AccountGroup?
     @State private var newGroupName = ""
     @State private var accountName = ""
@@ -295,6 +506,8 @@ struct ContentView: View {
     @State private var showBackupAlert = false
     @State private var showRestoreAlert = false
 
+    // Manuelle Steuerung für Debug-Buttons
+    private let isDebugMode = true // Aktiviere Debug-Buttons
 
     init() {
         let newViewModel = TransactionViewModel()
@@ -337,30 +550,100 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            VStack {
-                AppLogoView() // Logo oberhalb der bestehenden Inhalte
-
-                ContentMainView(
-                    accountGroups: viewModel.accountGroups,
-                    balances: accountBalances,
-                    viewModel: viewModel,
-                    showAddGroupSheet: $showAddGroupSheet,
-                    showSelectGroupSheet: $showSelectGroupSheet,
-                    showEditGroupSheet: $showEditGroupSheet,
-                    groupToEdit: $groupToEdit,
-                    newGroupName: $newGroupName
-                )
-                .padding(.bottom, 20)
+            VStack(spacing: 0) {
+                // Titel mit Wallet-Icon
+                HStack(spacing: 12) {
+                    Image(systemName: "wallet.pass.fill")
+                        .foregroundColor(.white)
+                        .font(.system(size: 24))
+                    Text("Konten")
+                        .foregroundColor(.white)
+                        .font(.title)
+                }
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                
+                // Hauptinhalt
+                VStack {
+                    AppLogoView()
+                    ContentMainView(
+                        accountGroups: viewModel.accountGroups,
+                        balances: accountBalances,
+                        viewModel: viewModel,
+                        showAddGroupSheet: $showAddGroupSheet,
+                        showSelectGroupSheet: $showSelectGroupSheet,
+                        showEditGroupSheet: $showEditGroupSheet,
+                        groupToEdit: $groupToEdit,
+                        newGroupName: $newGroupName
+                    )
+                    .padding(.bottom, 20)
+                }
             }
             .background(Color.black)
-            .navigationTitle("Konten")
             .toolbar {
-                // Bestehende Toolbar (oberer Bereich)
-                ContentToolbar(
-                    showAddSheet: $showAddSheet,
-                    showAddGroupSheet: $showAddGroupSheet,
-                    showSelectGroupSheet: $showSelectGroupSheet
-                )
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        authManager.logout()
+                        print("Abmelden ausgelöst")
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .red)
+                                .font(.system(size: 16))
+                            Text("Abmelden")
+                                .foregroundColor(.white)
+                                .font(.system(size: 16, weight: .medium))
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.red.opacity(0.2))
+                        )
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button(action: {
+                            showSelectGroupSheet = true
+                            print("Konto hinzufügen ausgelöst")
+                        }) {
+                            Label("Konto hinzufügen", systemImage: "creditcard")
+                        }
+                        Button(action: {
+                            showAddGroupSheet = true
+                            print("Kontogruppe hinzufügen ausgelöst")
+                        }) {
+                            Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+                        }
+                        #if DEBUG
+                        if isDebugMode {
+                            Button(action: {
+                                PersistenceController.shared.resetCoreData()
+                                print("Core Data zurückgesetzt")
+                            }) {
+                                Label("Core Data zurücksetzen (Debug)", systemImage: "trash")
+                            }
+                            Button(action: {
+                                authManager.resetUserDefaults()
+                                print("UserDefaults zurückgesetzt")
+                            }) {
+                                Label("UserDefaults zurücksetzen (Debug)", systemImage: "gear")
+                            }
+                        }
+                        #endif
+                        Divider()
+                        Button(action: {
+                            showAboutView = true
+                        }) {
+                            Label("Über EuroBlick", systemImage: "info.circle")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .foregroundColor(.white)
+                    }
+                }
 
                 // Toolbar für die untere Leiste
                 ToolbarItem(placement: .bottomBar) {
@@ -387,7 +670,7 @@ struct ContentView: View {
                                         let restored = viewModel.restoreData(from: latestBackupFile)
                                         if restored {
                                             print("Wiederherstellung erfolgreich")
-                                            refreshBalances() // Aktualisiere die Kontostände nach der Wiederherstellung
+                                            refreshBalances()
                                         } else {
                                             print("Wiederherstellung fehlgeschlagen")
                                         }
@@ -433,9 +716,13 @@ struct ContentView: View {
                             Text("Möchtest du wirklich ein neues Backup erstellen?")
                         }
 
-                        Spacer() // Schiebt die Icons nach links
+                        Spacer()
                     }
                 }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showAboutView) {
+                AboutView()
             }
             .sheet(isPresented: $showAddGroupSheet) {
                 AddAccountGroupView(viewModel: viewModel)
