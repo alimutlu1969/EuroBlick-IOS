@@ -369,6 +369,9 @@ class ReportPDFGenerator {
                 
                 currentY = rowY + 40
 
+                // Erhöhe den Abstand zwischen den Diagrammen
+                currentY = max(rowY + 80, currentY + pieSize + 80)
+
                 // Total Debit Header
                 let debitHeaderRect = CGRect(x: margin, y: currentY, width: pageRect.width - (margin * 2), height: 30)
                 context.cgContext.setFillColor(headerBackgroundColor.cgColor)
