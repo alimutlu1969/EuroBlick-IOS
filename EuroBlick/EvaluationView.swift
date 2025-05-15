@@ -16,7 +16,8 @@ struct EvaluationView: View {
     @State private var transactionsToShow: [Transaction] = []
     @State private var transactionsTitle: String = ""
     @State private var monthlyData: [MonthlyData] = []
-    @State private var selectedCategory: CategoryData? = nil
+    @State private var selectedIncomeCategory: CategoryData? = nil
+    @State private var selectedExpenseCategory: CategoryData? = nil
     @State private var selectedUsage: CategoryData? = nil
     @State private var customDateRange: (start: Date, end: Date)?
     @State private var tempStartDate: Date
@@ -32,6 +33,22 @@ struct EvaluationView: View {
         formatter.locale = Locale(identifier: "de_DE")
         return formatter
     }()
+
+    // Erweiterte Farbenliste für mehr Abwechslung im Tortendiagramm
+    private let colors: [Color] = [
+        .blue,
+        .green,
+        .purple,
+        .orange,
+        .pink,
+        .yellow,
+        .gray,
+        .mint,
+        .indigo,
+        .red,
+        .brown,
+        .cyan
+    ]
 
     init(accounts: [Account], viewModel: TransactionViewModel) {
         self.accounts = accounts
@@ -78,88 +95,33 @@ struct EvaluationView: View {
         let balance: Double
     }
 
-    // Erweiterte Farbenliste für mehr Abwechslung im Tortendiagramm
-    private let colors: [Color] = [
-        .red, .green, .blue, .yellow, .purple, .orange, .pink, .cyan,
-        .teal, .indigo, .mint, .brown, .gray, .black,
-        .accentColor, .primary, .secondary, .init(red: 0.5, green: 0.8, blue: 0.3),
-        .init(red: 0.7, green: 0.2, blue: 0.9), .init(red: 0.3, green: 0.6, blue: 0.8)
-    ]
-
-    private var availableMonths: [String] {
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "de_DE")
-        fmt.dateFormat = "MMM yyyy"
-        
-        // Alle Transaktionen sammeln
-        let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
-        
-        // Debugging: Rohdaten der Transaktionsdaten ausgeben
-        let debugFormatter = DateFormatter()
-        debugFormatter.dateFormat = "dd.MM.yyyy"
-        for tx in allTx {
-            let dateString = debugFormatter.string(from: tx.date)
-            print("Transaktion Datum: \(dateString)")
-        }
-        
-        // Monate extrahieren
-        let months = Set(allTx.map { fmt.string(from: $0.date) })
-        
-        // Debugging: Formatierten Monat ausgeben
-        for month in months {
-            print("Formatierter Monat: \(month)")
-        }
-        
-        // Sortierung basierend auf Jahr und Monat
-        return ["Alle Monate", "Benutzerdefinierter Zeitraum"] + months.sorted(by: sortMonths)
+    // Computed properties for income and expense data
+    private var incomeData: [CategoryData] {
+        let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.incomeTransactions })
+        let grouped = Dictionary(grouping: filteredTransactions, by: { $0.categoryRelationship?.name ?? "Unbekannt" })
+        return grouped.map { (category, transactions) in
+            let value = transactions.reduce(0.0) { $0 + $1.amount }
+            let colorIndex = grouped.keys.sorted().firstIndex(of: category) ?? 0
+            return CategoryData(name: category, value: value, color: colors[colorIndex % colors.count], transactions: transactions)
+        }.sorted { abs($0.value) > abs($1.value) }
     }
 
-    private func sortMonths(_ month1: String, _ month2: String) -> Bool {
-        let components1 = month1.split(separator: " ")
-        let components2 = month2.split(separator: " ")
-        guard components1.count == 2, components2.count == 2 else { return false }
-        
-        let year1 = String(components1[1])
-        let year2 = String(components2[1])
-        let monthName1 = String(components1[0])
-        let monthName2 = String(components2[0])
-        
-        if year1 != year2 {
-            return year1 < year2
-        }
-        
-        let monthOrder = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."]
-        let monthIndex1 = monthOrder.firstIndex(of: monthName1) ?? 0
-        let monthIndex2 = monthOrder.firstIndex(of: monthName2) ?? 0
-        return monthIndex1 < monthIndex2
+    private var totalIncome: Double {
+        incomeData.reduce(0.0) { $0 + $1.value }
     }
 
-    private var categoryData: [CategoryData] {
+    private var expenseData: [CategoryData] {
         let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.expenseTransactions })
         let grouped = Dictionary(grouping: filteredTransactions, by: { $0.categoryRelationship?.name ?? "Unbekannt" })
         return grouped.map { (category, transactions) in
             let value = transactions.reduce(0.0) { $0 + $1.amount }
             let colorIndex = grouped.keys.sorted().firstIndex(of: category) ?? 0
             return CategoryData(name: category, value: value, color: colors[colorIndex % colors.count], transactions: transactions)
-        }.sorted { $0.name < $1.name }
+        }.sorted { abs($0.value) > abs($1.value) }
     }
 
-    private var totalCategoryExpenses: Double {
-        categoryData.reduce(0.0) { $0 + $1.value }
-    }
-
-    private var usageData: [CategoryData] {
-        let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.expenseTransactions })
-        let grouped = Dictionary(grouping: filteredTransactions, by: { $0.usage ?? "Unbekannt" })
-        return grouped.map { (usage, transactions) in
-            let value = transactions.reduce(0.0) { $0 + $1.amount }
-            let colorIndex = grouped.keys.sorted().firstIndex(of: usage) ?? 0
-            return CategoryData(name: usage, value: value, color: colors[colorIndex % colors.count], transactions: transactions)
-        }.sorted { $0.name < $1.name }
-    }
-
-    private var totalUsageExpenses: Double {
-        usageData.reduce(0.0) { $0 + $1.value }
+    private var totalExpenses: Double {
+        expenseData.reduce(0.0) { $0 + $1.value }
     }
 
     private var forecastData: [ForecastData] {
@@ -280,20 +242,6 @@ struct EvaluationView: View {
                                     Rectangle()
                                         .fill(Color.green)
                                         .frame(width: 80, height: CGFloat(abs(data.income)) * scaleFactor)
-                                        .onTapGesture {
-                                            print("Einnahmen Balken geklickt")
-                                            loadMonthlyData()
-                                            if let data = monthlyData.first {
-                                                transactionsTitle = "Einnahmen"
-                                                transactionsToShow = data.incomeTransactions
-                                                shouldShowTransactionsSheet = true
-                                                print("transactionsToShow: \(transactionsToShow.count) Einträge")
-                                                print("transactionsTitle: \(transactionsTitle)")
-                                                print("shouldShowTransactionsSheet: \(shouldShowTransactionsSheet)")
-                                            } else {
-                                                print("Keine Daten für ausgewählten Monat gefunden")
-                                            }
-                                        }
                                     Text("Einnahmen")
                                         .foregroundColor(.white)
                                         .font(.caption)
@@ -309,20 +257,6 @@ struct EvaluationView: View {
                                     Rectangle()
                                         .fill(Color.red)
                                         .frame(width: 80, height: CGFloat(abs(data.expenses)) * scaleFactor)
-                                        .onTapGesture {
-                                            print("Ausgaben Balken geklickt")
-                                            loadMonthlyData()
-                                            if let data = monthlyData.first {
-                                                transactionsTitle = "Ausgaben"
-                                                transactionsToShow = data.expenseTransactions
-                                                shouldShowTransactionsSheet = true
-                                                print("transactionsToShow: \(transactionsToShow.count) Einträge")
-                                                print("transactionsTitle: \(transactionsTitle)")
-                                                print("shouldShowTransactionsSheet: \(shouldShowTransactionsSheet)")
-                                            } else {
-                                                print("Keine Daten für ausgewählten Monat gefunden")
-                                            }
-                                        }
                                     Text("Ausgaben")
                                         .foregroundColor(.white)
                                         .font(.caption)
@@ -352,31 +286,27 @@ struct EvaluationView: View {
                             .frame(height: 200)
                         }
 
-                        // Pie-Chart für Kategorien
-                        CategoryChartView(
-                            data: categoryData,
-                            selectedData: $selectedCategory,
-                            totalExpenses: totalCategoryExpenses,
+                        // Einnahmen nach Kategorie
+                        IncomeChartView(
+                            data: incomeData,
+                            selectedData: $selectedIncomeCategory,
+                            totalIncome: totalIncome,
                             showTransactions: { transactions, title in
-                                loadMonthlyData()
                                 transactionsTitle = title
                                 transactionsToShow = transactions
-                                os_log(.info, "%@: %d Einträge", title, transactions.count)
                                 shouldShowTransactionsSheet = true
                             }
                         )
                         .padding(.vertical, 20)
 
-                        // Pie-Chart für Verwendungszweck
-                        UsageChartView(
-                            data: usageData,
-                            selectedData: $selectedUsage,
-                            totalExpenses: totalUsageExpenses,
+                        // Ausgaben nach Kategorie
+                        ExpenseChartView(
+                            data: expenseData,
+                            selectedData: $selectedExpenseCategory,
+                            totalExpenses: totalExpenses,
                             showTransactions: { transactions, title in
-                                loadMonthlyData()
                                 transactionsTitle = title
                                 transactionsToShow = transactions
-                                os_log(.info, "%@: %d Einträge", title, transactions.count)
                                 shouldShowTransactionsSheet = true
                             }
                         )
@@ -391,48 +321,31 @@ struct EvaluationView: View {
                             showTransactionsSheet: $shouldShowTransactionsSheet
                         )
                         .padding(.vertical, 20)
-
-                        // PDF Export Button
-                        if let pdfURL = pdfURL {
-                            ShareLink(item: pdfURL, message: Text("Hier ist dein PDF-Export von EuroBlick")) {
-                                Text("PDF Exportieren")
-                                    .font(.subheadline)
-                                    .foregroundColor(.blue)
-                                    .padding()
-                                    .cornerRadius(10)
-                                    .padding(.horizontal)
-                                    .padding(.top, 20)
-                            }
-                        } else {
-                            Button(action: {
-                                generatePDF()
-                            }) {
-                                Text("PDF Exportieren")
-                                    .font(.subheadline)
-                                    .foregroundColor(.blue)
-                                    .padding()
-                                    .cornerRadius(10)
-                                    .padding(.horizontal)
-                                    .padding(.top, 20)
-                            }
-                        }
                     }
-                    .padding(.bottom)
-                }
-                .onAppear {
-                    loadMonthlyData()
                 }
             }
-            .navigationTitle("Auswertungen")
+            .navigationTitle("EuroBlickAuswertungen")
             .navigationBarTitleDisplayMode(.inline)
-            .font(.title2)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        generatePDF()
+                    }) {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundColor(.white)
+                    }
+                }
+            }
+            .onAppear {
+                loadMonthlyData()
+            }
             .sheet(isPresented: $showMonthPickerSheet) {
                 MonthPickerSheet(
                     selectedMonth: $selectedMonth,
                     showMonthPickerSheet: $showMonthPickerSheet,
                     showCustomDateRangeSheet: $showCustomDateRangeSheet,
                     availableMonths: availableMonths,
-                    selectedCategory: $selectedCategory,
+                    selectedCategory: $selectedExpenseCategory,
                     selectedUsage: $selectedUsage,
                     onFilter: {
                         loadMonthlyData()
@@ -656,18 +569,18 @@ struct EvaluationView: View {
             context.beginPage()
             currentY = 20
             
-            let categoriesTitle = NSAttributedString(string: "Ausgaben nach Kategorie: \(String(format: "%.2f €", totalCategoryExpenses))", attributes: sectionAttributes)
+            let categoriesTitle = NSAttributedString(string: "Einnahmen nach Kategorie: \(String(format: "%.2f €", totalIncome))", attributes: sectionAttributes)
             categoriesTitle.draw(at: CGPoint(x: 20, y: currentY))
             currentY += 20
             
             // Tortendiagramm für Kategorien
-            let totalCategoryValue = categoryData.reduce(0.0) { $0 + abs($1.value) }
+            let totalCategoryValue = incomeData.reduce(0.0) { $0 + abs($1.value) }
             let centerX: CGFloat = pageRect.width / 2
             let centerY: CGFloat = currentY + 100
             let radius: CGFloat = 80
             var startAngle: CGFloat = -.pi / 2
             
-            for category in categoryData {
+            for category in incomeData {
                 let proportion = abs(category.value) / totalCategoryValue
                 let angle = proportion * 2 * .pi
                 let endAngle = startAngle + angle
@@ -722,7 +635,7 @@ struct EvaluationView: View {
             // Legende für Kategorien
             var legendX: CGFloat = 20
             var legendY: CGFloat = currentY
-            for category in categoryData {
+            for category in incomeData {
                 // Farbquadrat
                 let uiColor: UIColor
                 switch category.color {
@@ -772,26 +685,26 @@ struct EvaluationView: View {
             
             currentY = legendY + 20
             
-            // Verwendungszweck
+            // Ausgaben nach Kategorie
             context.beginPage()
             currentY = 20
             
-            let usageTitle = NSAttributedString(string: "Ausgaben nach Verwendungszweck: \(String(format: "%.2f €", totalUsageExpenses))", attributes: sectionAttributes)
-            usageTitle.draw(at: CGPoint(x: 20, y: currentY))
+            let expensesTitle = NSAttributedString(string: "Ausgaben nach Kategorie: \(String(format: "%.2f €", totalExpenses))", attributes: sectionAttributes)
+            expensesTitle.draw(at: CGPoint(x: 20, y: currentY))
             currentY += 20
             
-            // Tortendiagramm für Verwendungszweck
-            let totalUsageValue = usageData.reduce(0.0) { $0 + abs($1.value) }
+            // Tortendiagramm für Kategorien
+            let totalExpensesValue = expenseData.reduce(0.0) { $0 + abs($1.value) }
             startAngle = -.pi / 2
             
-            for usage in usageData {
-                let proportion = abs(usage.value) / totalUsageValue
+            for category in expenseData {
+                let proportion = abs(category.value) / totalExpensesValue
                 let angle = proportion * 2 * .pi
                 let endAngle = startAngle + angle
                 
                 // Konvertiere SwiftUI-Color in UIColor
                 let uiColor: UIColor
-                switch usage.color {
+                switch category.color {
                 case .red: uiColor = .red
                 case .green: uiColor = .green
                 case .blue: uiColor = .blue
@@ -810,7 +723,7 @@ struct EvaluationView: View {
                 case .primary: uiColor = .label
                 case .secondary: uiColor = .secondaryLabel
                 default:
-                    let components = usage.color.cgColor?.components ?? [0, 0, 0, 1]
+                    let components = category.color.cgColor?.components ?? [0, 0, 0, 1]
                     uiColor = UIColor(red: components[0], green: components[1], blue: components[2], alpha: components[3])
                 }
                 
@@ -828,20 +741,20 @@ struct EvaluationView: View {
             }
             
             // Innerer Kreis für Donut-Effekt
-            let innerCircleUsage = UIBezierPath(arcCenter: CGPoint(x: centerX, y: centerY), radius: innerRadius, startAngle: 0, endAngle: 2 * .pi, clockwise: true)
+            let innerCircleExpenses = UIBezierPath(arcCenter: CGPoint(x: centerX, y: centerY), radius: innerRadius, startAngle: 0, endAngle: 2 * .pi, clockwise: true)
             context.cgContext.setFillColor(UIColor.white.cgColor)
-            context.cgContext.addPath(innerCircleUsage.cgPath)
+            context.cgContext.addPath(innerCircleExpenses.cgPath)
             context.cgContext.fillPath()
             
             currentY += 200
             
-            // Legende für Verwendungszweck
+            // Legende für Kategorien
             legendX = 20
             legendY = currentY
-            for usage in usageData {
+            for category in expenseData {
                 // Farbquadrat
                 let uiColor: UIColor
-                switch usage.color {
+                switch category.color {
                 case .red: uiColor = .red
                 case .green: uiColor = .green
                 case .blue: uiColor = .blue
@@ -860,7 +773,7 @@ struct EvaluationView: View {
                 case .primary: uiColor = .label
                 case .secondary: uiColor = .secondaryLabel
                 default:
-                    let components = usage.color.cgColor?.components ?? [0, 0, 0, 1]
+                    let components = category.color.cgColor?.components ?? [0, 0, 0, 1]
                     uiColor = UIColor(red: components[0], green: components[1], blue: components[2], alpha: components[3])
                 }
                 
@@ -868,7 +781,7 @@ struct EvaluationView: View {
                 context.cgContext.fill(CGRect(x: legendX, y: legendY, width: 10, height: 10))
                 
                 // Text
-                let legendText = NSAttributedString(string: "\(usage.name): \(String(format: "%.2f €", usage.value))", attributes: legendAttributes)
+                let legendText = NSAttributedString(string: "\(category.name): \(String(format: "%.2f €", category.value))", attributes: legendAttributes)
                 let textWidth = legendText.size().width
                 legendText.draw(at: CGPoint(x: legendX + 15, y: legendY))
                 
@@ -933,6 +846,41 @@ struct EvaluationView: View {
         let pdfFileURL = temporaryDirectory.appendingPathComponent("EuroBlickAuswertungen.pdf")
         try? data.write(to: pdfFileURL)
         self.pdfURL = pdfFileURL
+    }
+
+    private var availableMonths: [String] {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "de_DE")
+        fmt.dateFormat = "MMM yyyy"
+        
+        // Alle Transaktionen sammeln
+        let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+        
+        // Monate extrahieren
+        let months = Set(allTx.map { fmt.string(from: $0.date) })
+        
+        // Sortierung basierend auf Jahr und Monat
+        return ["Alle Monate", "Benutzerdefinierter Zeitraum"] + months.sorted(by: sortMonths)
+    }
+
+    private func sortMonths(_ month1: String, _ month2: String) -> Bool {
+        let components1 = month1.split(separator: " ")
+        let components2 = month2.split(separator: " ")
+        guard components1.count == 2, components2.count == 2 else { return false }
+        
+        let year1 = String(components1[1])
+        let year2 = String(components2[1])
+        let monthName1 = String(components1[0])
+        let monthName2 = String(components2[0])
+        
+        if year1 != year2 {
+            return year1 < year2
+        }
+        
+        let monthOrder = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."]
+        let monthIndex1 = monthOrder.firstIndex(of: monthName1) ?? 0
+        let monthIndex2 = monthOrder.firstIndex(of: monthName2) ?? 0
+        return monthIndex1 < monthIndex2
     }
 }
 
@@ -1236,7 +1184,7 @@ struct CategoryChartView: View {
 
     var body: some View {
         VStack {
-            Text("Ausgaben nach Kategorie: \(String(format: "%.2f €", totalExpenses))")
+            Text("Einnahmen nach Kategorie: \(String(format: "%.2f €", totalExpenses))")
                 .foregroundColor(colorForValue(totalExpenses))
                 .font(.caption)
                 .padding(.horizontal)
@@ -1520,6 +1468,102 @@ struct ForecastChartView: View {
                 .frame(height: 200)
             }
         }
+    }
+}
+
+// Unterkomponente für das Ausgaben-Diagramm
+struct ExpenseChartView: View {
+    let data: [EvaluationView.CategoryData]
+    @Binding var selectedData: EvaluationView.CategoryData?
+    let totalExpenses: Double
+    let showTransactions: ([Transaction], String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Überschrift mit grauem Hintergrund
+            Text("Ausgaben nach Kategorie: \(String(format: "%.2f €", abs(totalExpenses)))")
+                .foregroundColor(.white)
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color(red: 0.3, green: 0.3, blue: 0.3))
+            
+            HStack(alignment: .top, spacing: 0) {
+                // Tortendiagramm
+                Chart(data.sorted { abs($0.value) > abs($1.value) }) { category in
+                    SectorMark(
+                        angle: .value("Wert", abs(category.value)),
+                        innerRadius: .ratio(0.5),
+                        angularInset: 1.0
+                    )
+                    .foregroundStyle(category.color)
+                }
+                .frame(width: UIScreen.main.bounds.width * 0.5, height: 200)
+                
+                // Tabelle
+                VStack(spacing: 0) {
+                    // Tabellenkopf
+                    HStack(spacing: 0) {
+                        Text("Kategorie")
+                            .frame(width: 100, alignment: .leading)
+                        Text("Anteil")
+                            .frame(width: 60, alignment: .trailing)
+                        Text("Betrag")
+                            .frame(width: 80, alignment: .trailing)
+                    }
+                    .foregroundColor(.white)
+                    .font(.caption)
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(Color(red: 0.3, green: 0.3, blue: 0.3))
+                    
+                    // Tabellenzeilen
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(data.sorted { abs($0.value) > abs($1.value) }) { category in
+                                HStack(spacing: 0) {
+                                    // Farbiger Punkt und Kategoriename
+                                    HStack {
+                                        Circle()
+                                            .fill(category.color)
+                                            .frame(width: 8, height: 8)
+                                        Text(category.name)
+                                            .lineLimit(1)
+                                    }
+                                    .frame(width: 100, alignment: .leading)
+                                    
+                                    // Prozentsatz
+                                    Text(String(format: "%.1f%%", abs(category.value) / abs(totalExpenses) * 100))
+                                        .frame(width: 60, alignment: .trailing)
+                                    
+                                    // Betrag
+                                    Text(String(format: "%.2f €", abs(category.value)))
+                                        .frame(width: 80, alignment: .trailing)
+                                }
+                                .foregroundColor(.white)
+                                .font(.caption)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .background(
+                                    selectedData?.id == category.id 
+                                    ? Color.gray.opacity(0.3) 
+                                    : Color.clear
+                                )
+                                .onTapGesture {
+                                    selectedData = selectedData?.id == category.id ? nil : category
+                                }
+                                
+                                Divider()
+                                    .background(Color(red: 0.7, green: 0.7, blue: 0.7))
+                            }
+                        }
+                    }
+                }
+                .frame(width: UIScreen.main.bounds.width * 0.5)
+            }
+        }
+        .background(Color.black)
     }
 }
 
