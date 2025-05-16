@@ -10,12 +10,18 @@ struct AddAccountGroupView: View {
             Form {
                 Section(header: Text("Neue Kontogruppe").foregroundColor(.gray)) {
                     TextField("Gruppenname", text: $groupName)
+                        .textFieldStyle(DefaultTextFieldStyle())
+                        .foregroundColor(.white)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.black)
             .navigationTitle("Kontogruppe hinzufügen")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") { dismiss() }
+                        .foregroundColor(.white)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Hinzufügen") {
@@ -23,6 +29,7 @@ struct AddAccountGroupView: View {
                         dismiss()
                     }
                     .disabled(groupName.isEmpty)
+                    .foregroundColor(.white)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -33,15 +40,18 @@ struct AddAccountGroupView: View {
                         }
                     } label: {
                         Image(systemName: "plus")
-                            .foregroundColor(.black) // Sichtbare Farbe
+                            .font(.system(size: 20))
                     }
+                    .foregroundStyle(.white)
+                    .menuStyle(BorderlessButtonMenuStyle())
+                    .menuIndicator(.hidden)
                     .onAppear {
                         print("Rendering AddAccountGroupView Toolbar")
                     }
                 }
             }
         }
-        .background(Color.black)
+        .preferredColorScheme(.dark)
     }
 }
 

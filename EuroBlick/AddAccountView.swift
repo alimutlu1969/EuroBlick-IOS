@@ -11,12 +11,18 @@ struct AddAccountView: View {
             Form {
                 Section(header: Text("Neues Konto").foregroundColor(.gray)) {
                     TextField("Kontoname", text: $accountName)
+                        .textFieldStyle(DefaultTextFieldStyle())
+                        .foregroundColor(.white)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.black)
             .navigationTitle("Konto hinzufügen")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") { dismiss() }
+                        .foregroundColor(.white)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Hinzufügen") {
@@ -24,6 +30,7 @@ struct AddAccountView: View {
                         dismiss()
                     }
                     .disabled(accountName.isEmpty)
+                    .foregroundColor(.white)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -34,15 +41,18 @@ struct AddAccountView: View {
                         }
                     } label: {
                         Image(systemName: "plus")
-                            .foregroundColor(.black) // Sichtbare Farbe
+                            .font(.system(size: 20))
                     }
+                    .foregroundStyle(.white)
+                    .menuStyle(BorderlessButtonMenuStyle())
+                    .menuIndicator(.hidden)
                     .onAppear {
                         print("Rendering AddAccountView Toolbar")
                     }
                 }
             }
         }
-        .background(Color.black)
+        .preferredColorScheme(.dark)
     }
 }
 

@@ -271,10 +271,7 @@ struct AccountRowView: View {
     }
 
     var body: some View {
-        NavigationLink(
-            destination: TransactionView(account: account, viewModel: viewModel),
-            isActive: $navigateToTransactions
-        ) {
+        NavigationStack {
             HStack {
                 Image(systemName: accountIcon.systemName)
                     .foregroundColor(accountIcon.color)
@@ -295,6 +292,12 @@ struct AccountRowView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.gray.opacity(0.3))
             )
+            .onTapGesture {
+                navigateToTransactions = true
+            }
+            .navigationDestination(isPresented: $navigateToTransactions) {
+                TransactionView(account: account, viewModel: viewModel)
+            }
         }
         .buttonStyle(PlainButtonStyle())
         .simultaneousGesture(
@@ -625,6 +628,7 @@ struct ContentToolbar: ToolbarContent {
                 )
             }
         }
+        
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
                 Button(action: {
@@ -663,8 +667,11 @@ struct ContentToolbar: ToolbarContent {
                 }
             } label: {
                 Image(systemName: "plus")
-                    .foregroundColor(.white)
+                    .font(.system(size: 20))
             }
+            .foregroundStyle(.white)
+            .menuStyle(BorderlessButtonMenuStyle())
+            .menuIndicator(.hidden)
             .onAppear {
                 print("Rendering ContentToolbar")
             }

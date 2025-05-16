@@ -622,6 +622,8 @@ struct MonthPickerSheet: View {
                 .background(Color.blue.opacity(0.3))
                 .cornerRadius(10)
             }
+            .menuStyle(BorderlessButtonMenuStyle())
+            .menuIndicator(.hidden)
             .padding(.horizontal)
             
             Button(action: {
@@ -630,29 +632,17 @@ struct MonthPickerSheet: View {
                 onFilter()
                 showMonthPickerSheet = false
             }) {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.title2)
-                    Text("Filtern")
-                        .font(.headline)
-                }
-                .foregroundColor(.white)
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color.blue)
-                .cornerRadius(10)
-                .shadow(radius: 3)
+                Text("Filter anwenden")
+                    .foregroundColor(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue)
+                    .cornerRadius(10)
             }
-            .buttonStyle(PlainButtonStyle())
-            .padding(.horizontal)
-            .padding(.top, 20)
-            
-            Spacer()
+            .padding()
         }
         .background(Color.black)
-        .onDisappear {
-            os_log(.info, "MonthPickerSheet geschlossen")
-        }
+        .preferredColorScheme(.dark)
     }
 }
 
