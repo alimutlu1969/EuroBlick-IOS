@@ -84,12 +84,13 @@ struct LoginView: View {
                     .ignoresSafeArea(.keyboard) // Ignoriere Tastatur für Layout
                 }
                 .onTapGesture { resignKeyboard() }
-                .environment(\.colorScheme, .light)
                 .navigationTitle("Anmeldung")
+                .navigationBarTitleDisplayMode(.inline)
                 .sheet(isPresented: $showRegisterSheet) {
                     RegisterView(authManager: authManager)
                 }
             }
+            .preferredColorScheme(.dark)
         }
     }
 

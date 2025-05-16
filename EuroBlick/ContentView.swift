@@ -744,276 +744,71 @@ struct ContentView: View {
     init() {
         let newViewModel = TransactionViewModel()
         self._viewModel = StateObject(wrappedValue: newViewModel)
-        
-        // Initialisierung im Konstruktor
-        //newViewModel.fetchAccountGroups()
-        //newViewModel.fetchCategories()
-        
-        // Bereinige die Datenbank vor der Synchronisation
-        //newViewModel.cleanInvalidTransactions()
-        // Temporäre manuelle Bereinigung
-        //newViewModel.forceCleanInvalidTransactions()
-    }
-
-    class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let parent: ContentView
-
-        init(parent: ContentView) {
-            self.parent = parent
-        }
-
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
-            if parent.viewModel.restoreData(from: url) {
-                print("Wiederherstellung erfolgreich")
-            } else {
-                print("Wiederherstellung fehlgeschlagen")
-            }
-        }
-
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            print("Dokumentauswahl abgebrochen")
-        }
-    }
-
-    func makeCoordinator(parent: ContentView) -> Coordinator {
-        Coordinator(parent: parent)
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Titel mit Wallet-Icon
-                HStack(spacing: 12) {
-                    Image(systemName: "wallet.pass.fill")
-                        .foregroundColor(.white)
-                        .font(.system(size: 24))
-                    Text("Konten")
-                        .foregroundColor(.white)
-                        .font(.title)
-                }
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+            ZStack {
+                Color.black.ignoresSafeArea()
                 
-                // Hauptinhalt
-                VStack {
-                    AppLogoView()
-                    ContentMainView(
-                        accountGroups: viewModel.accountGroups,
-                        balances: accountBalances,
-                        viewModel: viewModel,
-                        showAddGroupSheet: $showAddGroupSheet,
-                        showSelectGroupSheet: $showSelectGroupSheet,
-                        showEditGroupSheet: $showEditGroupSheet,
-                        groupToEdit: $groupToEdit,
-                        newGroupName: $newGroupName
-                    )
-                    .padding(.bottom, 20)
-                }
-            }
-            .background(Color.black)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: {
-                        authManager.logout()
-                        print("Abmelden ausgelöst")
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .red)
-                                .font(.system(size: 16))
-                            Text("Abmelden")
-                                .foregroundColor(.white)
-                                .font(.system(size: 16, weight: .medium))
-                        }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.red.opacity(0.2))
-                        )
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button(action: {
-                            showSelectGroupSheet = true
-                            print("Konto hinzufügen ausgelöst")
-                        }) {
-                            Label("Konto hinzufügen", systemImage: "creditcard")
-                        }
-                        Button(action: {
-                            showAddGroupSheet = true
-                            print("Kontogruppe hinzufügen ausgelöst")
-                        }) {
-                            Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-                        }
-                        #if DEBUG
-                        if isDebugMode {
-                            Button(action: {
-                                PersistenceController.shared.resetCoreData()
-                                print("Core Data zurückgesetzt")
-                            }) {
-                                Label("Core Data zurücksetzen (Debug)", systemImage: "trash")
-                            }
-                            Button(action: {
-                                authManager.resetUserDefaults()
-                                print("UserDefaults zurückgesetzt")
-                            }) {
-                                Label("UserDefaults zurücksetzen (Debug)", systemImage: "gear")
-                            }
-                        }
-                        #endif
-                        Divider()
-                        Button(action: {
-                            showAboutView = true
-                        }) {
-                            Label("Über EuroBlick", systemImage: "info.circle")
-                        }
-                    } label: {
-                        Image(systemName: "plus")
+                VStack(spacing: 0) {
+                    // Titel mit Wallet-Icon
+                    HStack(spacing: 12) {
+                        Image(systemName: "wallet.pass.fill")
                             .foregroundColor(.white)
+                            .font(.system(size: 24))
+                        Text("Konten")
+                            .foregroundColor(.white)
+                            .font(.title)
                     }
-                }
-
-                // Toolbar für die untere Leiste
-                ToolbarItem(placement: .bottomBar) {
-                    HStack {
-                        // Backup wiederherstellen
-                        Button(action: {
-                            showRestoreAlert = true
-                        }) {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .foregroundColor(.gray)
-                                .padding(8)
-                        }
-                        .alert("Backup wiederherstellen?", isPresented: $showRestoreAlert) {
-                            Button("Ja", role: .destructive) {
-                                let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                                let meinDrivePath = documentsDirectory.appendingPathComponent("MeinDrive")
-
-                                do {
-                                    let files = try FileManager.default.contentsOfDirectory(at: meinDrivePath, includingPropertiesForKeys: nil)
-                                    let backupFiles = files.filter { $0.lastPathComponent.hasPrefix("EuroBlickBackup_") && $0.pathExtension == "json" }
-
-                                    if let latestBackupFile = backupFiles.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).first {
-                                        print("Neueste Backup-Datei gefunden: \(latestBackupFile.path)")
-                                        let restored = viewModel.restoreData(from: latestBackupFile)
-                                        if restored {
-                                            print("Wiederherstellung erfolgreich")
-                                            refreshBalances()
-                                        } else {
-                                            print("Wiederherstellung fehlgeschlagen")
-                                        }
-                                    } else {
-                                        print("Keine Backup-Datei gefunden")
-                                    }
-                                } catch {
-                                    print("Fehler beim Abrufen der Dateien aus MeinDrive: \(error.localizedDescription)")
-                                }
-                            }
-                            Button("Abbrechen", role: .cancel) {
-                                print("Wiederherstellung abgebrochen")
-                            }
-                        } message: {
-                            Text("Möchtest du wirklich das letzte Backup wiederherstellen? Alle aktuellen Daten werden überschrieben.")
-                        }
-
-                        // Backup erstellen
-                        Button(action: {
-                            showBackupAlert = true
-                        }) {
-                            Image(systemName: "arrow.clockwise")
-                                .foregroundColor(.gray)
-                                .padding(8)
-                        }
-                        .alert("Backup erstellen?", isPresented: $showBackupAlert) {
-                            Button("Ja", role: .destructive) {
-                                if let backupURL = viewModel.backupData() {
-                                    let activityController = UIActivityViewController(activityItems: [backupURL], applicationActivities: nil)
-                                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                                       let rootViewController = windowScene.windows.first?.rootViewController {
-                                        rootViewController.present(activityController, animated: true, completion: nil)
-                                    }
-                                    print("Backup erfolgreich erstellt: \(backupURL)")
-                                } else {
-                                    print("Fehler beim Erstellen des Backups")
-                                }
-                            }
-                            Button("Abbrechen", role: .cancel) {
-                                print("Backup-Erstellung abgebrochen")
-                            }
-                        } message: {
-                            Text("Möchtest du wirklich ein neues Backup erstellen?")
-                        }
-
-                        Spacer()
+                    .padding(.top, 12)
+                    .padding(.bottom, 8)
+                    
+                    // Hauptinhalt
+                    VStack {
+                        AppLogoView()
+                        ContentMainView(
+                            accountGroups: viewModel.accountGroups,
+                            balances: accountBalances,
+                            viewModel: viewModel,
+                            showAddGroupSheet: $showAddGroupSheet,
+                            showSelectGroupSheet: $showSelectGroupSheet,
+                            showEditGroupSheet: $showEditGroupSheet,
+                            groupToEdit: $groupToEdit,
+                            newGroupName: $newGroupName
+                        )
+                        .padding(.bottom, 20)
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showAboutView) {
-                AboutView()
+            .toolbar {
+                ContentToolbar(
+                    showAddSheet: $showAddSheet,
+                    showAddGroupSheet: $showAddGroupSheet,
+                    showSelectGroupSheet: $showSelectGroupSheet,
+                    showAboutView: $showAboutView
+                )
             }
-            .sheet(isPresented: $showAddGroupSheet) {
-                AddAccountGroupView(viewModel: viewModel)
-                    .onDisappear {
-                        viewModel.refreshContextIfNeeded()
-                        viewModel.fetchAccountGroups()
-                        refreshBalances()
-                        print("AddAccountGroupView geschlossen")
-                    }
-            }
-            .sheet(isPresented: $showSelectGroupSheet) {
-                SelectAccountGroupView(viewModel: viewModel, showAddAccountSheet: $showAddAccountSheet, groupToEdit: $groupToEdit)
-                    .onDisappear {
-                        viewModel.refreshContextIfNeeded()
-                        viewModel.fetchAccountGroups()
-                        refreshBalances()
-                        print("SelectAccountGroupView geschlossen")
-                    }
-            }
-            .sheet(isPresented: $showAddAccountSheet) {
-                if let group = groupToEdit {
-                    AddAccountView(viewModel: viewModel, group: group)
-                        .onDisappear {
-                            viewModel.refreshContextIfNeeded()
-                            viewModel.fetchAccountGroups()
-                            refreshBalances()
-                            print("AddAccountView geschlossen")
-                        }
-                }
-            }
-            .sheet(isPresented: $showEditGroupSheet) {
-                if let group = groupToEdit {
-                    EditAccountGroupView(viewModel: viewModel, group: group, newGroupName: $newGroupName)
-                        .onDisappear {
-                            viewModel.refreshContextIfNeeded()
-                            viewModel.fetchAccountGroups()
-                            refreshBalances()
-                            print("EditAccountGroupView geschlossen")
-                        }
-                }
-            }
-            .onAppear {
-                guard !didLoadInitialData else { return }
-                didLoadInitialData = true
-                print("📦 Initialdaten werden geladen …")
-                viewModel.fetchAccountGroups()
-                viewModel.fetchCategories()
-                viewModel.cleanInvalidTransactions()
-                viewModel.forceCleanInvalidTransactions()
-                refreshBalances()
-            }
-            .onChange(of: viewModel.accountGroups) { _, _ in
-                print("Kontogruppen aktualisiert: \(viewModel.accountGroups.count) Gruppen")
-                refreshBalances()
-            }
-            .onChange(of: viewModel.transactionsUpdated) { _, _ in
-                refreshBalances() // Aktualisiere Kontostände, wenn Transaktionen geändert werden
-                print("Kontostände aktualisiert bei Transaktionsänderung: \(accountBalances.count) Konten")
-            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            guard !didLoadInitialData else { return }
+            didLoadInitialData = true
+            print("📦 Initialdaten werden geladen …")
+            viewModel.fetchAccountGroups()
+            viewModel.fetchCategories()
+            viewModel.cleanInvalidTransactions()
+            viewModel.forceCleanInvalidTransactions()
+            refreshBalances()
+        }
+        .onChange(of: viewModel.accountGroups) { _, _ in
+            print("Kontogruppen aktualisiert: \(viewModel.accountGroups.count) Gruppen")
+            refreshBalances()
+        }
+        .onChange(of: viewModel.transactionsUpdated) { _, _ in
+            refreshBalances() // Aktualisiere Kontostände, wenn Transaktionen geändert werden
+            print("Kontostände aktualisiert bei Transaktionsänderung: \(accountBalances.count) Konten")
         }
     }
 
