@@ -260,9 +260,10 @@ struct AccountRowView: View {
     let viewModel: TransactionViewModel
     @State private var showEditSheet = false
     @State private var navigateToTransactions = false
-    @State private var refreshToggle = false
+    @State private var refreshToggle = false  // Neuer State für Force-Refresh
 
     private var accountIcon: (systemName: String, color: Color) {
+        // Force view refresh when refreshToggle changes
         _ = refreshToggle
         let icon = account.value(forKey: "icon") as? String ?? "building.columns.fill"
         let colorHex = account.value(forKey: "iconColor") as? String ?? "#007AFF"
@@ -274,15 +275,15 @@ struct AccountRowView: View {
             HStack {
                 Image(systemName: accountIcon.systemName)
                     .foregroundColor(accountIcon.color)
-                    .font(.system(size: 20))
+                    .font(.system(size: 19))
                     .padding(.trailing, 8)
                 Text(account.name ?? "Unbekanntes Konto")
                     .foregroundColor(.white)
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                 Spacer()
                 Text("\(String(format: "%.2f €", balance))")
                     .foregroundColor(balance >= 0 ? Color.green : Color.red)
-                    .font(.system(size: 17))
+                    .font(.system(size: 16))
             }
             .contentShape(Rectangle())
             .padding(.vertical, 10)
@@ -309,16 +310,19 @@ struct AccountRowView: View {
         )
         .padding(.horizontal)
         .sheet(isPresented: $showEditSheet, onDismiss: {
+            // Force refresh on dismiss
             refreshToggle.toggle()
             viewModel.objectWillChange.send()
             viewModel.refreshContextIfNeeded()
             
+            // Verzögerte zweite Aktualisierung für sicherere UI-Updates
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 refreshToggle.toggle()
                 viewModel.objectWillChange.send()
             }
         }) {
             EditAccountView(viewModel: viewModel, account: account, onSave: {
+                // Force refresh on save
                 refreshToggle.toggle()
             })
         }
@@ -350,20 +354,8 @@ struct AccountGroupView: View {
         }
     }
 
-    private var mainAccounts: [(account: Account, balance: Double)] {
-        accountBalances.filter { account in
-            let name = (account.account.name ?? "").lowercased()
-            return name == "kasa" || name == "banka" || 
-                   name == "bargeld" || name == "bank" || 
-                   name == "giro"
-        }
-    }
-
-    private var bizzeAccounts: [(account: Account, balance: Double)] {
-        accountBalances.filter { account in
-            let name = (account.account.name ?? "").lowercased()
-            return name == "bizze" || name == "bize"
-        }
+    private var regularAccounts: [(account: Account, balance: Double)] {
+        accountBalances.filter { ($0.account.name ?? "").lowercased() != "bk" }
     }
 
     private var bkAccounts: [(account: Account, balance: Double)] {
@@ -371,21 +363,21 @@ struct AccountGroupView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             // Gruppenkopf mit Name und Gesamtbilanz
             HStack {
                 Image(systemName: groupIcon.systemName)
                     .foregroundColor(groupIcon.color)
-                    .font(.title3)
+                    .font(.title2)
                     .padding(.trailing, 4)
                 Text(group.name ?? "Unbekannte Gruppe")
-                    .font(.title3)
+                    .font(.title2)
                     .foregroundColor(.white)
                     .bold()
                 Spacer()
                 Text("\(String(format: "%.2f €", groupBalance))")
                     .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
-                    .font(.system(size: 17))
+                    .font(.subheadline) // Gleiche Größe wie Kontosalden
                 Button(action: {
                     groupToEdit = group
                     newGroupName = group.name ?? ""
@@ -394,11 +386,11 @@ struct AccountGroupView: View {
                 }) {
                     Image(systemName: "pencil")
                         .foregroundColor(.white)
-                        .font(.system(size: 17))
+                        .font(.system(size: 18))
                 }
             }
             .padding(.horizontal)
-            .padding(.vertical, 4)
+            .padding(.vertical, 5)
             .overlay(
                 Rectangle()
                     .frame(height: 1)
@@ -407,23 +399,10 @@ struct AccountGroupView: View {
                 alignment: .bottom
             )
 
-            // Hauptkonten (Kasa/Bargeld und Banka/Bank/Giro)
-            ForEach(mainAccounts, id: \.account.objectID) { item in
+            // Reguläre Konten
+            ForEach(regularAccounts, id: \.account.objectID) { item in
                 AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
                     .padding(.vertical, 2)
-            }
-
-            // Trennlinie und Bizze-Konten
-            if !bizzeAccounts.isEmpty {
-                Divider()
-                    .background(Color.gray.opacity(0.5))
-                    .padding(.horizontal)
-                    .padding(.vertical, 2)
-
-                ForEach(bizzeAccounts, id: \.account.objectID) { item in
-                    AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
-                        .padding(.vertical, 2)
-                }
             }
 
             // Trennlinie und BK-Konten
@@ -431,7 +410,7 @@ struct AccountGroupView: View {
                 Divider()
                     .background(Color.gray.opacity(0.5))
                     .padding(.horizontal)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 8)
 
                 ForEach(bkAccounts, id: \.account.objectID) { item in
                     AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
@@ -448,7 +427,7 @@ struct AccountGroupView: View {
                         .foregroundColor(.white)
                         .font(.system(size: 16))
                     Text("Auswertung")
-                        .font(.system(size: 16))
+                        .font(.system(size: 15))
                 }
                 .foregroundColor(.white)
                 .padding(.vertical, 8)
@@ -468,10 +447,10 @@ struct AccountGroupView: View {
                 .shadow(radius: 2)
             }
             .padding(.horizontal)
-            .padding(.top, 4)
+            .padding(.top, 5)
             .buttonStyle(PlainButtonStyle())
         }
-        .padding(.vertical, 4)
+        .padding(.vertical)
         .onAppear {
             calculateBalances()
         }
@@ -491,12 +470,9 @@ struct AccountGroupView: View {
                 return (account, balance)
             }
         
-        // Berechne Gruppensaldo ohne BK-Konten und Bizze-Konten
+        // Berechne Gruppensaldo ohne BK-Konten
         groupBalance = accountBalances
-            .filter { account in
-                let name = (account.account.name ?? "").lowercased()
-                return name != "bk" && name != "bizze" && name != "bize"
-            }
+            .filter { ($0.account.name ?? "").lowercased() != "bk" }
             .reduce(0.0) { total, item in
                 total + item.balance
             }
@@ -655,52 +631,50 @@ struct ContentToolbar: ToolbarContent {
         
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
-                Button(action: {
-                    showSelectGroupSheet = true
-                    print("Konto hinzufügen ausgelöst")
-                }) {
-                    Label("Konto hinzufügen", systemImage: "creditcard")
-                        .foregroundColor(.white)
+                Group {
+                    Button(action: {
+                        showSelectGroupSheet = true
+                        print("Konto hinzufügen ausgelöst")
+                    }) {
+                        Label("Konto hinzufügen", systemImage: "creditcard")
+                    }
+                    
+                    Button(action: {
+                        showAddGroupSheet = true
+                        print("Kontogruppe hinzufügen ausgelöst")
+                    }) {
+                        Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+                    }
+                    
+                    Button(action: {
+                        showAboutView = true
+                    }) {
+                        Label("Über EuroBlick", systemImage: "info.circle")
+                    }
+                    
+                    #if DEBUG
+                    Divider()
+                    
+                    Button(role: .destructive, action: {
+                        PersistenceController.shared.resetCoreData()
+                        print("Core Data zurückgesetzt")
+                    }) {
+                        Label("Core Data zurücksetzen", systemImage: "trash")
+                    }
+                    
+                    Button(role: .destructive, action: {
+                        authManager.resetUserDefaults()
+                        print("UserDefaults zurückgesetzt")
+                    }) {
+                        Label("UserDefaults zurücksetzen", systemImage: "trash")
+                    }
+                    #endif
                 }
-                
-                Button(action: {
-                    showAddGroupSheet = true
-                    print("Kontogruppe hinzufügen ausgelöst")
-                }) {
-                    Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-                        .foregroundColor(.white)
-                }
-                
-                Button(action: {
-                    showAboutView = true
-                }) {
-                    Label("Über EuroBlick", systemImage: "info.circle")
-                        .foregroundColor(.white)
-                }
-                
-                #if DEBUG
-                Divider()
-                
-                Button(role: .destructive, action: {
-                    PersistenceController.shared.resetCoreData()
-                    print("Core Data zurückgesetzt")
-                }) {
-                    Label("Core Data zurücksetzen", systemImage: "trash")
-                }
-                
-                Button(role: .destructive, action: {
-                    authManager.resetUserDefaults()
-                    print("UserDefaults zurückgesetzt")
-                }) {
-                    Label("UserDefaults zurücksetzen", systemImage: "trash")
-                }
-                #endif
             } label: {
                 Image(systemName: "gear")
                     .font(.system(size: 20))
                     .foregroundColor(.white)
             }
-            .menuStyle(BorderlessButtonMenuStyle())
         }
     }
 }
@@ -753,154 +727,141 @@ struct ContentMainView: View {
 }
 
 struct ContentView: View {
-    @StateObject private var viewModel: TransactionViewModel
+    @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject var authManager: AuthenticationManager
-    @Environment(\.dismiss) var dismiss
-    @State private var showAddSheet = false
-    @State private var showAddGroupSheet = false
-    @State private var showSelectGroupSheet = false
-    @State private var showEditGroupSheet = false
-    @State private var showAboutView = false
-    @State private var groupToEdit: AccountGroup?
-    @State private var newGroupName = ""
-    @State private var accountName = ""
+    @StateObject private var viewModel: TransactionViewModel
+    @State private var showAddAccountSheet = false
+    @State private var showAddAccountGroupSheet = false
+    @State private var showSettingsSheet = false
+    @State private var selectedAccountGroup: AccountGroup?
+    @State private var showLogoutAlert = false
+    @State private var showAccountGroupPicker = false
     @State private var accountBalances: [AccountBalance] = []
-    @State private var didLoadInitialData = false
-    // Zustände für die Bestätigungsalerts
-    @State private var showBackupAlert = false
-    @State private var showRestoreAlert = false
-    @State private var showActionSheet = false
-
-    // Manuelle Steuerung für Debug-Buttons
-    private let isDebugMode = true // Aktiviere Debug-Buttons
-
-    init() {
-        let newViewModel = TransactionViewModel()
-        self._viewModel = StateObject(wrappedValue: newViewModel)
+    
+    init(context: NSManagedObjectContext) {
+        _viewModel = StateObject(wrappedValue: TransactionViewModel(context: context))
     }
-
+    
+    private var headerView: some View {
+        HStack {
+            Image(systemName: "eurosign.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 40, height: 40)
+                .foregroundColor(.blue)
+            Text("EuroBlick")
+                .font(.title3)
+                .bold()
+            Spacer()
+            settingsMenu
+        }
+        .padding(.horizontal)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+    }
+    
+    private var settingsMenu: some View {
+        Menu {
+            Button(action: {
+                showAddAccountGroupSheet = true
+            }) {
+                Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+            }
+            Button(action: {
+                showAccountGroupPicker = true
+            }) {
+                Label("Konto hinzufügen", systemImage: "plus.circle")
+            }
+            Button(action: {
+                showSettingsSheet = true
+            }) {
+                Label("Einstellungen", systemImage: "gear")
+            }
+            Button(role: .destructive, action: {
+                showLogoutAlert = true
+            }) {
+                Label("Abmelden", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.title3)
+                .foregroundColor(.white)
+        }
+    }
+    
+    private var accountGroupsList: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                ForEach(viewModel.accountGroups) { group in
+                    AccountGroupView(
+                        group: group,
+                        viewModel: viewModel,
+                        balances: accountBalances,
+                        showEditGroupSheet: .constant(false),
+                        groupToEdit: .constant(nil),
+                        newGroupName: .constant("")
+                    )
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+    
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                
-                VStack(spacing: 0) {
-                    // Zusätzlicher Abstand oben
-                    Spacer()
-                        .frame(height: 45) // Etwa 1.5cm auf einem iPhone
-                    
-                    // Titel mit Wallet-Icon
-                    HStack(spacing: 8) {
-                        Image(systemName: "wallet.pass.fill")
-                            .foregroundColor(.white)
-                            .font(.system(size: 20))
-                        Text("Konten")
-                            .foregroundColor(.white)
-                            .font(.title3)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 4)
-                    
-                    // EuroBlick Logo
-                    HStack(spacing: 6) {
-                        Image(systemName: "eurosign.circle.fill")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 24, height: 24)
-                            .foregroundColor(.blue)
-                        Text("EuroBlick")
-                            .font(.title3)
-                            .foregroundColor(.white)
-                            .bold()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 8)
-                    
-                    // Hauptinhalt
-                    ScrollView {
-                        VStack(spacing: 20) {
-                            ForEach(Array(viewModel.accountGroups.enumerated()), id: \.element.id) { index, group in
-                                AccountGroupView(
-                                    group: group,
-                                    viewModel: viewModel,
-                                    balances: accountBalances,
-                                    showEditGroupSheet: $showEditGroupSheet,
-                                    groupToEdit: $groupToEdit,
-                                    newGroupName: $newGroupName
-                                )
-                                .padding(.top, index == 0 ? 15 : 0) // Zusätzlicher Abstand nur für die erste Gruppe (0.5cm)
-                            }
-                        }
-                        .padding(.top, 12)
-                        .padding(.bottom, 20)
-                    }
-                }
+            VStack(spacing: 0) {
+                headerView
+                accountGroupsList
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ContentToolbar(
-                    showAddSheet: $showAddSheet,
-                    showAddGroupSheet: $showAddGroupSheet,
-                    showSelectGroupSheet: $showSelectGroupSheet,
-                    showAboutView: $showAboutView
-                )
-            }
-            .sheet(isPresented: $showAddGroupSheet) {
+            .background(Color.black)
+            .sheet(isPresented: $showAddAccountGroupSheet) {
                 AddAccountGroupView(viewModel: viewModel)
             }
-            .sheet(isPresented: $showSelectGroupSheet) {
-                SelectAccountGroupView(viewModel: viewModel)
+            .sheet(isPresented: $showAccountGroupPicker) {
+                SelectAccountGroupView(viewModel: viewModel, showAddAccountSheet: $showAddAccountSheet, groupToEdit: $selectedAccountGroup)
             }
-            .sheet(isPresented: $showEditGroupSheet) {
-                if let group = groupToEdit {
-                    EditAccountGroupView(viewModel: viewModel, group: group, newGroupName: $newGroupName)
+            .sheet(isPresented: $showAddAccountSheet) {
+                if let group = selectedAccountGroup {
+                    AddAccountView(viewModel: viewModel, group: group)
                 }
             }
-            .sheet(isPresented: $showAboutView) {
-                AboutView()
+            .sheet(isPresented: $showSettingsSheet) {
+                SettingsView()
+            }
+            .alert("Abmelden", isPresented: $showLogoutAlert) {
+                Button("Abbrechen", role: .cancel) { }
+                Button("Abmelden", role: .destructive) {
+                    authManager.logout()
+                }
+            } message: {
+                Text("Möchten Sie sich wirklich abmelden?")
             }
         }
         .preferredColorScheme(.dark)
         .onAppear {
-            guard !didLoadInitialData else { return }
-            didLoadInitialData = true
-            print("📦 Initialdaten werden geladen …")
-            viewModel.fetchAccountGroups()
-            viewModel.fetchCategories()
-            viewModel.cleanInvalidTransactions()
-            viewModel.forceCleanInvalidTransactions()
-            refreshBalances()
-        }
-        .onChange(of: viewModel.accountGroups) { _, _ in
-            print("Kontogruppen aktualisiert: \(viewModel.accountGroups.count) Gruppen")
             refreshBalances()
         }
         .onChange(of: viewModel.transactionsUpdated) { _, _ in
             refreshBalances()
-            print("Kontostände aktualisiert bei Transaktionsänderung: \(accountBalances.count) Konten")
         }
     }
-
+    
     private func refreshBalances() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let allBalances = viewModel.calculateAllBalances()
-            var newBalances: [AccountBalance] = []
-
-            for group in viewModel.accountGroups {
-                let accounts = (group.accounts?.allObjects as? [Account]) ?? []
-                for account in accounts {
-                    let balance = allBalances[account.objectID] ?? 0.0
-                    newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
-                }
-            }
-
-            DispatchQueue.main.async {
-                accountBalances = newBalances
-                print("Kontostände aktualisiert: \(newBalances.count) Konten")
+        let allBalances = viewModel.calculateAllBalances()
+        var newBalances: [AccountBalance] = []
+        
+        for group in viewModel.accountGroups {
+            let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+            for account in accounts {
+                let balance = allBalances[account.objectID] ?? 0.0
+                newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
             }
         }
+        
+        accountBalances = newBalances
     }
 }
+
 // MARK: - Subviews
 
 struct EditAccountGroupView: View {
@@ -951,22 +912,120 @@ struct AppLogoView: View {
             Image(systemName: "eurosign.circle.fill")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 30, height: 30)
+                .frame(width: 40, height: 40) // Behalte die Größe, aber füge .scaledToFit() hinzu
                 .foregroundColor(.blue)
             Text("EuroBlick")
-                .font(.title2)
+                .font(.title)
                 .foregroundColor(.white)
                 .bold()
         }
-        .padding(.vertical, 4)
+        .padding()
+    }
+}
+
+struct AccountListView: View {
+    @ObservedObject var viewModel: TransactionViewModel
+    @State private var accountBalances: [AccountBalance] = []
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                ForEach(viewModel.accountGroups) { group in
+                    AccountGroupView(
+                        group: group,
+                        viewModel: viewModel,
+                        balances: accountBalances,
+                        showEditGroupSheet: .constant(false),
+                        groupToEdit: .constant(nil),
+                        newGroupName: .constant("")
+                    )
+                }
+            }
+            .padding(.vertical)
+        }
+        .onAppear {
+            refreshBalances()
+        }
+        .onChange(of: viewModel.transactionsUpdated) { _, _ in
+            refreshBalances()
+        }
+    }
+    
+    private func refreshBalances() {
+        let allBalances = viewModel.calculateAllBalances()
+        var newBalances: [AccountBalance] = []
+        
+        for group in viewModel.accountGroups {
+            let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+            for account in accounts {
+                let balance = allBalances[account.objectID] ?? 0.0
+                newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
+            }
+        }
+        
+        accountBalances = newBalances
+    }
+}
+
+struct SettingsView: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var authManager: AuthenticationManager
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                Section(header: Text("Allgemein").foregroundColor(.white)) {
+                    NavigationLink(destination: AboutView()) {
+                        Label("Über EuroBlick", systemImage: "info.circle")
+                            .foregroundColor(.white)
+                    }
+                }
+                
+                Section(header: Text("Sicherheit").foregroundColor(.white)) {
+                    Button(action: {
+                        authManager.logout()
+                        dismiss()
+                    }) {
+                        Label("Abmelden", systemImage: "rectangle.portrait.and.arrow.right")
+                            .foregroundColor(.red)
+                    }
+                }
+                
+                #if DEBUG
+                Section(header: Text("Debug").foregroundColor(.white)) {
+                    Button(action: {
+                        PersistenceController.shared.resetCoreData()
+                    }) {
+                        Label("Core Data zurücksetzen", systemImage: "trash")
+                            .foregroundColor(.red)
+                    }
+                    
+                    Button(action: {
+                        authManager.resetUserDefaults()
+                    }) {
+                        Label("UserDefaults zurücksetzen", systemImage: "trash")
+                            .foregroundColor(.red)
+                    }
+                }
+                #endif
+            }
+            .navigationTitle("Einstellungen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Fertig") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
 #Preview {
     let context = PersistenceController.preview.container.viewContext
-    let viewModel = TransactionViewModel(context: context)
-    ContentView()
+    return ContentView(context: context)
         .environment(\.managedObjectContext, context)
-        .environmentObject(viewModel)
         .environmentObject(AuthenticationManager())
 }
