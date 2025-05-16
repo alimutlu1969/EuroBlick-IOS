@@ -3,6 +3,7 @@ import LocalAuthentication
 
 struct LoginView: View {
     @StateObject private var authManager = AuthenticationManager()
+    @Environment(\.managedObjectContext) private var viewContext
     @State private var username = ""
     @State private var password = ""
     @State private var showRegisterSheet = false
@@ -11,7 +12,7 @@ struct LoginView: View {
 
     var body: some View {
         if authManager.isAuthenticated {
-            ContentView()
+            ContentView(context: viewContext)
                 .environmentObject(authManager)
         } else {
             NavigationStack {
@@ -130,5 +131,7 @@ struct LoginView: View {
 }
 
 #Preview {
-    LoginView()
+    let context = PersistenceController.preview.container.viewContext
+    return LoginView()
+        .environment(\.managedObjectContext, context)
 }
