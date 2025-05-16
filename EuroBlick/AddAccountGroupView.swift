@@ -4,6 +4,7 @@ struct AddAccountGroupView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var viewModel: TransactionViewModel
     @State private var groupName = ""
+    @State private var showActionSheet = false
 
     var body: some View {
         NavigationStack {
@@ -32,21 +33,12 @@ struct AddAccountGroupView: View {
                     .foregroundColor(.white)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button(action: {
-                            print("Neue Kategorie hinzufügen ausgelöst")
-                        }) {
-                            Label("Kategorie hinzufügen", systemImage: "tag")
-                        }
-                    } label: {
-                        Image(systemName: "plus")
+                    Button(action: {
+                        print("Neue Kategorie hinzufügen ausgelöst")
+                    }) {
+                        Image(systemName: "tag.badge.plus")
                             .font(.system(size: 20))
-                    }
-                    .foregroundStyle(.white)
-                    .menuStyle(BorderlessButtonMenuStyle())
-                    .menuIndicator(.hidden)
-                    .onAppear {
-                        print("Rendering AddAccountGroupView Toolbar")
+                            .foregroundColor(.white)
                     }
                 }
             }

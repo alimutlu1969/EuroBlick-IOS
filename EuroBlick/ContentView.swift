@@ -601,9 +601,9 @@ struct ContentToolbar: ToolbarContent {
     @Binding var showAddGroupSheet: Bool
     @Binding var showSelectGroupSheet: Bool
     @Binding var showAboutView: Bool
+    @State private var showOptionsActionSheet = false
 
-    // Manuelle Steuerung für Debug-Buttons
-    private let isDebugMode = true // Aktiviere Debug-Buttons
+    private let isDebugMode = true
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
@@ -631,49 +631,49 @@ struct ContentToolbar: ToolbarContent {
         
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
-                Button(action: {
-                    showSelectGroupSheet = true
-                    print("Konto hinzufügen ausgelöst")
-                }) {
-                    Label("Konto hinzufügen", systemImage: "creditcard")
-                }
-                Button(action: {
-                    showAddGroupSheet = true
-                    print("Kontogruppe hinzufügen ausgelöst")
-                }) {
-                    Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-                }
-                #if DEBUG
-                if isDebugMode {
+                Group {
                     Button(action: {
+                        showSelectGroupSheet = true
+                        print("Konto hinzufügen ausgelöst")
+                    }) {
+                        Label("Konto hinzufügen", systemImage: "creditcard")
+                    }
+                    
+                    Button(action: {
+                        showAddGroupSheet = true
+                        print("Kontogruppe hinzufügen ausgelöst")
+                    }) {
+                        Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+                    }
+                    
+                    Button(action: {
+                        showAboutView = true
+                    }) {
+                        Label("Über EuroBlick", systemImage: "info.circle")
+                    }
+                    
+                    #if DEBUG
+                    Divider()
+                    
+                    Button(role: .destructive, action: {
                         PersistenceController.shared.resetCoreData()
                         print("Core Data zurückgesetzt")
                     }) {
-                        Label("Core Data zurücksetzen (Debug)", systemImage: "trash")
+                        Label("Core Data zurücksetzen", systemImage: "trash")
                     }
-                    Button(action: {
+                    
+                    Button(role: .destructive, action: {
                         authManager.resetUserDefaults()
                         print("UserDefaults zurückgesetzt")
                     }) {
-                        Label("UserDefaults zurücksetzen (Debug)", systemImage: "gear")
+                        Label("UserDefaults zurücksetzen", systemImage: "trash")
                     }
-                }
-                #endif
-                Divider()
-                Button(action: {
-                    showAboutView = true
-                }) {
-                    Label("Über EuroBlick", systemImage: "info.circle")
+                    #endif
                 }
             } label: {
-                Image(systemName: "plus")
+                Image(systemName: "gear")
                     .font(.system(size: 20))
-            }
-            .foregroundStyle(.white)
-            .menuStyle(BorderlessButtonMenuStyle())
-            .menuIndicator(.hidden)
-            .onAppear {
-                print("Rendering ContentToolbar")
+                    .foregroundColor(.white)
             }
         }
     }
@@ -744,6 +744,7 @@ struct ContentView: View {
     // Zustände für die Bestätigungsalerts
     @State private var showBackupAlert = false
     @State private var showRestoreAlert = false
+    @State private var showActionSheet = false
 
     // Manuelle Steuerung für Debug-Buttons
     private let isDebugMode = true // Aktiviere Debug-Buttons
