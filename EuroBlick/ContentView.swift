@@ -71,20 +71,20 @@ struct AccountRowView: View {
             HStack {
                 Image(systemName: accountIcon.systemName)
                     .foregroundColor(accountIcon.color)
-                    .font(.title2)
+                    .font(.system(size: 19))
                     .padding(.trailing, 8)
                 Text(account.name ?? "Unbekanntes Konto")
                     .foregroundColor(.white)
-                    .font(.headline)
+                    .font(.system(size: 17))
                 Spacer()
                 Text("\(String(format: "%.2f €", balance))")
                     .foregroundColor(balance >= 0 ? Color.green : Color.red)
-                    .font(.subheadline)
+                    .font(.system(size: 16))
             }
             .padding(.vertical, 10)
-            .padding(.horizontal, 15)
+            .padding(.horizontal, 14)
             .background(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(Color.gray.opacity(0.3))
             )
         }
@@ -132,29 +132,27 @@ struct AccountGroupView: View {
             HStack {
                 Image(systemName: groupIcon.systemName)
                     .foregroundColor(groupIcon.color)
-                    .font(.title2)
-                    .padding(.trailing, 4)
+                    .font(.system(size: 21))
+                    .padding(.trailing, 6)
                 Text(group.name ?? "Unbekannte Gruppe")
-                    .font(.title2)
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundColor(.white)
-                    .bold()
                 Spacer()
                 Text("\(String(format: "%.2f €", groupBalance))")
                     .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
-                    .font(.subheadline) // Gleiche Größe wie Kontosalden
+                    .font(.system(size: 16))
                 Button(action: {
                     groupToEdit = group
                     newGroupName = group.name ?? ""
                     showEditGroupSheet = true
-                    print("Bearbeiten von Kontogruppe \(group.name ?? "unknown") ausgelöst")
                 }) {
                     Image(systemName: "pencil")
                         .foregroundColor(.white)
-                        .font(.system(size: 18))
+                        .font(.system(size: 17))
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
             .overlay(
                 Rectangle()
                     .frame(height: 1)
@@ -166,7 +164,7 @@ struct AccountGroupView: View {
             // Reguläre Konten
             ForEach(regularAccounts, id: \.account.objectID) { item in
                 AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 1)
             }
 
             // Trennlinie und BK-Konten
@@ -174,11 +172,11 @@ struct AccountGroupView: View {
                 Divider()
                     .background(Color.gray.opacity(0.5))
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 6)
 
                 ForEach(bkAccounts, id: \.account.objectID) { item in
                     AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
-                        .padding(.vertical, 2)
+                        .padding(.vertical, 1)
                 }
             }
 
@@ -186,33 +184,30 @@ struct AccountGroupView: View {
             NavigationLink(
                 destination: EvaluationView(accounts: accountBalances.map { $0.account }, viewModel: viewModel)
             ) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ZStack {
                         Image(systemName: "chart.pie.fill")
                             .foregroundColor(.blue)
-                            .font(.title2)
+                            .font(.system(size: 16))
                         Image(systemName: "chart.bar.fill")
                             .foregroundColor(.green)
-                            .font(.caption)
-                            .offset(x: 4, y: 4)
+                            .font(.system(size: 10))
+                            .offset(x: 3, y: 3)
                         Image(systemName: "chart.line.uptrend.xyaxis")
                             .foregroundColor(.orange)
-                            .font(.caption)
-                            .offset(x: -4, y: -4)
+                            .font(.system(size: 10))
                     }
-                    .frame(width: 30, height: 30)
-                    Text("Auswertung")
-                        .font(.headline)
+                    Text("Auswertungen")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
                 }
-                .foregroundColor(.white)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 16)
-                .background(Color.blue)
-                .cornerRadius(10)
-                .shadow(radius: 3)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color.gray.opacity(0.3))
+                .cornerRadius(8)
             }
             .padding(.horizontal)
-            .padding(.top, 5)
+            .padding(.top, 4)
             .buttonStyle(PlainButtonStyle())
         }
         .padding(.vertical)
@@ -555,10 +550,10 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "wallet.pass.fill")
                         .foregroundColor(.white)
-                        .font(.system(size: 24))
+                        .font(.system(size: 20))
                     Text("Konten")
                         .foregroundColor(.white)
-                        .font(.title)
+                        .font(.system(size: 20))
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 8)
@@ -855,10 +850,10 @@ struct AppLogoView: View {
             Image(systemName: "eurosign.circle.fill")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 40, height: 40) // Behalte die Größe, aber füge .scaledToFit() hinzu
+                .frame(width: 32, height: 32)
                 .foregroundColor(.blue)
             Text("EuroBlick")
-                .font(.title)
+                .font(.system(size: 24))
                 .foregroundColor(.white)
                 .bold()
         }
