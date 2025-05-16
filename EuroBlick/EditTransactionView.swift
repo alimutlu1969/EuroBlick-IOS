@@ -67,10 +67,12 @@ struct EditTransactionView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 20) {
-                            headerView
+                            Spacer()
+                                .frame(height: 40)  // Zusätzlicher Abstand oben
                             typeButtonsView
                             transactionFormView(proxy: proxy)
                             errorMessages
+                            Spacer(minLength: 30)
                             actionButtons
                         }
                         .padding(.top)
@@ -81,21 +83,6 @@ struct EditTransactionView: View {
             }
             .navigationTitle("Transaktion bearbeiten")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Abbrechen") {
-                        dismiss()
-                    }
-                    .foregroundColor(.white)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Speichern") {
-                        saveTransaction()
-                    }
-                    .foregroundColor(.white)
-                    .disabled(!isValidInput)
-                }
-            }
         }
     }
     
@@ -109,53 +96,47 @@ struct EditTransactionView: View {
     
     @ViewBuilder
     private var typeButtonsView: some View {
-        HStack(spacing: 15) {
+        HStack(spacing: 10) {
             // Einnahmen Button
             Button(action: { type = "einnahme" }) {
-                VStack {
+                VStack(spacing: 4) {
                     Image(systemName: type == "einnahme" ? "arrow.down.circle.fill" : "arrow.down.circle")
-                        .font(.system(size: 24))
+                        .font(.system(size: 20))
                     Text("Einnahme")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                 }
-                .frame(width: 80, height: 60)
+                .frame(width: 70, height: 50)
                 .foregroundColor(type == "einnahme" ? .white : .gray)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(type == "einnahme" ? einnahmeColorSelected : Color.gray.opacity(0.2))
-                )
+                .background(type == "einnahme" ? einnahmeColorSelected : Color.clear)
+                .cornerRadius(8)
             }
 
             // Ausgaben Button
             Button(action: { type = "ausgabe" }) {
-                VStack {
+                VStack(spacing: 4) {
                     Image(systemName: type == "ausgabe" ? "arrow.up.circle.fill" : "arrow.up.circle")
-                        .font(.system(size: 24))
+                        .font(.system(size: 20))
                     Text("Ausgabe")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                 }
-                .frame(width: 80, height: 60)
+                .frame(width: 70, height: 50)
                 .foregroundColor(type == "ausgabe" ? .white : .gray)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(type == "ausgabe" ? ausgabeColorSelected : Color.gray.opacity(0.2))
-                )
+                .background(type == "ausgabe" ? ausgabeColorSelected : Color.clear)
+                .cornerRadius(8)
             }
 
             // Umbuchung Button
             Button(action: { type = "umbuchung" }) {
-                VStack {
+                VStack(spacing: 4) {
                     Image(systemName: type == "umbuchung" ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
-                        .font(.system(size: 24))
+                        .font(.system(size: 20))
                     Text("Umbuchung")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                 }
-                .frame(width: 80, height: 60)
+                .frame(width: 70, height: 50)
                 .foregroundColor(type == "umbuchung" ? .white : .gray)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(type == "umbuchung" ? umbuchungColorSelected : Color.gray.opacity(0.2))
-                )
+                .background(type == "umbuchung" ? umbuchungColorSelected : Color.clear)
+                .cornerRadius(8)
             }
         }
         .padding(.horizontal)
@@ -228,37 +209,45 @@ struct EditTransactionView: View {
     
     @ViewBuilder
     private var actionButtons: some View {
-        HStack {
-            Button(action: {
-                isCancelled = true
-                dismiss()
-                if transaction.type == nil && transaction.amount == 0.0 {
-                    viewModel.getContext().delete(transaction)
-                    viewModel.saveContext(viewModel.getContext())
+        VStack {
+            Divider()
+                .background(Color.gray.opacity(0.3))
+                .padding(.bottom, 20)
+            
+            HStack(spacing: 15) {
+                Button(action: {
+                    isCancelled = true
+                    dismiss()
+                    if transaction.type == nil && transaction.amount == 0.0 {
+                        viewModel.getContext().delete(transaction)
+                        viewModel.saveContext(viewModel.getContext())
+                    }
+                }) {
+                    Text("Abbrechen")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red.opacity(0.8))
+                        .cornerRadius(8)
                 }
-            }) {
-                Text("Abbrechen")
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(Color.red)
-                    .cornerRadius(10)
-            }
 
-            Button(action: {
-                saveTransaction()
-            }) {
-                Text("Speichern")
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(isValidInput ? Color.blue : Color.gray)
-                    .cornerRadius(10)
+                Button(action: {
+                    saveTransaction()
+                }) {
+                    Text("Speichern")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity)
+                        .background(isValidInput ? Color.blue.opacity(0.8) : Color.gray.opacity(0.5))
+                        .cornerRadius(8)
+                }
+                .disabled(!isValidInput)
             }
-            .disabled(!isValidInput)
         }
         .padding(.horizontal)
-        .padding(.bottom)
+        .padding(.bottom, 15)
         .id("bottomButtons")
     }
 

@@ -343,49 +343,23 @@ struct TransactionView: View {
                 showEditTransactionSheet = false
                 print("EditTransactionSheet geschlossen")
             }) {
-                Group {
-                    if isLoadingTransaction {
-                        VStack {
-                            ProgressView("Lade Transaktion...")
-                                .foregroundColor(.white)
-                            if let error = loadingError {
-                                Text(error)
-                                    .foregroundColor(.red)
-                                    .padding()
-                            }
-                            // Abbrechen-Button hinzufügen
-                            Button("Abbrechen") {
-                                showEditTransactionSheet = false
-                                isLoadingTransaction = false
-                                loadingError = nil
-                                selectedTransactionID = nil
-                            }
+                if let transaction = selectedTransaction {
+                    EditTransactionView(viewModel: viewModel, transaction: transaction)
+                        .environment(\.managedObjectContext, viewModel.getContext())
+                } else {
+                    VStack {
+                        Text("Fehler beim Laden der Transaktion")
                             .foregroundColor(.red)
                             .padding()
+                        Button("Schließen") {
+                            showEditTransactionSheet = false
+                            selectedTransactionID = nil
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black)
-                    } else if let transaction = selectedTransaction {
-                        EditTransactionView(viewModel: viewModel, transaction: transaction)
-                    } else if let error = loadingError {
-                        VStack {
-                            Text("Fehler")
-                                .font(.headline)
-                                .foregroundColor(.red)
-                            Text(error)
-                                .foregroundColor(.red)
-                                .padding()
-                            Button("Schließen") {
-                                showEditTransactionSheet = false
-                                loadingError = nil
-                                selectedTransactionID = nil
-                            }
-                            .foregroundColor(.red)
-                            .padding()
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black)
+                        .foregroundColor(.white)
+                        .padding()
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
                 }
             }
             .sheet(isPresented: $showDatePickerSheet) {
@@ -659,10 +633,13 @@ struct TransactionView: View {
     }
 
     private func loadTransactionForEditing(_ transaction: Transaction) {
+        selectedTransactionID = transaction.id
         viewModel.loadTransaction(transaction) { loadedTransaction in
             if let loadedTransaction = loadedTransaction {
-                self.transactionToEdit = loadedTransaction
-                self.showEditTransactionSheet = true
+                DispatchQueue.main.async {
+                    self.selectedTransactionID = loadedTransaction.id
+                    self.showEditTransactionSheet = true
+                }
             }
         }
     }
