@@ -41,41 +41,60 @@ struct EditTransactionView: View {
     init(viewModel: TransactionViewModel, transaction: Transaction) {
         self.viewModel = viewModel
         self.transaction = transaction
-        self._type = State(initialValue: transaction.type ?? "einnahme")
-        self._amount = State(initialValue: transaction.amount == 0.0 ? "" : String(abs(transaction.amount)))
-        self._category = State(initialValue: transaction.categoryRelationship?.name ?? "")
-        self._newCategory = State(initialValue: "")
-        self._account = State(initialValue: transaction.account)
-        self._targetAccount = State(initialValue: transaction.targetAccount)
-        self._usage = State(initialValue: transaction.usage ?? "")
-        self._date = State(initialValue: transaction.date)
-        print("Initialized EditTransactionView with type: \(self._type.wrappedValue), amount: \(self._amount.wrappedValue), account: \(self._account.wrappedValue?.name ?? "nil"), category: \(self._category.wrappedValue), usage: \(self._usage.wrappedValue)")
+        
+        // Initialisiere die Zustandsvariablen mit den Werten der Transaktion
+        _type = State(initialValue: transaction.type ?? "einnahme")
+        _amount = State(initialValue: String(format: "%.2f", abs(transaction.amount)))
+        _category = State(initialValue: transaction.categoryRelationship?.name ?? "")
+        _newCategory = State(initialValue: "")
+        _account = State(initialValue: transaction.account)
+        _targetAccount = State(initialValue: transaction.targetAccount)
+        _usage = State(initialValue: transaction.usage ?? "")
+        _date = State(initialValue: transaction.date)
+        
+        print("EditTransactionView initialisiert mit:")
+        print("- Type: \(transaction.type ?? "nil")")
+        print("- Amount: \(transaction.amount)")
+        print("- Category: \(transaction.categoryRelationship?.name ?? "nil")")
+        print("- Account: \(transaction.account?.name ?? "nil")")
+        print("- Usage: \(transaction.usage ?? "nil")")
     }
 
     var body: some View {
-        ZStack {
-            Color.black.edgesIgnoringSafeArea(.all)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 20) {
-                        headerView
-                        typeButtonsView
-                        transactionFormView(proxy: proxy)
-                        errorMessages
-                        actionButtons
+        NavigationStack {
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            headerView
+                            typeButtonsView
+                            transactionFormView(proxy: proxy)
+                            errorMessages
+                            actionButtons
+                        }
+                        .padding(.top)
+                        .padding(.bottom, keyboard.keyboardHeight + 20)
+                        .animation(.easeInOut, value: keyboard.keyboardHeight)
                     }
-                    .padding(.top)
-                    .padding(.bottom, keyboard.keyboardHeight + 20)
-                    .animation(.easeInOut, value: keyboard.keyboardHeight)
                 }
             }
-        }
-        .onAppear {
-            if account == nil {
-                account = viewModel.accountGroups.compactMap { group -> [Account]? in
-                    guard let accounts = group.accounts?.allObjects as? [Account] else { return nil }
-                    return accounts
-                }.flatMap { $0 }.first
+            .navigationTitle("Transaktion bearbeiten")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Speichern") {
+                        saveTransaction()
+                    }
+                    .foregroundColor(.white)
+                    .disabled(!isValidInput)
+                }
             }
         }
     }
@@ -90,14 +109,56 @@ struct EditTransactionView: View {
     
     @ViewBuilder
     private var typeButtonsView: some View {
-        TypeButtonsView(
-            selectedType: $type,
-            einnahmeColorSelected: einnahmeColorSelected,
-            ausgabeColorSelected: ausgabeColorSelected,
-            umbuchungColorSelected: umbuchungColorSelected,
-            defaultColor: defaultColor
-        )
-        .padding()
+        HStack(spacing: 15) {
+            // Einnahmen Button
+            Button(action: { type = "einnahme" }) {
+                VStack {
+                    Image(systemName: type == "einnahme" ? "arrow.down.circle.fill" : "arrow.down.circle")
+                        .font(.system(size: 24))
+                    Text("Einnahme")
+                        .font(.system(size: 12))
+                }
+                .frame(width: 80, height: 60)
+                .foregroundColor(type == "einnahme" ? .white : .gray)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(type == "einnahme" ? einnahmeColorSelected : Color.gray.opacity(0.2))
+                )
+            }
+
+            // Ausgaben Button
+            Button(action: { type = "ausgabe" }) {
+                VStack {
+                    Image(systemName: type == "ausgabe" ? "arrow.up.circle.fill" : "arrow.up.circle")
+                        .font(.system(size: 24))
+                    Text("Ausgabe")
+                        .font(.system(size: 12))
+                }
+                .frame(width: 80, height: 60)
+                .foregroundColor(type == "ausgabe" ? .white : .gray)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(type == "ausgabe" ? ausgabeColorSelected : Color.gray.opacity(0.2))
+                )
+            }
+
+            // Umbuchung Button
+            Button(action: { type = "umbuchung" }) {
+                VStack {
+                    Image(systemName: type == "umbuchung" ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
+                        .font(.system(size: 24))
+                    Text("Umbuchung")
+                        .font(.system(size: 12))
+                }
+                .frame(width: 80, height: 60)
+                .foregroundColor(type == "umbuchung" ? .white : .gray)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(type == "umbuchung" ? umbuchungColorSelected : Color.gray.opacity(0.2))
+                )
+            }
+        }
+        .padding(.horizontal)
     }
     
     @ViewBuilder
@@ -185,32 +246,7 @@ struct EditTransactionView: View {
             }
 
             Button(action: {
-                guard isValidInput, let amountValue = Double(amount.replacingOccurrences(of: ",", with: ".")) else {
-                    print("Failed to save: Invalid input")
-                    return
-                }
-                guard !isCancelled else {
-                    print("Buchung abgebrochen, speichere nicht")
-                    return
-                }
-                saveCount += 1
-                let adjustedAmount = type == "ausgabe" ? -amountValue : amountValue
-                print("Saving transaction (attempt \(saveCount)): type=\(type), amount=\(adjustedAmount), category=\(category == "new" && !newCategory.isEmpty ? newCategory : category), usage=\(usage)")
-                
-                let finalCategory = category == "new" && !newCategory.isEmpty ? newCategory : category
-                
-                viewModel.updateTransaction(
-                    transaction,
-                    type: type,
-                    amount: adjustedAmount,
-                    category: finalCategory,
-                    account: account!,
-                    targetAccount: type == "umbuchung" ? targetAccount : nil,
-                    usage: usage.isEmpty ? nil : usage,
-                    date: date
-                ) {
-                    dismiss()
-                }
+                saveTransaction()
             }) {
                 Text("Speichern")
                     .foregroundColor(.white)
@@ -224,6 +260,25 @@ struct EditTransactionView: View {
         .padding(.horizontal)
         .padding(.bottom)
         .id("bottomButtons")
+    }
+
+    private func saveTransaction() {
+        guard isValidInput else { return }
+        
+        let finalAmount = type == "ausgabe" ? -abs(Double(amount.replacingOccurrences(of: ",", with: ".")) ?? 0) : abs(Double(amount.replacingOccurrences(of: ",", with: ".")) ?? 0)
+        
+        viewModel.updateTransaction(
+            transaction,
+            type: type,
+            amount: finalAmount,
+            category: category == "new" ? newCategory : category,
+            account: account ?? transaction.account!,
+            targetAccount: type == "umbuchung" ? targetAccount : nil,
+            usage: usage,
+            date: date
+        ) {
+            dismiss()
+        }
     }
 
     private var isValidInput: Bool {
