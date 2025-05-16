@@ -1,6 +1,7 @@
 import SwiftUI
 import CoreData
 import UniformTypeIdentifiers // Für UIDocumentPickerViewController
+import UIKit // Für UIImpactFeedbackGenerator
 
 struct AuthenticationView: View {
     @Binding var isAuthenticated: Bool
@@ -43,53 +44,285 @@ struct AccountBalance: Identifiable {
     let balance: Double
 }
 
-// View für ein einzelnes Konto
+// IconSelectionView
+struct IconSelectionView: View {
+    let selectedIcon: String
+    let selectedColor: Color
+    let onIconSelected: (String) -> Void
+    
+    private let availableIcons = [
+        "banknote.fill",
+        "building.columns.fill",
+        "person.circle.fill",
+        "creditcard.fill",
+        "wallet.pass.fill",
+        "eurosign.circle.fill",
+        "dollarsign.circle.fill",
+        "lock.fill"
+    ]
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 15) {
+                ForEach(availableIcons, id: \.self) { icon in
+                    Button(action: {
+                        onIconSelected(icon)
+                    }) {
+                        Image(systemName: icon)
+                            .font(.system(size: 24))
+                            .foregroundColor(selectedIcon == icon ? selectedColor : .gray)
+                            .padding(8)
+                            .background(
+                                Circle()
+                                    .fill(selectedIcon == icon ? Color.gray.opacity(0.3) : Color.clear)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .listRowBackground(Color.black)
+    }
+}
+
+// ColorSelectionView
+struct ColorSelectionView: View {
+    let selectedColor: Color
+    let onColorSelected: (Color) -> Void
+    
+    private let availableColors: [Color] = [
+        .blue, .green, .orange, .red, .purple, .yellow, .gray
+    ]
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 15) {
+                ForEach(availableColors, id: \.self) { color in
+                    Button(action: {
+                        onColorSelected(color)
+                    }) {
+                        Circle()
+                            .fill(color)
+                            .frame(width: 30, height: 30)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white, lineWidth: selectedColor == color ? 2 : 0)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .listRowBackground(Color.black)
+    }
+}
+
+// EditAccountView
+struct EditAccountView: View {
+    @Environment(\.dismiss) var dismiss
+    let viewModel: TransactionViewModel
+    let account: Account
+    let onSave: () -> Void  // Neuer Callback
+    
+    @State private var accountName: String
+    @State private var selectedIcon: String
+    @State private var selectedColor: Color
+    
+    init(viewModel: TransactionViewModel, account: Account, onSave: @escaping () -> Void = {}) {
+        self.viewModel = viewModel
+        self.account = account
+        self.onSave = onSave
+        _accountName = State(initialValue: account.name ?? "")
+        _selectedIcon = State(initialValue: account.value(forKey: "icon") as? String ?? "building.columns.fill")
+        _selectedColor = State(initialValue: Color(hex: account.value(forKey: "iconColor") as? String ?? "#007AFF") ?? .blue)
+    }
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Kontodetails").foregroundColor(.white)) {
+                    TextField("Kontoname", text: $accountName)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(Color.gray.opacity(0.2))
+                        .cornerRadius(8)
+                        .foregroundColor(.white)
+                    
+                    IconSelectionView(
+                        selectedIcon: selectedIcon,
+                        selectedColor: selectedColor,
+                        onIconSelected: { icon in
+                            selectedIcon = icon
+                            print("Icon selected: \(icon)")
+                        }
+                    )
+                    
+                    ColorSelectionView(
+                        selectedColor: selectedColor,
+                        onColorSelected: { color in
+                            selectedColor = color
+                            print("Color selected: \(color.toHex())")
+                        }
+                    )
+                }
+                .listRowBackground(Color.black)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.black)
+            .preferredColorScheme(.dark)
+            .navigationTitle("Konto bearbeiten")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Speichern") {
+                        saveChanges()
+                    }
+                    .disabled(accountName.isEmpty)
+                }
+            }
+        }
+    }
+    
+    private func saveChanges() {
+        print("Saving changes...")
+        print("Name: \(accountName)")
+        print("Icon: \(selectedIcon)")
+        print("Color: \(selectedColor.toHex())")
+        
+        account.name = accountName
+        account.setValue(selectedIcon, forKey: "icon")
+        account.setValue(selectedColor.toHex(), forKey: "iconColor")
+        
+        if let context = account.managedObjectContext {
+            do {
+                try context.save()
+                print("Changes saved successfully")
+                
+                // Aktualisiere ViewModel und UI
+                viewModel.objectWillChange.send()
+                viewModel.refreshContextIfNeeded()
+                viewModel.fetchAccountGroups()
+                
+                // Rufe den onSave callback auf
+                onSave()
+                
+                // Verzögerte UI-Aktualisierung
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    viewModel.objectWillChange.send()
+                }
+                
+                dismiss()
+            } catch {
+                print("Error saving changes: \(error)")
+            }
+        } else {
+            print("No managed object context found")
+        }
+    }
+}
+
+// Erweitere Color um Hex-Unterstützung
+extension Color {
+    func toHex() -> String {
+        let components = UIColor(self).cgColor.components
+        let r = components?[0] ?? 0
+        let g = components?[1] ?? 0
+        let b = components?[2] ?? 0
+        
+        return String(
+            format: "#%02lX%02lX%02lX",
+            lroundf(Float(r * 255)),
+            lroundf(Float(g * 255)),
+            lroundf(Float(b * 255))
+        )
+    }
+}
+
+// Hilfsklasse für haptisches Feedback
+enum HapticManager {
+    static func impact() {
+        let impactMed = UIImpactFeedbackGenerator(style: .medium)
+        impactMed.impactOccurred()
+    }
+}
+
+// Modifiziere AccountRowView
 struct AccountRowView: View {
     let account: Account
     let balance: Double
     let viewModel: TransactionViewModel
+    @State private var showEditSheet = false
+    @State private var navigateToTransactions = false
+    @State private var refreshToggle = false  // Neuer State für Force-Refresh
 
     private var accountIcon: (systemName: String, color: Color) {
-        let accountName = (account.name ?? "").lowercased()
-        if accountName.contains("bar") || accountName.contains("kasse") {
-            return ("banknote.fill", .green)
-        } else if accountName.contains("giro") {
-            return ("building.columns.fill", .blue)
-        } else if accountName == "bk" {
-            return ("person.circle.fill", .orange)
-        } else if accountName.contains("konto") {
-            return ("building.columns.fill", .blue)
-        } else {
-            return ("building.columns.fill", .gray)
-        }
+        // Force view refresh when refreshToggle changes
+        _ = refreshToggle
+        let icon = account.value(forKey: "icon") as? String ?? "building.columns.fill"
+        let colorHex = account.value(forKey: "iconColor") as? String ?? "#007AFF"
+        return (icon, Color(hex: colorHex) ?? .blue)
     }
 
     var body: some View {
         NavigationLink(
-            destination: TransactionView(account: account, viewModel: viewModel)
+            destination: TransactionView(account: account, viewModel: viewModel),
+            isActive: $navigateToTransactions
         ) {
             HStack {
                 Image(systemName: accountIcon.systemName)
                     .foregroundColor(accountIcon.color)
-                    .font(.title2)
+                    .font(.system(size: 19))
                     .padding(.trailing, 8)
                 Text(account.name ?? "Unbekanntes Konto")
                     .foregroundColor(.white)
-                    .font(.headline)
+                    .font(.system(size: 17))
                 Spacer()
                 Text("\(String(format: "%.2f €", balance))")
                     .foregroundColor(balance >= 0 ? Color.green : Color.red)
-                    .font(.subheadline)
+                    .font(.system(size: 16))
             }
+            .contentShape(Rectangle())
             .padding(.vertical, 10)
-            .padding(.horizontal, 15)
+            .padding(.horizontal, 14)
             .background(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(Color.gray.opacity(0.3))
             )
         }
-        .padding(.horizontal)
         .buttonStyle(PlainButtonStyle())
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5)
+                .onEnded { _ in
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                    showEditSheet = true
+                }
+        )
+        .padding(.horizontal)
+        .sheet(isPresented: $showEditSheet, onDismiss: {
+            // Force refresh on dismiss
+            refreshToggle.toggle()
+            viewModel.objectWillChange.send()
+            viewModel.refreshContextIfNeeded()
+            
+            // Verzögerte zweite Aktualisierung für sicherere UI-Updates
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                refreshToggle.toggle()
+                viewModel.objectWillChange.send()
+            }
+        }) {
+            EditAccountView(viewModel: viewModel, account: account, onSave: {
+                // Force refresh on save
+                refreshToggle.toggle()
+            })
+        }
     }
 }
 
@@ -186,30 +419,29 @@ struct AccountGroupView: View {
             NavigationLink(
                 destination: EvaluationView(accounts: accountBalances.map { $0.account }, viewModel: viewModel)
             ) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        Image(systemName: "chart.pie.fill")
-                            .foregroundColor(.blue)
-                            .font(.title2)
-                        Image(systemName: "chart.bar.fill")
-                            .foregroundColor(.green)
-                            .font(.caption)
-                            .offset(x: 4, y: 4)
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                            .foregroundColor(.orange)
-                            .font(.caption)
-                            .offset(x: -4, y: -4)
-                    }
-                    .frame(width: 30, height: 30)
+                HStack(spacing: 6) {
+                    Image(systemName: "chart.pie.fill")
+                        .foregroundColor(.white)
+                        .font(.system(size: 16))
                     Text("Auswertung")
-                        .font(.headline)
+                        .font(.system(size: 15))
                 }
                 .foregroundColor(.white)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 16)
-                .background(Color.blue)
-                .cornerRadius(10)
-                .shadow(radius: 3)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(
+                    Group {
+                        if (group.name ?? "").lowercased().contains("kaffee") {
+                            Color.brown
+                        } else if (group.name ?? "").lowercased().contains("drinks") {
+                            Color.purple
+                        } else {
+                            Color.blue
+                        }
+                    }
+                )
+                .cornerRadius(8)
+                .shadow(radius: 2)
             }
             .padding(.horizontal)
             .padding(.top, 5)
