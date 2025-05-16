@@ -260,10 +260,9 @@ struct AccountRowView: View {
     let viewModel: TransactionViewModel
     @State private var showEditSheet = false
     @State private var navigateToTransactions = false
-    @State private var refreshToggle = false  // Neuer State für Force-Refresh
+    @State private var refreshToggle = false
 
     private var accountIcon: (systemName: String, color: Color) {
-        // Force view refresh when refreshToggle changes
         _ = refreshToggle
         let icon = account.value(forKey: "icon") as? String ?? "building.columns.fill"
         let colorHex = account.value(forKey: "iconColor") as? String ?? "#007AFF"
@@ -275,15 +274,15 @@ struct AccountRowView: View {
             HStack {
                 Image(systemName: accountIcon.systemName)
                     .foregroundColor(accountIcon.color)
-                    .font(.system(size: 19))
+                    .font(.system(size: 20))
                     .padding(.trailing, 8)
                 Text(account.name ?? "Unbekanntes Konto")
                     .foregroundColor(.white)
-                    .font(.system(size: 17))
+                    .font(.system(size: 18))
                 Spacer()
                 Text("\(String(format: "%.2f €", balance))")
                     .foregroundColor(balance >= 0 ? Color.green : Color.red)
-                    .font(.system(size: 16))
+                    .font(.system(size: 17))
             }
             .contentShape(Rectangle())
             .padding(.vertical, 10)
@@ -310,19 +309,16 @@ struct AccountRowView: View {
         )
         .padding(.horizontal)
         .sheet(isPresented: $showEditSheet, onDismiss: {
-            // Force refresh on dismiss
             refreshToggle.toggle()
             viewModel.objectWillChange.send()
             viewModel.refreshContextIfNeeded()
             
-            // Verzögerte zweite Aktualisierung für sicherere UI-Updates
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 refreshToggle.toggle()
                 viewModel.objectWillChange.send()
             }
         }) {
             EditAccountView(viewModel: viewModel, account: account, onSave: {
-                // Force refresh on save
                 refreshToggle.toggle()
             })
         }
@@ -354,8 +350,20 @@ struct AccountGroupView: View {
         }
     }
 
-    private var regularAccounts: [(account: Account, balance: Double)] {
-        accountBalances.filter { ($0.account.name ?? "").lowercased() != "bk" }
+    private var mainAccounts: [(account: Account, balance: Double)] {
+        accountBalances.filter { account in
+            let name = (account.account.name ?? "").lowercased()
+            return name == "kasa" || name == "banka" || 
+                   name == "bargeld" || name == "bank" || 
+                   name == "giro"
+        }
+    }
+
+    private var bizzeAccounts: [(account: Account, balance: Double)] {
+        accountBalances.filter { account in
+            let name = (account.account.name ?? "").lowercased()
+            return name == "bizze" || name == "bize"
+        }
     }
 
     private var bkAccounts: [(account: Account, balance: Double)] {
@@ -363,21 +371,21 @@ struct AccountGroupView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             // Gruppenkopf mit Name und Gesamtbilanz
             HStack {
                 Image(systemName: groupIcon.systemName)
                     .foregroundColor(groupIcon.color)
-                    .font(.title2)
+                    .font(.title3)
                     .padding(.trailing, 4)
                 Text(group.name ?? "Unbekannte Gruppe")
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundColor(.white)
                     .bold()
                 Spacer()
                 Text("\(String(format: "%.2f €", groupBalance))")
                     .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
-                    .font(.subheadline) // Gleiche Größe wie Kontosalden
+                    .font(.system(size: 17))
                 Button(action: {
                     groupToEdit = group
                     newGroupName = group.name ?? ""
@@ -386,11 +394,11 @@ struct AccountGroupView: View {
                 }) {
                     Image(systemName: "pencil")
                         .foregroundColor(.white)
-                        .font(.system(size: 18))
+                        .font(.system(size: 17))
                 }
             }
             .padding(.horizontal)
-            .padding(.vertical, 5)
+            .padding(.vertical, 4)
             .overlay(
                 Rectangle()
                     .frame(height: 1)
@@ -399,10 +407,23 @@ struct AccountGroupView: View {
                 alignment: .bottom
             )
 
-            // Reguläre Konten
-            ForEach(regularAccounts, id: \.account.objectID) { item in
+            // Hauptkonten (Kasa/Bargeld und Banka/Bank/Giro)
+            ForEach(mainAccounts, id: \.account.objectID) { item in
                 AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
                     .padding(.vertical, 2)
+            }
+
+            // Trennlinie und Bizze-Konten
+            if !bizzeAccounts.isEmpty {
+                Divider()
+                    .background(Color.gray.opacity(0.5))
+                    .padding(.horizontal)
+                    .padding(.vertical, 2)
+
+                ForEach(bizzeAccounts, id: \.account.objectID) { item in
+                    AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
+                        .padding(.vertical, 2)
+                }
             }
 
             // Trennlinie und BK-Konten
@@ -410,7 +431,7 @@ struct AccountGroupView: View {
                 Divider()
                     .background(Color.gray.opacity(0.5))
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 2)
 
                 ForEach(bkAccounts, id: \.account.objectID) { item in
                     AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
@@ -427,7 +448,7 @@ struct AccountGroupView: View {
                         .foregroundColor(.white)
                         .font(.system(size: 16))
                     Text("Auswertung")
-                        .font(.system(size: 15))
+                        .font(.system(size: 16))
                 }
                 .foregroundColor(.white)
                 .padding(.vertical, 8)
@@ -447,10 +468,10 @@ struct AccountGroupView: View {
                 .shadow(radius: 2)
             }
             .padding(.horizontal)
-            .padding(.top, 5)
+            .padding(.top, 4)
             .buttonStyle(PlainButtonStyle())
         }
-        .padding(.vertical)
+        .padding(.vertical, 4)
         .onAppear {
             calculateBalances()
         }
@@ -470,9 +491,12 @@ struct AccountGroupView: View {
                 return (account, balance)
             }
         
-        // Berechne Gruppensaldo ohne BK-Konten
+        // Berechne Gruppensaldo ohne BK-Konten und Bizze-Konten
         groupBalance = accountBalances
-            .filter { ($0.account.name ?? "").lowercased() != "bk" }
+            .filter { account in
+                let name = (account.account.name ?? "").lowercased()
+                return name != "bk" && name != "bizze" && name != "bize"
+            }
             .reduce(0.0) { total, item in
                 total + item.balance
             }
@@ -631,50 +655,52 @@ struct ContentToolbar: ToolbarContent {
         
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
-                Group {
-                    Button(action: {
-                        showSelectGroupSheet = true
-                        print("Konto hinzufügen ausgelöst")
-                    }) {
-                        Label("Konto hinzufügen", systemImage: "creditcard")
-                    }
-                    
-                    Button(action: {
-                        showAddGroupSheet = true
-                        print("Kontogruppe hinzufügen ausgelöst")
-                    }) {
-                        Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-                    }
-                    
-                    Button(action: {
-                        showAboutView = true
-                    }) {
-                        Label("Über EuroBlick", systemImage: "info.circle")
-                    }
-                    
-                    #if DEBUG
-                    Divider()
-                    
-                    Button(role: .destructive, action: {
-                        PersistenceController.shared.resetCoreData()
-                        print("Core Data zurückgesetzt")
-                    }) {
-                        Label("Core Data zurücksetzen", systemImage: "trash")
-                    }
-                    
-                    Button(role: .destructive, action: {
-                        authManager.resetUserDefaults()
-                        print("UserDefaults zurückgesetzt")
-                    }) {
-                        Label("UserDefaults zurücksetzen", systemImage: "trash")
-                    }
-                    #endif
+                Button(action: {
+                    showSelectGroupSheet = true
+                    print("Konto hinzufügen ausgelöst")
+                }) {
+                    Label("Konto hinzufügen", systemImage: "creditcard")
+                        .foregroundColor(.white)
                 }
+                
+                Button(action: {
+                    showAddGroupSheet = true
+                    print("Kontogruppe hinzufügen ausgelöst")
+                }) {
+                    Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+                        .foregroundColor(.white)
+                }
+                
+                Button(action: {
+                    showAboutView = true
+                }) {
+                    Label("Über EuroBlick", systemImage: "info.circle")
+                        .foregroundColor(.white)
+                }
+                
+                #if DEBUG
+                Divider()
+                
+                Button(role: .destructive, action: {
+                    PersistenceController.shared.resetCoreData()
+                    print("Core Data zurückgesetzt")
+                }) {
+                    Label("Core Data zurücksetzen", systemImage: "trash")
+                }
+                
+                Button(role: .destructive, action: {
+                    authManager.resetUserDefaults()
+                    print("UserDefaults zurückgesetzt")
+                }) {
+                    Label("UserDefaults zurücksetzen", systemImage: "trash")
+                }
+                #endif
             } label: {
                 Image(systemName: "gear")
                     .font(.system(size: 20))
                     .foregroundColor(.white)
             }
+            .menuStyle(BorderlessButtonMenuStyle())
         }
     }
 }
@@ -732,7 +758,6 @@ struct ContentView: View {
     @Environment(\.dismiss) var dismiss
     @State private var showAddSheet = false
     @State private var showAddGroupSheet = false
-    @State private var showAddAccountSheet = false
     @State private var showSelectGroupSheet = false
     @State private var showEditGroupSheet = false
     @State private var showAboutView = false
@@ -760,31 +785,53 @@ struct ContentView: View {
                 Color.black.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
+                    // Zusätzlicher Abstand oben
+                    Spacer()
+                        .frame(height: 45) // Etwa 1.5cm auf einem iPhone
+                    
                     // Titel mit Wallet-Icon
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         Image(systemName: "wallet.pass.fill")
                             .foregroundColor(.white)
-                            .font(.system(size: 24))
+                            .font(.system(size: 20))
                         Text("Konten")
                             .foregroundColor(.white)
-                            .font(.title)
+                            .font(.title3)
                     }
-                    .padding(.top, 12)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 4)
+                    
+                    // EuroBlick Logo
+                    HStack(spacing: 6) {
+                        Image(systemName: "eurosign.circle.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.blue)
+                        Text("EuroBlick")
+                            .font(.title3)
+                            .foregroundColor(.white)
+                            .bold()
+                    }
+                    .frame(maxWidth: .infinity)
                     .padding(.bottom, 8)
                     
                     // Hauptinhalt
-                    VStack {
-                        AppLogoView()
-                        ContentMainView(
-                            accountGroups: viewModel.accountGroups,
-                            balances: accountBalances,
-                            viewModel: viewModel,
-                            showAddGroupSheet: $showAddGroupSheet,
-                            showSelectGroupSheet: $showSelectGroupSheet,
-                            showEditGroupSheet: $showEditGroupSheet,
-                            groupToEdit: $groupToEdit,
-                            newGroupName: $newGroupName
-                        )
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            ForEach(Array(viewModel.accountGroups.enumerated()), id: \.element.id) { index, group in
+                                AccountGroupView(
+                                    group: group,
+                                    viewModel: viewModel,
+                                    balances: accountBalances,
+                                    showEditGroupSheet: $showEditGroupSheet,
+                                    groupToEdit: $groupToEdit,
+                                    newGroupName: $newGroupName
+                                )
+                                .padding(.top, index == 0 ? 15 : 0) // Zusätzlicher Abstand nur für die erste Gruppe (0.5cm)
+                            }
+                        }
+                        .padding(.top, 12)
                         .padding(.bottom, 20)
                     }
                 }
@@ -797,6 +844,20 @@ struct ContentView: View {
                     showSelectGroupSheet: $showSelectGroupSheet,
                     showAboutView: $showAboutView
                 )
+            }
+            .sheet(isPresented: $showAddGroupSheet) {
+                AddAccountGroupView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showSelectGroupSheet) {
+                SelectAccountGroupView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showEditGroupSheet) {
+                if let group = groupToEdit {
+                    EditAccountGroupView(viewModel: viewModel, group: group, newGroupName: $newGroupName)
+                }
+            }
+            .sheet(isPresented: $showAboutView) {
+                AboutView()
             }
         }
         .preferredColorScheme(.dark)
@@ -815,7 +876,7 @@ struct ContentView: View {
             refreshBalances()
         }
         .onChange(of: viewModel.transactionsUpdated) { _, _ in
-            refreshBalances() // Aktualisiere Kontostände, wenn Transaktionen geändert werden
+            refreshBalances()
             print("Kontostände aktualisiert bei Transaktionsänderung: \(accountBalances.count) Konten")
         }
     }
@@ -890,14 +951,14 @@ struct AppLogoView: View {
             Image(systemName: "eurosign.circle.fill")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 40, height: 40) // Behalte die Größe, aber füge .scaledToFit() hinzu
+                .frame(width: 30, height: 30)
                 .foregroundColor(.blue)
             Text("EuroBlick")
-                .font(.title)
+                .font(.title2)
                 .foregroundColor(.white)
                 .bold()
         }
-        .padding()
+        .padding(.vertical, 4)
     }
 }
 
