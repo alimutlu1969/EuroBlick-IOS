@@ -1971,5 +1971,60 @@ class TransactionViewModel: ObservableObject {
             }
         }
     }
+
+    // Speichere eine manuelle Kategoriezuweisung und lerne daraus
+    func saveCategory(_ category: Category, for transaction: Transaction) {
+        context.perform {
+            // Speichere die Kategorie
+            transaction.categoryRelationship = category
+            
+            // Lerne aus der manuellen Zuweisung
+            if let originalUsage = transaction.usage {
+                // Erstelle eine gekürzte Version des Verwendungszwecks
+                let shortForm = self.createShortForm(from: originalUsage)
+                
+                // Speichere die Zuordnung im CategoryMatcher
+                CategoryMatcher.shared.learnShortForm(
+                    originalText: originalUsage,
+                    shortForm: shortForm,
+                    category: category.name ?? "Unbekannt"
+                )
+            }
+            
+            self.saveContext(self.context)
+        }
+    }
+    
+    // Erstellt eine gekürzte Version eines Verwendungszwecks
+    private func createShortForm(from usage: String) -> String {
+        // Entferne häufige Zusätze und unwichtige Informationen
+        var shortForm = usage
+            .replacingOccurrences(of: "\\s+GmbH\\s+&\\s+Co\\.?\\s+KG", with: " GmbH", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+GmbH\\s+&\\s+Co", with: " GmbH", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+AG\\s+&\\s+Co\\.?\\s+KG", with: " AG", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+AG\\s+&\\s+Co", with: " AG", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+mbH", with: " GmbH", options: .regularExpression)
+            .replacingOccurrences(of: "(?i)gesellschaft mit beschränkter haftung", with: "GmbH", options: .regularExpression)
+            .replacingOccurrences(of: "(?i)aktiengesellschaft", with: "AG", options: .regularExpression)
+        
+        // Entferne Straßen, Hausnummern und PLZ
+        shortForm = shortForm.replacingOccurrences(
+            of: "\\s+(?:str\\.|strasse|straße)\\s+\\d+[a-z]?(?:[,-]\\s*\\d{5})?",
+            with: "",
+            options: .regularExpression
+        )
+        
+        // Entferne PLZ und Orte
+        shortForm = shortForm.replacingOccurrences(
+            of: "\\s*,?\\s*\\d{5}\\s+[A-Za-zÄÖÜäöüß\\s]+(?:,\\s*[A-Za-z]+)?",
+            with: "",
+            options: .regularExpression
+        )
+        
+        // Entferne mehrfache Leerzeichen und trimme
+        shortForm = shortForm.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return shortForm
+    }
 }
 
