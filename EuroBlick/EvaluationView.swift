@@ -259,212 +259,100 @@ struct EvaluationView: View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 40) {
-                        // Monatspicker
-                        HStack {
-                            Button(action: {
-                                showMonthPickerSheet = true
-                            }) {
-                                HStack {
-                                    Text(selectedMonth == "Benutzerdefinierter Zeitraum" && customDateRange != nil ? customDateRangeDisplay : selectedMonth)
-                                        .foregroundColor(.white)
-                                        .font(.headline)
-                                    Spacer()
-                                    Image(systemName: "calendar")
-                                        .foregroundColor(.white)
-                                        .font(.headline)
+                VStack(spacing: 0) {
+                    // Date Filter Header
+                    DateFilterHeader(
+                        selectedMonth: $selectedMonth,
+                        showMonthPickerSheet: $showMonthPickerSheet,
+                        customDateRange: $customDateRange,
+                        monthlyData: monthlyData
+                    )
+                    .background(Color.black.opacity(0.3))
+                    
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 40) {
+                            // Charts and other content
+                            if let data = monthlyData.first {
+                                // Einnahmen/Ausgaben/Überschuss Balkendiagramm
+                                BarChartView(data: data)
+                                    .frame(height: 300)
+                                    .padding()
+                                    .background(Color.black.opacity(0.2))
+                                    .cornerRadius(10)
+                                
+                                // Ausgaben nach Kategorie
+                                if !data.expenseTransactions.isEmpty {
+                                    CategoryChartView(
+                                        categoryData: categoryData,
+                                        totalExpenses: totalCategoryExpenses,
+                                        showTransactions: { transactions, title in
+                                            transactionsToShow = transactions
+                                            transactionsTitle = title
+                                            shouldShowTransactionsSheet = true
+                                        }
+                                    )
                                 }
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
+                                
+                                // Einnahmen nach Kategorie
+                                if !data.incomeTransactions.isEmpty {
+                                    IncomeCategoryChartView(
+                                        categoryData: incomeCategoryData,
+                                        totalIncome: totalCategoryIncome,
+                                        showTransactions: { transactions, title in
+                                            transactionsToShow = transactions
+                                            transactionsTitle = title
+                                            shouldShowTransactionsSheet = true
+                                        }
+                                    )
+                                }
+                                
+                                // Prognose
+                                ForecastView(
+                                    transactions: data.incomeTransactions + data.expenseTransactions,
+                                    colorForValue: colorForValue
+                                )
                             }
-                            .padding(.horizontal)
-                            Spacer()
-                            if selectedMonth != "Alle Monate", let data = monthlyData.first {
-                                Text("Überschuss: \(String(format: "%.2f €", data.surplus))")
-                                    .foregroundColor(data.surplus >= 0 ? .green : .red)
-                                    .font(.caption)
-                                    .lineLimit(1)
+
+                            if let pdfURL = pdfURL {
+                                ShareLink(item: pdfURL) {
+                                    HStack {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .font(.title2)
+                                        Text("PDF teilen")
+                                            .font(.headline)
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding()
+                                    .background(Color.blue)
+                                    .cornerRadius(10)
+                                    .shadow(radius: 3)
                                     .padding(.horizontal)
+                                    .padding(.top, 20)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            } else {
+                                Button(action: {
+                                    generatePDF()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "doc.fill")
+                                            .font(.title2)
+                                        Text("PDF erstellen")
+                                            .font(.headline)
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding()
+                                    .background(Color.blue)
+                                    .cornerRadius(10)
+                                    .shadow(radius: 3)
+                                    .padding(.horizontal)
+                                    .padding(.top, 20)
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
                         }
-
-                        // Einnahmen/Ausgaben/Überschuss Balkendiagramm
-                        if let data = monthlyData.first {
-                            Text("Einnahmen / Ausgaben / Überschuss")
-                                .foregroundColor(.white)
-                                .font(.subheadline)
-                                .padding(.horizontal)
-                            let maxValue = max(abs(data.income), abs(data.expenses), abs(data.surplus))
-                            let maxHeight: CGFloat = 150
-                            let scaleFactor = maxValue > 0 ? maxHeight / maxValue : 1.0
-
-                            HStack {
-                                // Einnahmen (links, grün)
-                                VStack {
-                                    Spacer()
-                                    Rectangle()
-                                        .fill(Color.green)
-                                        .frame(width: 80, height: CGFloat(abs(data.income)) * scaleFactor)
-                                        .onTapGesture {
-                                            print("Einnahmen Balken geklickt")
-                                            loadMonthlyData()
-                                            if let data = monthlyData.first {
-                                                transactionsTitle = "Einnahmen"
-                                                transactionsToShow = data.incomeTransactions
-                                                shouldShowTransactionsSheet = true
-                                            }
-                                        }
-                                    Text("Einnahmen")
-                                        .foregroundColor(.white)
-                                        .font(.caption)
-                                        .padding(.top, 8)
-                                    Text("\(String(format: "%.2f €", data.income))")
-                                        .foregroundColor(.green)
-                                        .font(.caption)
-                                        .padding(.top, 4)
-                                }
-                                Spacer()
-                                // Ausgaben (mitte, rot)
-                                VStack {
-                                    Spacer()
-                                    Rectangle()
-                                        .fill(Color.red)
-                                        .frame(width: 80, height: CGFloat(abs(data.expenses)) * scaleFactor)
-                                        .onTapGesture {
-                                            print("Ausgaben Balken geklickt")
-                                            loadMonthlyData()
-                                            if let data = monthlyData.first {
-                                                transactionsTitle = "Ausgaben"
-                                                transactionsToShow = data.expenseTransactions
-                                                shouldShowTransactionsSheet = true
-                                            }
-                                        }
-                                    Text("Ausgaben")
-                                        .foregroundColor(.white)
-                                        .font(.caption)
-                                        .padding(.top, 8)
-                                    Text("\(String(format: "%.2f €", data.expenses))")
-                                        .foregroundColor(.red)
-                                        .font(.caption)
-                                        .padding(.top, 4)
-                                }
-                                Spacer()
-                                // Überschuss (rechts, dynamische Farbe)
-                                VStack {
-                                    Spacer()
-                                    Rectangle()
-                                        .fill(data.surplus >= 0 ? Color.green : Color.red)
-                                        .frame(width: 80, height: CGFloat(abs(data.surplus)) * scaleFactor)
-                                    Text("Überschuss")
-                                        .foregroundColor(.white)
-                                        .font(.caption)
-                                        .padding(.top, 8)
-                                    Text("\(String(format: "%.2f €", data.surplus))")
-                                        .foregroundColor(data.surplus >= 0 ? .green : .red)
-                                        .font(.caption)
-                                        .padding(.top, 4)
-                                }
-                            }
-                            .padding(.horizontal)
-                            .frame(height: maxHeight + 60) // Höhe für Balken + Text
-                        }
-
-                        // Einnahmen-Tortendiagramm
-                        IncomeCategoryChartView(
-                            categoryData: incomeCategoryData,
-                            totalIncome: totalCategoryIncome,
-                            showTransactions: { transactions, title in
-                                loadMonthlyData()
-                                transactionsTitle = title
-                                transactionsToShow = transactions
-                                os_log(.info, "%@: %d Einträge", title, transactions.count)
-                                shouldShowTransactionsSheet = true
-                            }
-                        )
-                        .padding(.vertical, 20)
-
-                        // Pie-Chart für Kategorien
-                        CategoryChartView(
-                            categoryData: categoryData,
-                            totalExpenses: totalCategoryExpenses,
-                            showTransactions: { transactions, title in
-                                loadMonthlyData()
-                                transactionsTitle = title
-                                transactionsToShow = transactions
-                                os_log(.info, "%@: %d Einträge", title, transactions.count)
-                                shouldShowTransactionsSheet = true
-                            }
-                        )
-                        .padding(.vertical, 20)
-
-                        // Pie-Chart für Verwendungszweck
-                        UsageChartView(
-                            usageData: usageData,
-                            totalExpenses: totalUsageExpenses,
-                            showTransactions: { transactions, title in
-                                loadMonthlyData()
-                                transactionsTitle = title
-                                transactionsToShow = transactions
-                                os_log(.info, "%@: %d Einträge", title, transactions.count)
-                                shouldShowTransactionsSheet = true
-                            }
-                        )
-                        .padding(.vertical, 20)
-
-                        // Prognostizierter Kontostand
-                        ForecastChartView(
-                            forecastData: forecastData,
-                            monthlyData: monthlyData.first,
-                            transactionsTitle: $transactionsTitle,
-                            transactionsToShow: $transactionsToShow,
-                            showTransactionsSheet: $shouldShowTransactionsSheet
-                        )
-                        .padding(.vertical, 20)
-
-                        // PDF Export Button
-                        if let pdfURL = pdfURL {
-                            ShareLink(item: pdfURL) {
-                                HStack {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .font(.title2)
-                                    Text("PDF teilen")
-                                        .font(.headline)
-                                }
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(Color.blue)
-                                .cornerRadius(10)
-                                .shadow(radius: 3)
-                                .padding(.horizontal)
-                                .padding(.top, 20)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        } else {
-                            Button(action: {
-                                generatePDF()
-                            }) {
-                                HStack {
-                                    Image(systemName: "doc.fill")
-                                        .font(.title2)
-                                    Text("PDF erstellen")
-                                        .font(.headline)
-                                }
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(Color.blue)
-                                .cornerRadius(10)
-                                .shadow(radius: 3)
-                                .padding(.horizontal)
-                                .padding(.top, 20)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
+                        .padding(.bottom)
                     }
-                    .padding(.bottom)
-                }
-                .onAppear {
-                    loadMonthlyData()
                 }
             }
             .navigationTitle("Auswertungen")
@@ -503,6 +391,9 @@ struct EvaluationView: View {
                     showTransactionsSheet: $shouldShowTransactionsSheet,
                     viewModel: viewModel
                 )
+            }
+            .onAppear {
+                loadMonthlyData()
             }
         }
     }
@@ -579,6 +470,75 @@ struct EvaluationView: View {
     }
 }
 
+// New DateFilterHeader View
+struct DateFilterHeader: View {
+    @Binding var selectedMonth: String
+    @Binding var showMonthPickerSheet: Bool
+    @Binding var customDateRange: (start: Date, end: Date)?
+    let monthlyData: [MonthlyData]
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            Button(action: {
+                showMonthPickerSheet = true
+            }) {
+                HStack {
+                    Image(systemName: "calendar")
+                        .foregroundColor(.white)
+                        .font(.headline)
+                    
+                    Text(selectedMonth == "Benutzerdefinierter Zeitraum" && customDateRange != nil ? customDateRangeDisplay : selectedMonth)
+                        .foregroundColor(.white)
+                        .font(.headline)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.down")
+                        .foregroundColor(.white)
+                        .font(.caption)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color.blue.opacity(0.3))
+                .cornerRadius(10)
+            }
+            .padding(.horizontal)
+            
+            if selectedMonth != "Alle Monate", let data = monthlyData.first {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Einnahmen: \(String(format: "%.2f €", data.income))")
+                            .foregroundColor(.green)
+                        Text("Ausgaben: \(String(format: "%.2f €", abs(data.expenses)))")
+                            .foregroundColor(.red)
+                    }
+                    .font(.caption)
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Überschuss")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        Text(String(format: "%.2f €", data.surplus))
+                            .font(.headline)
+                            .foregroundColor(data.surplus >= 0 ? .green : .red)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .padding(.vertical, 12)
+    }
+    
+    private var customDateRangeDisplay: String {
+        guard let range = customDateRange else { return "" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yy"
+        return "\(formatter.string(from: range.start)) - \(formatter.string(from: range.end))"
+    }
+}
+
 // Sub-View für das Monatsauswahl-Sheet
 struct MonthPickerSheet: View {
     @Binding var selectedMonth: String
@@ -588,61 +548,127 @@ struct MonthPickerSheet: View {
     @Binding var selectedCategory: CategoryData?
     @Binding var selectedUsage: CategoryData?
     let onFilter: () -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    var filteredMonths: [String] {
+        if searchText.isEmpty {
+            return availableMonths
+        }
+        return availableMonths.filter { $0.lowercased().contains(searchText.lowercased()) }
+    }
 
     var body: some View {
-        VStack {
-            Text("Monat auswählen")
-                .foregroundColor(.white)
-                .font(.headline)
-                .padding()
-            
-            Menu {
-                ForEach(availableMonths, id: \.self) { month in
-                    Button(action: {
-                        selectedMonth = month
-                        if month == "Benutzerdefinierter Zeitraum" {
-                            showMonthPickerSheet = false
-                            showCustomDateRangeSheet = true
-                        }
-                    }) {
-                        Text(month)
+        NavigationView {
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 0) {
+                    // Suchleiste
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.gray)
+                        TextField("Suchen...", text: $searchText)
+                            .textFieldStyle(PlainTextFieldStyle())
                             .foregroundColor(.white)
                     }
-                }
-            } label: {
-                HStack {
-                    Text(selectedMonth)
-                        .foregroundColor(.white)
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .foregroundColor(.white)
-                }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color.blue.opacity(0.3))
-                .cornerRadius(10)
-            }
-            .menuStyle(BorderlessButtonMenuStyle())
-            .menuIndicator(.hidden)
-            .padding(.horizontal)
-            
-            Button(action: {
-                selectedCategory = nil
-                selectedUsage = nil
-                onFilter()
-                showMonthPickerSheet = false
-            }) {
-                Text("Filter anwenden")
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(Color.blue)
+                    .padding(10)
+                    .background(Color.gray.opacity(0.2))
                     .cornerRadius(10)
+                    .padding(.horizontal)
+                    .padding(.top)
+                    
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            // Schnellauswahl-Optionen
+                            Group {
+                                Button(action: {
+                                    selectedMonth = "Alle Monate"
+                                    dismiss()
+                                    onFilter()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "calendar")
+                                        Text("Alle Monate")
+                                        Spacer()
+                                        if selectedMonth == "Alle Monate" {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                
+                                Button(action: {
+                                    selectedMonth = "Benutzerdefinierter Zeitraum"
+                                    showMonthPickerSheet = false
+                                    showCustomDateRangeSheet = true
+                                }) {
+                                    HStack {
+                                        Image(systemName: "calendar.badge.clock")
+                                        Text("Benutzerdefinierter Zeitraum")
+                                        Spacer()
+                                        if selectedMonth == "Benutzerdefinierter Zeitraum" {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                            }
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.blue.opacity(0.3))
+                            .cornerRadius(12)
+                            
+                            // Trennlinie
+                            Text("Verfügbare Monate")
+                                .foregroundColor(.gray)
+                                .font(.caption)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                            
+                            // Monatsliste
+                            LazyVGrid(columns: [
+                                GridItem(.flexible()),
+                                GridItem(.flexible())
+                            ], spacing: 8) {
+                                ForEach(filteredMonths.filter { $0 != "Alle Monate" && $0 != "Benutzerdefinierter Zeitraum" }, id: \.self) { month in
+                                    Button(action: {
+                                        selectedMonth = month
+                                        dismiss()
+                                        onFilter()
+                                    }) {
+                                        HStack {
+                                            Text(month)
+                                            Spacer()
+                                            if selectedMonth == month {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                        .padding()
+                                        .background(selectedMonth == month ? Color.blue.opacity(0.5) : Color.gray.opacity(0.2))
+                                        .cornerRadius(12)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .foregroundColor(.white)
+                                }
+                            }
+                        }
+                        .padding()
+                    }
+                }
             }
-            .padding()
+            .navigationTitle("Zeitraum wählen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Fertig") {
+                        dismiss()
+                    }
+                    .foregroundColor(.blue)
+                }
+            }
         }
-        .background(Color.black)
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -1342,35 +1368,9 @@ struct UsageChartView: View {
 }
 
 // Sub-View für das Prognose-Diagramm
-struct ForecastChartView: View {
-    let forecastData: [ForecastData]
-    let monthlyData: MonthlyData?
-    @Binding var transactionsTitle: String
-    @Binding var transactionsToShow: [Transaction]
-    @Binding var showTransactionsSheet: Bool
-
-    private func colorForValue(_ value: Double) -> Color {
-        value >= 0 ? .green : .red
-    }
-
-    private func barHeight(for value: Double, scaleFactor: CGFloat) -> CGFloat {
-        CGFloat(abs(value)) * scaleFactor
-    }
-    
-    // Berechne tägliche Durchschnittswerte
-    private func calculateDailyAverages() -> (income: Double, expenses: Double, surplus: Double)? {
-        guard let data = monthlyData else { return nil }
-        
-        let calendar = Calendar.current
-        let today = Date()
-        let currentDay = Double(calendar.component(.day, from: today))
-        
-        let dailyIncome = data.income / currentDay
-        let dailyExpenses = data.expenses / currentDay
-        let dailySurplus = dailyIncome - dailyExpenses
-        
-        return (dailyIncome, dailyExpenses, dailySurplus)
-    }
+struct ForecastView: View {
+    let transactions: [Transaction]
+    let colorForValue: (Double) -> Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -1405,8 +1405,8 @@ struct ForecastChartView: View {
                 .padding(.horizontal)
             }
 
-            if let forecast = forecastData.first {
-                let maxValue = max(abs(forecast.einnahmen), abs(forecast.ausgaben), abs(forecast.balance))
+            if let forecast = transactions.first {
+                let maxValue = max(abs(forecast.amount), abs(forecast.amount))
                 let maxHeight: CGFloat = 150
                 let scaleFactor = maxValue > 0 ? maxHeight / maxValue : 1.0
 
@@ -1416,17 +1416,15 @@ struct ForecastChartView: View {
                         Spacer()
                         Rectangle()
                             .fill(Color.green)
-                            .frame(width: 80, height: barHeight(for: forecast.einnahmen, scaleFactor: scaleFactor))
+                            .frame(width: 80, height: barHeight(for: forecast.amount, scaleFactor: scaleFactor))
                             .onTapGesture {
-                                transactionsTitle = "Prognostizierte Einnahmen"
-                                transactionsToShow = monthlyData?.incomeTransactions ?? []
-                                showTransactionsSheet = true
+                                // Handle tap for income transactions
                             }
                         Text("Einnahmen")
                             .foregroundColor(.white)
                             .font(.caption)
                             .padding(.top, 8)
-                        Text(String(format: "%.2f €", forecast.einnahmen))
+                        Text(String(format: "%.2f €", forecast.amount))
                             .foregroundColor(.green)
                             .font(.caption)
                             .padding(.top, 4)
@@ -1437,17 +1435,15 @@ struct ForecastChartView: View {
                         Spacer()
                         Rectangle()
                             .fill(Color.red)
-                            .frame(width: 80, height: barHeight(for: forecast.ausgaben, scaleFactor: scaleFactor))
+                            .frame(width: 80, height: barHeight(for: forecast.amount, scaleFactor: scaleFactor))
                             .onTapGesture {
-                                transactionsTitle = "Prognostizierte Ausgaben"
-                                transactionsToShow = monthlyData?.expenseTransactions ?? []
-                                showTransactionsSheet = true
+                                // Handle tap for expense transactions
                             }
                         Text("Ausgaben")
                             .foregroundColor(.white)
                             .font(.caption)
                             .padding(.top, 8)
-                        Text(String(format: "%.2f €", forecast.ausgaben))
+                        Text(String(format: "%.2f €", forecast.amount))
                             .foregroundColor(.red)
                             .font(.caption)
                             .padding(.top, 4)
@@ -1457,14 +1453,14 @@ struct ForecastChartView: View {
                     VStack {
                         Spacer()
                         Rectangle()
-                            .fill(colorForValue(forecast.balance))
-                            .frame(width: 80, height: barHeight(for: forecast.balance, scaleFactor: scaleFactor))
+                            .fill(colorForValue(forecast.amount))
+                            .frame(width: 80, height: barHeight(for: forecast.amount, scaleFactor: scaleFactor))
                         Text("Kontostand")
                             .foregroundColor(.white)
                             .font(.caption)
                             .padding(.top, 8)
-                        Text(String(format: "%.2f €", forecast.balance))
-                            .foregroundColor(colorForValue(forecast.balance))
+                        Text(String(format: "%.2f €", forecast.amount))
+                            .foregroundColor(colorForValue(forecast.amount))
                             .font(.caption)
                             .padding(.top, 4)
                     }
@@ -1476,6 +1472,24 @@ struct ForecastChartView: View {
         .padding(.vertical)
         .background(Color.black.opacity(0.2))
         .cornerRadius(10)
+    }
+
+    private func calculateDailyAverages() -> (income: Double, expenses: Double, surplus: Double)? {
+        guard let data = transactions.first else { return nil }
+        
+        let calendar = Calendar.current
+        let today = Date()
+        let currentDay = Double(calendar.component(.day, from: today))
+        
+        let dailyIncome = data.amount / currentDay
+        let dailyExpenses = data.amount / currentDay
+        let dailySurplus = dailyIncome - dailyExpenses
+        
+        return (dailyIncome, dailyExpenses, dailySurplus)
+    }
+
+    private func barHeight(for value: Double, scaleFactor: CGFloat) -> CGFloat {
+        CGFloat(abs(value)) * scaleFactor
     }
 }
 
@@ -1684,6 +1698,78 @@ extension DateFormatter {
         formatter.dateFormat = "MMM yyyy"
         return formatter
     }()
+}
+
+// Neue BarChartView
+struct BarChartView: View {
+    let data: MonthlyData
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Einnahmen / Ausgaben / Überschuss")
+                .foregroundColor(.white)
+                .font(.subheadline)
+                .padding(.horizontal)
+            
+            let maxValue = max(abs(data.income), abs(data.expenses), abs(data.surplus))
+            let maxHeight: CGFloat = 150
+            let scaleFactor = maxValue > 0 ? maxHeight / maxValue : 1.0
+            
+            HStack {
+                // Einnahmen (links, grün)
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(Color.green)
+                        .frame(width: 80, height: CGFloat(abs(data.income)) * scaleFactor)
+                    Text("Einnahmen")
+                        .foregroundColor(.white)
+                        .font(.caption)
+                        .padding(.top, 8)
+                    Text("\(String(format: "%.2f €", data.income))")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                        .padding(.top, 4)
+                }
+                Spacer()
+                
+                // Ausgaben (mitte, rot)
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(Color.red)
+                        .frame(width: 80, height: CGFloat(abs(data.expenses)) * scaleFactor)
+                    Text("Ausgaben")
+                        .foregroundColor(.white)
+                        .font(.caption)
+                        .padding(.top, 8)
+                    Text("\(String(format: "%.2f €", data.expenses))")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .padding(.top, 4)
+                }
+                Spacer()
+                
+                // Überschuss (rechts, dynamische Farbe)
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(data.surplus >= 0 ? Color.green : Color.red)
+                        .frame(width: 80, height: CGFloat(abs(data.surplus)) * scaleFactor)
+                    Text("Überschuss")
+                        .foregroundColor(.white)
+                        .font(.caption)
+                        .padding(.top, 8)
+                    Text("\(String(format: "%.2f €", data.surplus))")
+                        .foregroundColor(data.surplus >= 0 ? .green : .red)
+                        .font(.caption)
+                        .padding(.top, 4)
+                }
+            }
+            .padding(.horizontal)
+            .frame(height: maxHeight + 60)
+        }
+    }
 }
 
 #Preview {
