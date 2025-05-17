@@ -545,12 +545,10 @@ struct AccountGroupView: View {
                 return (account, balance)
             }
         
-        // Berechne Gruppensaldo ohne BK-Konten
-        groupBalance = accountBalances
-            .filter { ($0.account.name ?? "").lowercased() != "bk" }
-            .reduce(0.0) { total, item in
-                total + item.balance
-            }
+        // Berechne Gruppensaldo inklusive aller Konten
+        groupBalance = accountBalances.reduce(0.0) { total, item in
+            total + item.balance
+        }
     }
 }
 

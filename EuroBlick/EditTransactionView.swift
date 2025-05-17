@@ -58,6 +58,7 @@ struct EditTransactionView: View {
         print("- Category: \(transaction.categoryRelationship?.name ?? "nil")")
         print("- Account: \(transaction.account?.name ?? "nil")")
         print("- Usage: \(transaction.usage ?? "nil")")
+        print("- Date: \(transaction.date)")
     }
 
     var body: some View {
