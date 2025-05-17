@@ -143,8 +143,19 @@ struct AddAccountView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .task {
-            await initializeView()
+        .onAppear {
+            Task {
+                await initializeView()
+            }
+            
+            // Beobachte Änderungen an Konten
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("AccountsDidChange"),
+                object: nil,
+                queue: .main
+            ) { _ in
+                dismiss()
+            }
         }
     }
     
@@ -154,52 +165,36 @@ struct AddAccountView: View {
         // Setze den Status synchron
         isProcessing = true
         
-        // Erstelle einen Task für die asynchrone Verarbeitung
-        Task { @MainActor in
-            do {
-                // Hole die Gruppe im Hauptkontext
-                guard let currentGroup = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup else {
-                    throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Gruppe nicht gefunden"])
-                }
-                
-                // Erstelle das Konto
-                viewModel.addAccount(
-                    name: accountName,
-                    group: currentGroup,
-                    icon: selectedIcon,
-                    color: selectedColor
-                )
-                
-                // Warte kurz, um sicherzustellen, dass die Änderungen gespeichert wurden
-                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 Sekunden
-                
-                // Aktualisiere die UI und schließe die View
-                viewModel.objectWillChange.send()
-                viewModel.fetchAccountGroups()
-                viewModel.transactionsUpdated.toggle() // Trigger UI update
-                
-                // Zusätzliche UI-Aktualisierung nach kurzer Verzögerung
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    viewModel.objectWillChange.send()
-                    viewModel.fetchAccountGroups()
-                    dismiss()
-                }
-            } catch {
-                print("DEBUG: FEHLER beim Hinzufügen des Kontos: \(error)")
-                showError = true
-                errorMessage = "Fehler beim Hinzufügen des Kontos. Bitte versuchen Sie es erneut."
-                isProcessing = false
+        do {
+            // Hole die Gruppe im Hauptkontext
+            guard let currentGroup = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup else {
+                throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Gruppe nicht gefunden"])
             }
+            
+            // Erstelle das Konto
+            viewModel.addAccount(
+                name: accountName,
+                group: currentGroup,
+                icon: selectedIcon,
+                color: selectedColor
+            )
+            
+            // Schließe die View sofort
+            dismiss()
+            
+        } catch {
+            print("DEBUG: FEHLER beim Hinzufügen des Kontos: \(error)")
+            showError = true
+            errorMessage = "Fehler beim Hinzufügen des Kontos. Bitte versuchen Sie es erneut."
+            isProcessing = false
         }
     }
     
     private func initializeView() async {
-        // Führe alles im MainActor aus
         await MainActor.run {
             print("DEBUG: AddAccountView wird initialisiert")
             print("DEBUG: Gruppe Details - Name: \(group.name ?? "unknown"), ID: \(group.objectID)")
             
-            // Versuche die Gruppe im Hauptkontext zu finden
             do {
                 if let _ = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup {
                     print("DEBUG: Gruppe erfolgreich im Hauptkontext gefunden")

@@ -10,7 +10,6 @@ struct SelectAccountGroupView: View {
     
     @State private var isLoading = true
     @State private var accountGroups: [AccountGroup] = []
-    @State private var selectedGroup: AccountGroup?
     
     var body: some View {
         NavigationStack {
@@ -63,51 +62,42 @@ struct SelectAccountGroupView: View {
         print("DEBUG: Gruppe Details - Konten: \(group.accounts?.count ?? 0)")
         
         // Stelle sicher, dass die Gruppe im richtigen Kontext ist
-        managedObjectContext.performAndWait {
-            do {
-                if let groupInContext = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup {
-                    print("DEBUG: Gruppe erfolgreich in aktuellen Kontext geholt")
-                    
-                    // Aktualisiere den ViewModel-Zustand
-                    DispatchQueue.main.async {
-                        selectedGroup = groupInContext
-                        groupToEdit = groupInContext
-                        showAddAccountSheet = true
-                        
-                        // Verzögere das Schließen leicht, um sicherzustellen, dass der State aktualisiert wurde
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            dismiss()
-                        }
-                    }
-                } else {
-                    print("DEBUG: FEHLER - Konnte Gruppe nicht in aktuellen Kontext holen")
-                }
-            } catch {
-                print("DEBUG: FEHLER beim Laden der Gruppe: \(error)")
+        do {
+            if let groupInContext = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup {
+                print("DEBUG: Gruppe erfolgreich in aktuellen Kontext geholt")
+                
+                // Aktualisiere den ViewModel-Zustand synchron
+                groupToEdit = groupInContext
+                showAddAccountSheet = true
+                
+                // Schließe die View sofort
+                dismiss()
+            } else {
+                print("DEBUG: FEHLER - Konnte Gruppe nicht in aktuellen Kontext holen")
             }
+        } catch {
+            print("DEBUG: FEHLER beim Laden der Gruppe: \(error)")
         }
     }
     
     private func loadGroups() {
         isLoading = true
         // Lade die Gruppen im Hauptkontext
-        managedObjectContext.performAndWait {
-            let fetchRequest = NSFetchRequest<AccountGroup>(entityName: "AccountGroup")
-            fetchRequest.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
-            
-            do {
-                accountGroups = try managedObjectContext.fetch(fetchRequest)
-                print("DEBUG: Verfügbare Gruppen:")
-                for group in accountGroups {
-                    print("DEBUG: - Gruppe: \(group.name ?? "unknown"), ID: \(group.objectID)")
-                }
-            } catch {
-                print("DEBUG: FEHLER beim Laden der Gruppen: \(error)")
-                accountGroups = []
+        let fetchRequest: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        
+        do {
+            accountGroups = try managedObjectContext.fetch(fetchRequest)
+            print("DEBUG: Verfügbare Gruppen:")
+            for group in accountGroups {
+                print("DEBUG: - Gruppe: \(group.name ?? "unknown"), ID: \(group.objectID)")
             }
-            
-            isLoading = false
+        } catch {
+            print("DEBUG: FEHLER beim Laden der Gruppen: \(error)")
+            accountGroups = []
         }
+        
+        isLoading = false
     }
 }
 

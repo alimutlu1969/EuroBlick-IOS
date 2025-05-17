@@ -446,52 +446,43 @@ class TransactionViewModel: ObservableObject {
         print("DEBUG: Kontext der Gruppe: \(String(describing: group.managedObjectContext))")
         print("DEBUG: Hauptkontext: \(context)")
 
-        context.performAndWait {
-            do {
-                // Hole die Gruppe in den richtigen Kontext
-                guard let groupInContext = try self.context.existingObject(with: group.objectID) as? AccountGroup else {
-                    print("DEBUG: FEHLER - Konnte Gruppe nicht in Hauptkontext finden")
-                    return
-                }
-                
-                print("DEBUG: Gruppe erfolgreich in Hauptkontext geholt")
-                
-                // Erstelle das Konto im richtigen Kontext
-                let account = Account(context: self.context)
-                account.name = name
-                account.group = groupInContext
-                account.setValue(icon, forKey: "icon")
-                account.setValue(color.toHex(), forKey: "iconColor")
-                
-                print("DEBUG: Account erstellt und Eigenschaften gesetzt")
-                
-                // Speichere den Kontext
-                if self.context.hasChanges {
-                    try self.context.save()
-                    print("DEBUG: Kontext erfolgreich gespeichert")
-                    
-                    // Aktualisiere die UI im Hauptthread
-                    DispatchQueue.main.async {
-                        self.objectWillChange.send()
-                        self.fetchAccountGroups()
-                        self.transactionsUpdated.toggle() // Trigger UI update
-                        print("DEBUG: UI aktualisiert")
-                        print("DEBUG: Account \(name) erfolgreich zur Gruppe \(groupInContext.name ?? "unknown") hinzugefügt")
-                    }
-                    
-                    // Zusätzliche Verzögerung für UI-Aktualisierung
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.objectWillChange.send()
-                        self.fetchAccountGroups()
-                    }
-                } else {
-                    print("DEBUG: Keine Änderungen zum Speichern")
-                }
-            } catch {
-                print("DEBUG: FEHLER beim Erstellen des Accounts: \(error)")
-                // Versuche den Kontext zurückzusetzen
-                self.context.rollback()
+        do {
+            // Hole die Gruppe in den richtigen Kontext
+            guard let groupInContext = try self.context.existingObject(with: group.objectID) as? AccountGroup else {
+                print("DEBUG: FEHLER - Konnte Gruppe nicht in Hauptkontext finden")
+                return
             }
+            
+            print("DEBUG: Gruppe erfolgreich in Hauptkontext geholt")
+            
+            // Erstelle das Konto im richtigen Kontext
+            let account = Account(context: self.context)
+            account.name = name
+            account.group = groupInContext
+            account.setValue(icon, forKey: "icon")
+            account.setValue(color.toHex(), forKey: "iconColor")
+            
+            print("DEBUG: Account erstellt und Eigenschaften gesetzt")
+            
+            // Speichere den Kontext
+            try self.context.save()
+            print("DEBUG: Kontext erfolgreich gespeichert")
+            
+            // Aktualisiere die UI sofort im Hauptthread
+            DispatchQueue.main.async {
+                self.objectWillChange.send()
+                self.fetchAccountGroups()
+                self.transactionsUpdated.toggle()
+                print("DEBUG: UI aktualisiert")
+                print("DEBUG: Account \(name) erfolgreich zur Gruppe \(groupInContext.name ?? "unknown") hinzugefügt")
+                
+                // Sende eine zusätzliche Änderungsbenachrichtigung
+                NotificationCenter.default.post(name: NSNotification.Name("AccountsDidChange"), object: nil)
+            }
+        } catch {
+            print("DEBUG: FEHLER beim Erstellen des Accounts: \(error)")
+            // Versuche den Kontext zurückzusetzen
+            self.context.rollback()
         }
     }
     
@@ -1818,6 +1809,32 @@ class TransactionViewModel: ObservableObject {
                     self.objectWillChange.send()
                     self.fetchAccountGroups()
                     print("Konto \(account.name ?? "unknown") erfolgreich gelöscht")
+                    completion?()
+                }
+            }
+        }
+    }
+
+    // Lösche mehrere Transaktionen auf einmal
+    func deleteTransactions(_ transactions: [Transaction], completion: (() -> Void)? = nil) {
+        context.perform {
+            print("DEBUG: Beginne Löschung von \(transactions.count) Transaktionen")
+            
+            for transaction in transactions {
+                self.context.delete(transaction)
+                print("DEBUG: Lösche Transaktion: \(transaction.id)")
+            }
+            
+            self.saveContext(self.context) { error in
+                if let error = error {
+                    print("Fehler beim Löschen der Transaktionen: \(error)")
+                    completion?()
+                    return
+                }
+                DispatchQueue.main.async {
+                    self.objectWillChange.send()
+                    self.fetchAccountGroups()
+                    print("Alle \(transactions.count) Transaktionen erfolgreich gelöscht")
                     completion?()
                 }
             }
