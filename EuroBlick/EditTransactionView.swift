@@ -62,25 +62,25 @@ struct EditTransactionView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.black.edgesIgnoringSafeArea(.all)
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 20) {
+        ZStack {
+            Color.black.edgesIgnoringSafeArea(.all)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 20) {
                             Spacer()
                                 .frame(height: 40)  // Zusätzlicher Abstand oben
-                            typeButtonsView
-                            transactionFormView(proxy: proxy)
-                            errorMessages
+                        typeButtonsView
+                        transactionFormView(proxy: proxy)
+                        errorMessages
                             Spacer(minLength: 30)
-                            actionButtons
-                        }
-                        .padding(.top)
-                        .padding(.bottom, keyboard.keyboardHeight + 20)
-                        .animation(.easeInOut, value: keyboard.keyboardHeight)
+                        actionButtons
                     }
+                    .padding(.top)
+                    .padding(.bottom, keyboard.keyboardHeight + 20)
+                    .animation(.easeInOut, value: keyboard.keyboardHeight)
                 }
             }
+        }
             .navigationTitle("Transaktion bearbeiten")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -215,24 +215,24 @@ struct EditTransactionView: View {
                 .padding(.bottom, 20)
             
             HStack(spacing: 15) {
-                Button(action: {
-                    isCancelled = true
-                    dismiss()
-                    if transaction.type == nil && transaction.amount == 0.0 {
-                        viewModel.getContext().delete(transaction)
-                        viewModel.saveContext(viewModel.getContext())
-                    }
-                }) {
-                    Text("Abbrechen")
+            Button(action: {
+                isCancelled = true
+                dismiss()
+                if transaction.type == nil && transaction.amount == 0.0 {
+                    viewModel.getContext().delete(transaction)
+                    viewModel.saveContext(viewModel.getContext())
+                }
+            }) {
+                Text("Abbrechen")
                         .font(.system(size: 16))
-                        .foregroundColor(.white)
+                    .foregroundColor(.white)
                         .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity)
                         .background(Color.red.opacity(0.8))
                         .cornerRadius(8)
-                }
+            }
 
-                Button(action: {
+            Button(action: {
                     saveTransaction()
                 }) {
                     Text("Speichern")
@@ -255,19 +255,19 @@ struct EditTransactionView: View {
         guard isValidInput else { return }
         
         let finalAmount = type == "ausgabe" ? -abs(Double(amount.replacingOccurrences(of: ",", with: ".")) ?? 0) : abs(Double(amount.replacingOccurrences(of: ",", with: ".")) ?? 0)
-        
-        viewModel.updateTransaction(
-            transaction,
-            type: type,
+                
+                viewModel.updateTransaction(
+                    transaction,
+                    type: type,
             amount: finalAmount,
             category: category == "new" ? newCategory : category,
             account: account ?? transaction.account!,
-            targetAccount: type == "umbuchung" ? targetAccount : nil,
+                    targetAccount: type == "umbuchung" ? targetAccount : nil,
             usage: usage,
-            date: date
-        ) {
-            dismiss()
-        }
+                    date: date
+                ) {
+                    dismiss()
+                }
     }
 
     private var isValidInput: Bool {

@@ -34,9 +34,9 @@ struct AddAccountView: View {
                     .foregroundColor(.white)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        print("Neue Kategorie hinzufügen ausgelöst")
-                    }) {
+                        Button(action: {
+                            print("Neue Kategorie hinzufügen ausgelöst")
+                        }) {
                         Image(systemName: "tag.badge.plus")
                             .font(.system(size: 20))
                             .foregroundColor(.white)

@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct EuroBlickApp: App {
     let persistenceController = PersistenceController.shared
-    
+
     init() {
         // Set global appearance for UIKit components
         let appearance = UINavigationBarAppearance()

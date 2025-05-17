@@ -28,30 +28,30 @@ struct TransactionForm: View {
                 Image(systemName: "eurosign.circle.fill")
                     .foregroundColor(.gray)
                     .font(.system(size: 18))
-                CustomTextField(text: $amount, placeholder: "Betrag", isSecure: false)
-                    .foregroundColor(.white)
-                    .keyboardType(.decimalPad)
-                    .focused($amountFieldFocused)
-                    .id(AddTransactionView.Field.amount)
+            CustomTextField(text: $amount, placeholder: "Betrag", isSecure: false)
+                .foregroundColor(.white)
+                .keyboardType(.decimalPad)
+                .focused($amountFieldFocused)
+                .id(AddTransactionView.Field.amount)
                     .frame(height: 32)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(Color.gray.opacity(0.6))
             .cornerRadius(8)
-            .onChange(of: amountFieldFocused) { oldValue, newValue in
-                if newValue {
-                    focusedField = .amount
-                } else if focusedField == .amount {
-                    focusedField = nil
+                .onChange(of: amountFieldFocused) { oldValue, newValue in
+                    if newValue {
+                        focusedField = .amount
+                    } else if focusedField == .amount {
+                        focusedField = nil
+                    }
                 }
-            }
-            .onChange(of: amount) { oldValue, newValue in
-                let filtered = newValue.filter { "0123456789,.".contains($0) }
-                if filtered != newValue {
-                    amount = filtered
+                .onChange(of: amount) { oldValue, newValue in
+                    let filtered = newValue.filter { "0123456789,.".contains($0) }
+                    if filtered != newValue {
+                        amount = filtered
+                    }
                 }
-            }
 
             // Kategorie Picker
             Picker("Kategorie", selection: $category) {
@@ -89,35 +89,35 @@ struct TransactionForm: View {
                 Image(systemName: "text.alignleft")
                     .foregroundColor(.gray)
                     .font(.system(size: 18))
-                CustomTextField(text: $usage, placeholder: "Verwendungszweck", isSecure: false)
-                    .foregroundColor(.white)
-                    .focused($usageFieldFocused)
-                    .id(AddTransactionView.Field.usage)
+            CustomTextField(text: $usage, placeholder: "Verwendungszweck", isSecure: false)
+                .foregroundColor(.white)
+                .focused($usageFieldFocused)
+                .id(AddTransactionView.Field.usage)
                     .frame(height: 32)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(Color.gray.opacity(0.6))
             .cornerRadius(8)
-            .onChange(of: usageFieldFocused) { oldValue, newValue in
-                if newValue {
-                    focusedField = .usage
-                } else if focusedField == .usage {
-                    focusedField = nil
-                }
-            }
-            .onChange(of: usage) { oldValue, newValue in
-                let filtered = newValue.unicodeScalars
-                    .filter { scalar in
-                        let isAllowed = scalar.isASCII && CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,").contains(scalar)
-                        return isAllowed
+                .onChange(of: usageFieldFocused) { oldValue, newValue in
+                    if newValue {
+                        focusedField = .usage
+                    } else if focusedField == .usage {
+                        focusedField = nil
                     }
-                    .map { String($0) }
-                    .joined()
-                if filtered != newValue {
-                    self.usage = filtered
                 }
-            }
+                .onChange(of: usage) { oldValue, newValue in
+                    let filtered = newValue.unicodeScalars
+                        .filter { scalar in
+                            let isAllowed = scalar.isASCII && CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,").contains(scalar)
+                            return isAllowed
+                        }
+                        .map { String($0) }
+                        .joined()
+                        if filtered != newValue {
+                            self.usage = filtered
+                    }
+                }
 
             // Datum Picker
             DatePicker("Datum", selection: $date, displayedComponents: [.date])

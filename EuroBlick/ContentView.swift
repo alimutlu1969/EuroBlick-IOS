@@ -294,7 +294,7 @@ struct AccountRowView: View {
             )
             .onTapGesture {
                 navigateToTransactions = true
-            }
+        }
             .navigationDestination(isPresented: $navigateToTransactions) {
                 TransactionView(account: account, viewModel: viewModel)
             }
@@ -423,7 +423,7 @@ struct AccountGroupView: View {
                 destination: EvaluationView(accounts: accountBalances.map { $0.account }, viewModel: viewModel)
             ) {
                 HStack(spacing: 6) {
-                    Image(systemName: "chart.pie.fill")
+                        Image(systemName: "chart.pie.fill")
                         .foregroundColor(.white)
                         .font(.system(size: 16))
                     Text("Auswertung")
@@ -632,19 +632,19 @@ struct ContentToolbar: ToolbarContent {
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
                 Group {
-                    Button(action: {
-                        showSelectGroupSheet = true
-                        print("Konto hinzufügen ausgelöst")
-                    }) {
-                        Label("Konto hinzufügen", systemImage: "creditcard")
-                    }
+                Button(action: {
+                    showSelectGroupSheet = true
+                    print("Konto hinzufügen ausgelöst")
+                }) {
+                    Label("Konto hinzufügen", systemImage: "creditcard")
+                }
                     
-                    Button(action: {
-                        showAddGroupSheet = true
-                        print("Kontogruppe hinzufügen ausgelöst")
-                    }) {
-                        Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-                    }
+                Button(action: {
+                    showAddGroupSheet = true
+                    print("Kontogruppe hinzufügen ausgelöst")
+                }) {
+                    Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+                }
                     
                     Button(action: {
                         showAboutView = true
@@ -667,8 +667,8 @@ struct ContentToolbar: ToolbarContent {
                         print("UserDefaults zurückgesetzt")
                     }) {
                         Label("UserDefaults zurücksetzen", systemImage: "trash")
-                    }
-                    #endif
+                }
+                #endif
                 }
             } label: {
                 Image(systemName: "gear")
@@ -757,22 +757,22 @@ struct ContentView: View {
         }
         .padding(.horizontal)
         .padding(.top, 16)
-        .padding(.bottom, 8)
+                .padding(.bottom, 8)
     }
     
     private var settingsMenu: some View {
-        Menu {
-            Button(action: {
+                    Menu {
+                        Button(action: {
                 showAddAccountGroupSheet = true
-            }) {
-                Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-            }
-            Button(action: {
+                        }) {
+                            Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+                        }
+                            Button(action: {
                 showAccountGroupPicker = true
-            }) {
+                            }) {
                 Label("Konto hinzufügen", systemImage: "plus.circle")
-            }
-            Button(action: {
+                            }
+                            Button(action: {
                 showSettingsSheet = true
             }) {
                 Label("Einstellungen", systemImage: "gear")
@@ -781,14 +781,14 @@ struct ContentView: View {
                 showLogoutAlert = true
             }) {
                 Label("Abmelden", systemImage: "rectangle.portrait.and.arrow.right")
-            }
-        } label: {
+                        }
+                    } label: {
             Image(systemName: "gearshape.fill")
                 .font(.title3)
-                .foregroundColor(.white)
-        }
-    }
-    
+                            .foregroundColor(.white)
+                    }
+                }
+
     private var accountGroupsList: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -838,29 +838,29 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear {
-            refreshBalances()
-        }
+            .onAppear {
+                refreshBalances()
+            }
         .onChange(of: viewModel.transactionsUpdated) { _, _ in
-            refreshBalances()
+                refreshBalances()
         }
     }
-    
+
     private func refreshBalances() {
-        let allBalances = viewModel.calculateAllBalances()
-        var newBalances: [AccountBalance] = []
-        
-        for group in viewModel.accountGroups {
-            let accounts = (group.accounts?.allObjects as? [Account]) ?? []
-            for account in accounts {
-                let balance = allBalances[account.objectID] ?? 0.0
-                newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
+            let allBalances = viewModel.calculateAllBalances()
+            var newBalances: [AccountBalance] = []
+
+            for group in viewModel.accountGroups {
+                let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+                for account in accounts {
+                    let balance = allBalances[account.objectID] ?? 0.0
+                    newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
+                }
+            }
+
+                accountBalances = newBalances
             }
         }
-        
-        accountBalances = newBalances
-    }
-}
 
 // MARK: - Subviews
 
