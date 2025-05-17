@@ -298,18 +298,6 @@ struct TransactionView: View {
             }
             .navigationTitle(account.name ?? "Unbekanntes Konto")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    HStack {
-                        Button(action: {}) {
-                            Image(systemName: "chevron.left")
-                                .foregroundColor(.blue)
-                        }
-                        Text("Konten: ")
-                            .foregroundColor(.white)
-                        Text(account.name ?? "Unbekanntes Konto")
-                            .foregroundColor(.blue)
-                    }
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
                         showCategoryManagementSheet = true
