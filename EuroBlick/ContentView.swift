@@ -262,6 +262,8 @@ struct AccountRowView: View {
     @State private var showEditSheet = false
     @State private var navigateToTransactions = false
     @State private var refreshToggle = false
+    @State private var showDeleteConfirmation = false
+    @State private var showContextMenu = false
 
     private var accountIcon: (systemName: String, color: Color) {
         _ = refreshToggle
@@ -308,19 +310,44 @@ struct AccountRowView: View {
             .navigationDestination(isPresented: $navigateToTransactions) {
                 TransactionView(account: account, viewModel: viewModel)
             }
-        }
-        .buttonStyle(PlainButtonStyle())
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.5)
-                .onEnded { _ in
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
+            .buttonStyle(PlainButtonStyle())
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.5)
+                    .onEnded { _ in
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.impactOccurred()
+                        showContextMenu = true
+                    }
+            )
+            .confirmationDialog(
+                "Konto verwalten",
+                isPresented: $showContextMenu,
+                titleVisibility: .visible
+            ) {
+                Button("Bearbeiten") {
                     showEditSheet = true
                 }
-        )
-        .padding(.horizontal)
-        .sheet(isPresented: $showEditSheet) {
-            EditAccountView(viewModel: viewModel, account: account)
+                Button("Löschen", role: .destructive) {
+                    showDeleteConfirmation = true
+                }
+                Button("Abbrechen", role: .cancel) {}
+            }
+            .padding(.horizontal)
+            .sheet(isPresented: $showEditSheet) {
+                EditAccountView(viewModel: viewModel, account: account)
+            }
+            .confirmationDialog(
+                "Konto löschen",
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Löschen", role: .destructive) {
+                    viewModel.deleteAccount(account)
+                }
+                Button("Abbrechen", role: .cancel) {}
+            } message: {
+                Text("Möchten Sie das Konto '\(account.name ?? "")' wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.")
+            }
         }
     }
 }
@@ -871,10 +898,18 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showAccountGroupPicker) {
                 SelectAccountGroupView(viewModel: viewModel, showAddAccountSheet: $showAddAccountSheet, groupToEdit: $selectedAccountGroup)
+                    .onDisappear {
+                        if showAddAccountSheet, selectedAccountGroup == nil {
+                            showAddAccountSheet = false
+                        }
+                    }
             }
             .sheet(isPresented: $showAddAccountSheet) {
                 if let group = selectedAccountGroup {
                     AddAccountView(viewModel: viewModel, group: group)
+                        .onDisappear {
+                            selectedAccountGroup = nil
+                        }
                 }
             }
             .sheet(isPresented: $showSettingsSheet) {

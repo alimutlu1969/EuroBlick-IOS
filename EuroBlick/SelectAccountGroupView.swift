@@ -2,13 +2,15 @@ import SwiftUI
 
 struct SelectAccountGroupView: View {
     @Environment(\.dismiss) var dismiss
+    @Environment(\.managedObjectContext) var managedObjectContext
     @ObservedObject var viewModel: TransactionViewModel
     @Binding var showAddAccountSheet: Bool
     @Binding var groupToEdit: AccountGroup?
-
+    
     @State private var isLoading = true
     @State private var accountGroups: [AccountGroup] = []
-
+    @State private var selectedGroup: AccountGroup?
+    
     var body: some View {
         NavigationStack {
             VStack {
@@ -19,48 +21,62 @@ struct SelectAccountGroupView: View {
                     Text("Keine Kontogruppen vorhanden")
                         .foregroundColor(.white)
                 } else {
-                    Form {
+                    List {
                         ForEach(accountGroups) { group in
                             Button(action: {
-                                groupToEdit = group
-                                showAddAccountSheet = true
-                                dismiss()
+                                print("DEBUG: Gruppe ausgewählt - Name: \(group.name ?? "unknown"), ID: \(group.objectID)")
+                                print("DEBUG: Gruppe Details - Konten: \(group.accounts?.count ?? 0)")
+                                
+                                // Stelle sicher, dass die Gruppe im richtigen Kontext ist
+                                if let groupInContext = try? managedObjectContext.existingObject(with: group.objectID) as? AccountGroup {
+                                    print("DEBUG: Gruppe erfolgreich in aktuellen Kontext geholt")
+                                    selectedGroup = groupInContext
+                                    groupToEdit = groupInContext
+                                    showAddAccountSheet = true
+                                    dismiss()
+                                } else {
+                                    print("DEBUG: FEHLER - Konnte Gruppe nicht in aktuellen Kontext holen")
+                                }
                             }) {
-                                Text(group.name ?? "Unbekannte Gruppe")
-                                    .foregroundColor(.black) // Schwarzer Text für Lesbarkeit
-                                    .padding()
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color.gray.opacity(0.2)) // Hellgrauer Hintergrund
-                                    .cornerRadius(8)
+                                HStack {
+                                    Image(systemName: "folder.fill")
+                                        .foregroundColor(.blue)
+                                    Text(group.name ?? "")
+                                        .foregroundColor(.white)
+                                    Spacer()
+                                    Text("\(group.accounts?.count ?? 0) Konten")
+                                        .foregroundColor(.gray)
+                                }
                             }
                         }
                     }
-                    .background(Color.black) // Hintergrund der Form schwarz
+                    .listStyle(PlainListStyle())
                 }
             }
             .navigationTitle("Kontogruppe auswählen")
-            .foregroundColor(.white)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { dismiss() }
-                        .foregroundColor(.blue)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
                 }
             }
-            .background(Color.black) // Gesamthintergrund schwarz
-            .onAppear {
-                loadData()
-            }
+        }
+        .onAppear {
+            print("DEBUG: SelectAccountGroupView erschienen")
+            loadGroups()
         }
     }
-
-    private func loadData() {
+    
+    private func loadGroups() {
         isLoading = true
-        viewModel.fetchAccountGroups()
-        DispatchQueue.main.async {
-            accountGroups = viewModel.accountGroups
-            isLoading = false
-            print("Geladene Kontogruppen: \(accountGroups.count) - \(accountGroups.map { $0.name ?? "Unnamed" })")
+        accountGroups = viewModel.accountGroups
+        print("DEBUG: Verfügbare Gruppen:")
+        for group in accountGroups {
+            print("DEBUG: - Gruppe: \(group.name ?? "unknown"), ID: \(group.objectID)")
         }
+        isLoading = false
     }
 }
 

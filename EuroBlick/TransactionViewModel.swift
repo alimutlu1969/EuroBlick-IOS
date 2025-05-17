@@ -438,20 +438,47 @@ class TransactionViewModel: ObservableObject {
     }
     
     // Füge ein neues Konto zu einer Gruppe hinzu
-    func addAccount(name: String, group: AccountGroup, completion: (() -> Void)? = nil) {
-        context.perform {
-            let newAccount = Account(context: self.context)
-            newAccount.name = name
-            newAccount.group = group
-            self.saveContext(self.context) { error in
-                if let error = error {
-                    print("Fehler beim Speichern des neuen Kontos: \(error)")
-                    completion?()
+    func addAccount(name: String, group: AccountGroup, icon: String = "banknote.fill", color: Color = .blue) {
+        print("DEBUG: TransactionViewModel.addAccount - Start")
+        print("DEBUG: Name: \(name)")
+        print("DEBUG: Gruppe: \(group.name ?? "unknown")")
+        print("DEBUG: Gruppen-ID: \(group.objectID)")
+        print("DEBUG: Kontext der Gruppe: \(String(describing: group.managedObjectContext))")
+        print("DEBUG: Hauptkontext: \(context)")
+
+        context.performAndWait {
+            do {
+                // Hole die Gruppe in den richtigen Kontext
+                guard let groupInContext = try self.context.existingObject(with: group.objectID) as? AccountGroup else {
+                    print("DEBUG: FEHLER - Konnte Gruppe nicht in Hauptkontext finden")
                     return
                 }
-                self.fetchAccountGroups()
-                print("Konto \(name) zu Gruppe \(group.name ?? "unknown") hinzugefügt")
-                completion?()
+                
+                print("DEBUG: Gruppe erfolgreich in Hauptkontext geholt")
+                
+                let account = Account(context: self.context)
+                account.name = name
+                account.group = groupInContext
+                account.setValue(icon, forKey: "icon")
+                account.setValue(color.toHex(), forKey: "iconColor")
+                
+                print("DEBUG: Account erstellt und Eigenschaften gesetzt")
+                
+                // Speichere den Kontext
+                try self.context.save()
+                print("DEBUG: Kontext erfolgreich gespeichert")
+                
+                // Aktualisiere die UI im Hauptthread
+                DispatchQueue.main.async {
+                    self.objectWillChange.send()
+                    self.fetchAccountGroups()
+                    print("DEBUG: UI aktualisiert")
+                    print("DEBUG: Account \(name) erfolgreich zur Gruppe \(groupInContext.name ?? "unknown") hinzugefügt")
+                }
+            } catch {
+                print("DEBUG: FEHLER beim Erstellen des Accounts: \(error)")
+                // Versuche den Kontext zurückzusetzen
+                self.context.rollback()
             }
         }
     }
@@ -1751,5 +1778,37 @@ class TransactionViewModel: ObservableObject {
                 balance: currentBalance
             )
         ]
+    }
+
+    // Lösche ein Konto
+    func deleteAccount(_ account: Account, completion: (() -> Void)? = nil) {
+        context.perform {
+            print("DEBUG: Beginne Löschung von Konto: \(account.name ?? "unknown")")
+            
+            // Lösche zuerst alle zugehörigen Transaktionen
+            if let transactions = account.transactions as? Set<Transaction> {
+                for transaction in transactions {
+                    self.context.delete(transaction)
+                    print("DEBUG: Lösche zugehörige Transaktion: \(transaction.id)")
+                }
+            }
+            
+            // Lösche das Konto selbst
+            self.context.delete(account)
+            
+            self.saveContext(self.context) { error in
+                if let error = error {
+                    print("Fehler beim Löschen des Kontos: \(error)")
+                    completion?()
+                    return
+                }
+                DispatchQueue.main.async {
+                    self.objectWillChange.send()
+                    self.fetchAccountGroups()
+                    print("Konto \(account.name ?? "unknown") erfolgreich gelöscht")
+                    completion?()
+                }
+            }
+        }
     }
 }
