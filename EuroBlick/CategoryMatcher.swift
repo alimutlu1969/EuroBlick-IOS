@@ -8,12 +8,16 @@ public class CategoryMatcher {
         public var category: String
         public var matchCount: Int
         public let lastUsed: Date
+        public var originalText: String?  // Speichert den ursprünglichen Text
+        public var shortForm: String?     // Speichert die gekürzte Form
         
-        public init(pattern: String, category: String, matchCount: Int = 0, lastUsed: Date = Date()) {
+        public init(pattern: String, category: String, matchCount: Int = 0, lastUsed: Date = Date(), originalText: String? = nil, shortForm: String? = nil) {
             self.pattern = pattern
             self.category = category
             self.matchCount = matchCount
             self.lastUsed = lastUsed
+            self.originalText = originalText
+            self.shortForm = shortForm
         }
     }
     
@@ -141,11 +145,11 @@ public class CategoryMatcher {
             ("deposit", "Kaution"),
             ("pfand", "Kaution"),
             ("anzahlung", "Kaution"),
-            ("sb-einzahlung", "EC-Umbuchung"),
-            ("sb einzahlung", "EC-Umbuchung"),
-            ("selbstbedienungs-einzahlung", "EC-Umbuchung"),
-            ("geldautomat", "EC-Umbuchung"),
-            ("atm", "EC-Umbuchung")
+            ("sb-einzahlung", "SB-Einzahlung"),
+            ("sb einzahlung", "SB-Einzahlung"),
+            ("selbstbedienungs-einzahlung", "SB-Einzahlung"),
+            ("geldautomat", "SB-Einzahlung"),
+            ("atm", "SB-Einzahlung")
         ]
         
         for (pattern, category) in defaultRules {
@@ -227,8 +231,12 @@ public class CategoryMatcher {
     
     // Sucht nach exakten Übereinstimmungen
     private func findExactMatch(for usage: String) -> String? {
+        let normalizedUsage = usage.lowercased()
+        
+        // Suche zuerst nach Original-Text-Matches
         for (index, rule) in rules.enumerated() {
-            if usage.contains(rule.pattern.lowercased()) {
+            if let originalText = rule.originalText?.lowercased(),
+               normalizedUsage.contains(originalText) {
                 // Aktualisiere die Nutzungsstatistik
                 var updatedRule = rule
                 updatedRule.matchCount += 1
@@ -237,6 +245,31 @@ public class CategoryMatcher {
                 return rule.category
             }
         }
+        
+        // Dann nach gekürzten Formen und Pattern-Matches
+        for (index, rule) in rules.enumerated() {
+            // Prüfe die gekürzte Form, falls vorhanden
+            if let shortForm = rule.shortForm?.lowercased(),
+               normalizedUsage.contains(shortForm) {
+                // Aktualisiere die Nutzungsstatistik
+                var updatedRule = rule
+                updatedRule.matchCount += 1
+                rules[index] = updatedRule
+                saveRules()
+                return rule.category
+            }
+            
+            // Prüfe das Pattern
+            if normalizedUsage.contains(rule.pattern.lowercased()) {
+                // Aktualisiere die Nutzungsstatistik
+                var updatedRule = rule
+                updatedRule.matchCount += 1
+                rules[index] = updatedRule
+                saveRules()
+                return rule.category
+            }
+        }
+        
         return nil
     }
     
@@ -355,5 +388,35 @@ public class CategoryMatcher {
         }
         
         return nil
+    }
+    
+    // Neue Methode zum Lernen von Kürzungen
+    public func learnShortForm(originalText: String, shortForm: String, category: String) {
+        // Normalisiere die Texte
+        let normalizedOriginal = originalText.lowercased()
+        let normalizedShort = shortForm.lowercased()
+        
+        // Prüfe, ob bereits eine Regel für diesen Text existiert
+        if let index = rules.firstIndex(where: { $0.originalText?.lowercased() == normalizedOriginal }) {
+            // Aktualisiere existierende Regel
+            var updatedRule = rules[index]
+            updatedRule.shortForm = shortForm
+            updatedRule.category = category
+            updatedRule.matchCount += 1
+            rules[index] = updatedRule
+        } else {
+            // Erstelle neue Regel
+            let newRule = CategoryRule(
+                pattern: normalizedShort,
+                category: category,
+                matchCount: 1,
+                lastUsed: Date(),
+                originalText: originalText,
+                shortForm: shortForm
+            )
+            rules.append(newRule)
+        }
+        
+        saveRules()
     }
 } 
