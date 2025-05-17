@@ -456,6 +456,7 @@ class TransactionViewModel: ObservableObject {
                 
                 print("DEBUG: Gruppe erfolgreich in Hauptkontext geholt")
                 
+                // Erstelle das Konto im richtigen Kontext
                 let account = Account(context: self.context)
                 account.name = name
                 account.group = groupInContext
@@ -465,15 +466,26 @@ class TransactionViewModel: ObservableObject {
                 print("DEBUG: Account erstellt und Eigenschaften gesetzt")
                 
                 // Speichere den Kontext
-                try self.context.save()
-                print("DEBUG: Kontext erfolgreich gespeichert")
-                
-                // Aktualisiere die UI im Hauptthread
-                DispatchQueue.main.async {
-                    self.objectWillChange.send()
-                    self.fetchAccountGroups()
-                    print("DEBUG: UI aktualisiert")
-                    print("DEBUG: Account \(name) erfolgreich zur Gruppe \(groupInContext.name ?? "unknown") hinzugefügt")
+                if self.context.hasChanges {
+                    try self.context.save()
+                    print("DEBUG: Kontext erfolgreich gespeichert")
+                    
+                    // Aktualisiere die UI im Hauptthread
+                    DispatchQueue.main.async {
+                        self.objectWillChange.send()
+                        self.fetchAccountGroups()
+                        self.transactionsUpdated.toggle() // Trigger UI update
+                        print("DEBUG: UI aktualisiert")
+                        print("DEBUG: Account \(name) erfolgreich zur Gruppe \(groupInContext.name ?? "unknown") hinzugefügt")
+                    }
+                    
+                    // Zusätzliche Verzögerung für UI-Aktualisierung
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.objectWillChange.send()
+                        self.fetchAccountGroups()
+                    }
+                } else {
+                    print("DEBUG: Keine Änderungen zum Speichern")
                 }
             } catch {
                 print("DEBUG: FEHLER beim Erstellen des Accounts: \(error)")

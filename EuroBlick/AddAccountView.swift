@@ -150,9 +150,12 @@ struct AddAccountView: View {
     
     private func handleAddAccount() {
         guard !isProcessing else { return }
+        
+        // Setze den Status synchron
         isProcessing = true
         
-        Task {
+        // Erstelle einen Task für die asynchrone Verarbeitung
+        Task { @MainActor in
             do {
                 // Hole die Gruppe im Hauptkontext
                 guard let currentGroup = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup else {
@@ -170,24 +173,28 @@ struct AddAccountView: View {
                 // Warte kurz, um sicherzustellen, dass die Änderungen gespeichert wurden
                 try await Task.sleep(nanoseconds: 500_000_000) // 0.5 Sekunden
                 
-                await MainActor.run {
-                    // Aktualisiere die UI und schließe die View
+                // Aktualisiere die UI und schließe die View
+                viewModel.objectWillChange.send()
+                viewModel.fetchAccountGroups()
+                viewModel.transactionsUpdated.toggle() // Trigger UI update
+                
+                // Zusätzliche UI-Aktualisierung nach kurzer Verzögerung
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     viewModel.objectWillChange.send()
                     viewModel.fetchAccountGroups()
                     dismiss()
                 }
             } catch {
-                await MainActor.run {
-                    print("DEBUG: FEHLER beim Hinzufügen des Kontos: \(error)")
-                    showError = true
-                    errorMessage = "Fehler beim Hinzufügen des Kontos. Bitte versuchen Sie es erneut."
-                    isProcessing = false
-                }
+                print("DEBUG: FEHLER beim Hinzufügen des Kontos: \(error)")
+                showError = true
+                errorMessage = "Fehler beim Hinzufügen des Kontos. Bitte versuchen Sie es erneut."
+                isProcessing = false
             }
         }
     }
     
     private func initializeView() async {
+        // Führe alles im MainActor aus
         await MainActor.run {
             print("DEBUG: AddAccountView wird initialisiert")
             print("DEBUG: Gruppe Details - Name: \(group.name ?? "unknown"), ID: \(group.objectID)")

@@ -529,7 +529,9 @@ struct AccountGroupView: View {
         }
         .onChange(of: viewModel.transactionsUpdated) { _, _ in
             calculateBalances()
+            viewModel.fetchAccountGroups()
         }
+        .id(group.objectID)
     }
 
     private func calculateBalances() {
@@ -869,7 +871,7 @@ struct ContentView: View {
     }
 
     private var accountGroupsList: some View {
-        ScrollView {
+        ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 20) {
                 ForEach(viewModel.accountGroups) { group in
                     AccountGroupView(
@@ -883,6 +885,7 @@ struct ContentView: View {
                 }
             }
             .padding(.top, 8)
+            .padding(.bottom, 20) // Add bottom padding to ensure last item is visible
         }
     }
     

@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreData
 
 struct SelectAccountGroupView: View {
     @Environment(\.dismiss) var dismiss
@@ -24,19 +25,7 @@ struct SelectAccountGroupView: View {
                     List {
                         ForEach(accountGroups) { group in
                             Button(action: {
-                                print("DEBUG: Gruppe ausgewählt - Name: \(group.name ?? "unknown"), ID: \(group.objectID)")
-                                print("DEBUG: Gruppe Details - Konten: \(group.accounts?.count ?? 0)")
-                                
-                                // Stelle sicher, dass die Gruppe im richtigen Kontext ist
-                                if let groupInContext = try? managedObjectContext.existingObject(with: group.objectID) as? AccountGroup {
-                                    print("DEBUG: Gruppe erfolgreich in aktuellen Kontext geholt")
-                                    selectedGroup = groupInContext
-                                    groupToEdit = groupInContext
-                                    showAddAccountSheet = true
-                                    dismiss()
-                                } else {
-                                    print("DEBUG: FEHLER - Konnte Gruppe nicht in aktuellen Kontext holen")
-                                }
+                                handleGroupSelection(group)
                             }) {
                                 HStack {
                                     Image(systemName: "folder.fill")
@@ -69,14 +58,56 @@ struct SelectAccountGroupView: View {
         }
     }
     
+    private func handleGroupSelection(_ group: AccountGroup) {
+        print("DEBUG: Gruppe ausgewählt - Name: \(group.name ?? "unknown"), ID: \(group.objectID)")
+        print("DEBUG: Gruppe Details - Konten: \(group.accounts?.count ?? 0)")
+        
+        // Stelle sicher, dass die Gruppe im richtigen Kontext ist
+        managedObjectContext.performAndWait {
+            do {
+                if let groupInContext = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup {
+                    print("DEBUG: Gruppe erfolgreich in aktuellen Kontext geholt")
+                    
+                    // Aktualisiere den ViewModel-Zustand
+                    DispatchQueue.main.async {
+                        selectedGroup = groupInContext
+                        groupToEdit = groupInContext
+                        showAddAccountSheet = true
+                        
+                        // Verzögere das Schließen leicht, um sicherzustellen, dass der State aktualisiert wurde
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            dismiss()
+                        }
+                    }
+                } else {
+                    print("DEBUG: FEHLER - Konnte Gruppe nicht in aktuellen Kontext holen")
+                }
+            } catch {
+                print("DEBUG: FEHLER beim Laden der Gruppe: \(error)")
+            }
+        }
+    }
+    
     private func loadGroups() {
         isLoading = true
-        accountGroups = viewModel.accountGroups
-        print("DEBUG: Verfügbare Gruppen:")
-        for group in accountGroups {
-            print("DEBUG: - Gruppe: \(group.name ?? "unknown"), ID: \(group.objectID)")
+        // Lade die Gruppen im Hauptkontext
+        managedObjectContext.performAndWait {
+            let fetchRequest = NSFetchRequest<AccountGroup>(entityName: "AccountGroup")
+            fetchRequest.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+            
+            do {
+                accountGroups = try managedObjectContext.fetch(fetchRequest)
+                print("DEBUG: Verfügbare Gruppen:")
+                for group in accountGroups {
+                    print("DEBUG: - Gruppe: \(group.name ?? "unknown"), ID: \(group.objectID)")
+                }
+            } catch {
+                print("DEBUG: FEHLER beim Laden der Gruppen: \(error)")
+                accountGroups = []
+            }
+            
+            isLoading = false
         }
-        isLoading = false
     }
 }
 
