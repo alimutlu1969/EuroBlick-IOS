@@ -652,6 +652,7 @@ struct TransactionRow: View {
                         .padding(.leading, 8)
                     Spacer()
                     Text(String(format: "%.2f €", transaction.amount))
+                        .font(.caption)
                         .foregroundColor(transaction.amount >= 0 ? .green : .red)
                 }
                 if let usage = transaction.usage, !usage.isEmpty {
