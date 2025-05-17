@@ -12,11 +12,11 @@ struct AuthenticationView: View {
         VStack {
             Text("Bitte authentifizieren")
                 .foregroundColor(.white)
-                .font(.headline)
+                .font(.system(size: AppFontSize.sectionTitle))
             if let error = errorMessage {
                 Text(error)
                     .foregroundColor(.red)
-                    .font(.caption)
+                    .font(.system(size: AppFontSize.bodySmall))
                     .padding(.bottom, 10)
             }
             Button("Anmelden mit Face ID") {
@@ -29,6 +29,7 @@ struct AuthenticationView: View {
                 }
             }
             .foregroundColor(.blue)
+            .font(.system(size: AppFontSize.bodyLarge))
             .padding()
             .background(Color.gray.opacity(0.2))
             .cornerRadius(10)
@@ -69,7 +70,7 @@ struct IconSelectionView: View {
                         onIconSelected(icon)
                     }) {
                         Image(systemName: icon)
-                            .font(.system(size: 24))
+                            .font(.system(size: AppFontSize.groupIcon))
                             .foregroundColor(selectedIcon == icon ? selectedColor : .gray)
                             .padding(8)
                             .background(
@@ -260,10 +261,9 @@ struct AccountRowView: View {
     let viewModel: TransactionViewModel
     @State private var showEditSheet = false
     @State private var navigateToTransactions = false
-    @State private var refreshToggle = false  // Neuer State für Force-Refresh
+    @State private var refreshToggle = false
 
     private var accountIcon: (systemName: String, color: Color) {
-        // Force view refresh when refreshToggle changes
         _ = refreshToggle
         let icon = account.value(forKey: "icon") as? String ?? "building.columns.fill"
         let colorHex = account.value(forKey: "iconColor") as? String ?? "#007AFF"
@@ -275,26 +275,36 @@ struct AccountRowView: View {
             HStack {
                 Image(systemName: accountIcon.systemName)
                     .foregroundColor(accountIcon.color)
-                    .font(.system(size: 19))
-                    .padding(.trailing, 8)
+                    .font(.system(size: AppFontSize.contentIcon))
+                    .frame(width: 30)
                 Text(account.name ?? "Unbekanntes Konto")
                     .foregroundColor(.white)
-                    .font(.system(size: 17))
+                    .font(.system(size: AppFontSize.bodyLarge))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Spacer()
                 Text("\(String(format: "%.2f €", balance))")
                     .foregroundColor(balance >= 0 ? Color.green : Color.red)
-                    .font(.system(size: 16))
+                    .font(.system(size: AppFontSize.bodyMedium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .contentShape(Rectangle())
             .padding(.vertical, 10)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.3))
+                GeometryReader { geometry in
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(
+                            width: min(geometry.size.width, UIScreen.main.bounds.width - 40),
+                            height: geometry.size.height
+                        )
+                }
             )
             .onTapGesture {
                 navigateToTransactions = true
-        }
+            }
             .navigationDestination(isPresented: $navigateToTransactions) {
                 TransactionView(account: account, viewModel: viewModel)
             }
@@ -309,22 +319,8 @@ struct AccountRowView: View {
                 }
         )
         .padding(.horizontal)
-        .sheet(isPresented: $showEditSheet, onDismiss: {
-            // Force refresh on dismiss
-            refreshToggle.toggle()
-            viewModel.objectWillChange.send()
-            viewModel.refreshContextIfNeeded()
-            
-            // Verzögerte zweite Aktualisierung für sicherere UI-Updates
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                refreshToggle.toggle()
-                viewModel.objectWillChange.send()
-            }
-        }) {
-            EditAccountView(viewModel: viewModel, account: account, onSave: {
-                // Force refresh on save
-                refreshToggle.toggle()
-            })
+        .sheet(isPresented: $showEditSheet) {
+            EditAccountView(viewModel: viewModel, account: account)
         }
     }
 }
@@ -355,11 +351,63 @@ struct AccountGroupView: View {
     }
 
     private var regularAccounts: [(account: Account, balance: Double)] {
-        accountBalances.filter { ($0.account.name ?? "").lowercased() != "bk" }
+        let groupName = (group.name ?? "").lowercased()
+        
+        if groupName.contains("drinks") {
+            // Sortierung für Drinks-Gruppe: Kasa, Banka, [andere]
+            return accountBalances
+                .filter { account in
+                    let name = (account.account.name ?? "").lowercased()
+                    return name != "bize"
+                }
+                .sorted { first, second in
+                    let firstName = (first.account.name ?? "").lowercased()
+                    let secondName = (second.account.name ?? "").lowercased()
+                    
+                    let order = ["kasa", "banka"]
+                    let firstIndex = order.firstIndex(of: firstName) ?? order.count
+                    let secondIndex = order.firstIndex(of: secondName) ?? order.count
+                    
+                    if firstIndex != secondIndex {
+                        return firstIndex < secondIndex
+                    }
+                    return firstName < secondName
+                }
+        } else if groupName.contains("kaffee") {
+            // Sortierung für Kaffee-Gruppe: Bargeld, Giro, [andere]
+            return accountBalances
+                .filter { ($0.account.name ?? "").lowercased() != "bk" }
+                .sorted { first, second in
+                    let firstName = (first.account.name ?? "").lowercased()
+                    let secondName = (second.account.name ?? "").lowercased()
+                    
+                    let order = ["bargeld", "giro"]
+                    let firstIndex = order.firstIndex(of: firstName) ?? order.count
+                    let secondIndex = order.firstIndex(of: secondName) ?? order.count
+                    
+                    if firstIndex != secondIndex {
+                        return firstIndex < secondIndex
+                    }
+                    return firstName < secondName
+                }
+        }
+        
+        // Standardsortierung für andere Gruppen
+        return accountBalances
     }
 
-    private var bkAccounts: [(account: Account, balance: Double)] {
-        accountBalances.filter { ($0.account.name ?? "").lowercased() == "bk" }
+    private var specialAccounts: [(account: Account, balance: Double)] {
+        let groupName = (group.name ?? "").lowercased()
+        
+        if groupName.contains("drinks") {
+            // Bize-Konten für Drinks-Gruppe
+            return accountBalances.filter { ($0.account.name ?? "").lowercased() == "bize" }
+        } else if groupName.contains("kaffee") {
+            // BK-Konten für Kaffee-Gruppe
+            return accountBalances.filter { ($0.account.name ?? "").lowercased() == "bk" }
+        }
+        
+        return []
     }
 
     var body: some View {
@@ -368,25 +416,23 @@ struct AccountGroupView: View {
             HStack {
                 Image(systemName: groupIcon.systemName)
                     .foregroundColor(groupIcon.color)
-                    .font(.title2)
-                    .padding(.trailing, 4)
+                    .font(.system(size: AppFontSize.groupIcon))
+                    .padding(.trailing, 6)
                 Text(group.name ?? "Unbekannte Gruppe")
-                    .font(.title2)
+                    .font(.system(size: AppFontSize.groupTitle, weight: .semibold))
                     .foregroundColor(.white)
-                    .bold()
                 Spacer()
                 Text("\(String(format: "%.2f €", groupBalance))")
                     .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
-                    .font(.subheadline) // Gleiche Größe wie Kontosalden
+                    .font(.system(size: AppFontSize.bodyMedium))
                 Button(action: {
                     groupToEdit = group
                     newGroupName = group.name ?? ""
                     showEditGroupSheet = true
-                    print("Bearbeiten von Kontogruppe \(group.name ?? "unknown") ausgelöst")
                 }) {
                     Image(systemName: "pencil")
                         .foregroundColor(.white)
-                        .font(.system(size: 18))
+                        .font(.system(size: AppFontSize.smallIcon))
                 }
             }
             .padding(.horizontal)
@@ -405,14 +451,14 @@ struct AccountGroupView: View {
                     .padding(.vertical, 2)
             }
 
-            // Trennlinie und BK-Konten
-            if !bkAccounts.isEmpty {
+            // Trennlinie und spezielle Konten
+            if !specialAccounts.isEmpty {
                 Divider()
                     .background(Color.gray.opacity(0.5))
                     .padding(.horizontal)
                     .padding(.vertical, 8)
 
-                ForEach(bkAccounts, id: \.account.objectID) { item in
+                ForEach(specialAccounts, id: \.account.objectID) { item in
                     AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
                         .padding(.vertical, 2)
                 }
@@ -423,11 +469,11 @@ struct AccountGroupView: View {
                 destination: EvaluationView(accounts: accountBalances.map { $0.account }, viewModel: viewModel)
             ) {
                 HStack(spacing: 6) {
-                        Image(systemName: "chart.pie.fill")
+                    Image(systemName: "chart.pie.fill")
                         .foregroundColor(.white)
-                        .font(.system(size: 16))
+                        .font(.system(size: AppFontSize.smallIcon))
                     Text("Auswertung")
-                        .font(.system(size: 15))
+                        .font(.system(size: AppFontSize.bodySmall))
                 }
                 .foregroundColor(.white)
                 .padding(.vertical, 8)
@@ -496,10 +542,10 @@ struct AboutView: View {
                             .foregroundColor(.blue)
                         VStack(alignment: .leading) {
                             Text("EuroBlick")
-                                .font(.title)
+                                .font(.system(size: AppFontSize.appTitle))
                                 .bold()
                             Text("Version 1.0.0")
-                                .font(.subheadline)
+                                .font(.system(size: AppFontSize.bodySmall))
                                 .foregroundColor(.gray)
                         }
                     }
@@ -524,6 +570,7 @@ struct AboutView: View {
                     // Datenschutz
                     GroupBox(label: Text("Datenschutz").bold()) {
                         Text("Ihre Daten werden ausschließlich lokal auf Ihrem Gerät gespeichert. Es erfolgt keine Übertragung an externe Server.")
+                            .font(.system(size: AppFontSize.bodyMedium))
                             .padding(.vertical, 8)
                     }
                     .groupBoxStyle(TransparentGroupBoxStyle())
@@ -532,7 +579,9 @@ struct AboutView: View {
                     GroupBox(label: Text("Rechtliches").bold()) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("© 2025 A.E.M.")
+                                .font(.system(size: AppFontSize.bodyMedium))
                             Text("Alle Rechte vorbehalten")
+                                .font(.system(size: AppFontSize.bodySmall))
                         }
                         .padding(.vertical, 8)
                     }
@@ -555,7 +604,6 @@ struct AboutView: View {
     }
 }
 
-// Hilfsstruct für Feature-Zeilen
 struct FeatureRow: View {
     let icon: String
     let title: String
@@ -565,13 +613,13 @@ struct FeatureRow: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .foregroundColor(.blue)
-                .font(.title2)
-                .frame(width: 30)
+                .font(.system(size: AppFontSize.groupIcon))
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.headline)
+                    .font(.system(size: AppFontSize.bodyLarge))
+                    .foregroundColor(.white)
                 Text(description)
-                    .font(.subheadline)
+                    .font(.system(size: AppFontSize.bodySmall))
                     .foregroundColor(.gray)
             }
         }
@@ -606,29 +654,6 @@ struct ContentToolbar: ToolbarContent {
     private let isDebugMode = true
 
     var body: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarLeading) {
-            Button(action: {
-                authManager.logout()
-                print("Abmelden ausgelöst")
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, .red)
-                        .font(.system(size: 16))
-                    Text("Abmelden")
-                        .foregroundColor(.white)
-                        .font(.system(size: 16, weight: .medium))
-                }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.red.opacity(0.2))
-                )
-            }
-        }
-        
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
                 Group {
@@ -743,51 +768,78 @@ struct ContentView: View {
     }
     
     private var headerView: some View {
-        HStack {
-            Image(systemName: "eurosign.circle.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 40, height: 40)
-                .foregroundColor(.blue)
-            Text("EuroBlick")
-                .font(.title3)
-                .bold()
-            Spacer()
-            settingsMenu
+        VStack(spacing: 20) {
+            // Obere Zeile mit Abmelden-Button und Settings
+            HStack {
+                // Abmelden Button - kleiner und links
+                Button(action: {
+                    showLogoutAlert = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .red)
+                            .font(.system(size: 14))
+                        Text("Abmelden")
+                            .foregroundColor(.white)
+                            .font(.system(size: 14))
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .background(Color.red.opacity(0.2))
+                    .cornerRadius(6)
+                }
+                
+                Spacer()
+                
+                // Settings Menu - rechts oben
+                settingsMenu
+            }
+            .padding(.bottom, 36) // Zusätzlicher Abstand von einem halben Zentimeter
+            
+            // EuroBlick Logo - mittig
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "eurosign.circle.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 40, height: 40)
+                        .foregroundColor(.blue)
+                    Text("EuroBlick")
+                        .font(.title3)
+                        .bold()
+                }
+            }
+            .frame(maxWidth: .infinity)
         }
         .padding(.horizontal)
         .padding(.top, 16)
-                .padding(.bottom, 8)
+        .padding(.bottom, 8)
     }
     
     private var settingsMenu: some View {
-                    Menu {
-                        Button(action: {
+        Menu {
+            Button(action: {
                 showAddAccountGroupSheet = true
-                        }) {
-                            Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-                        }
-                            Button(action: {
+            }) {
+                Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+            }
+            Button(action: {
                 showAccountGroupPicker = true
-                            }) {
+            }) {
                 Label("Konto hinzufügen", systemImage: "plus.circle")
-                            }
-                            Button(action: {
+            }
+            Button(action: {
                 showSettingsSheet = true
             }) {
                 Label("Einstellungen", systemImage: "gear")
             }
-            Button(role: .destructive, action: {
-                showLogoutAlert = true
-            }) {
-                Label("Abmelden", systemImage: "rectangle.portrait.and.arrow.right")
-                        }
-                    } label: {
+        } label: {
             Image(systemName: "gearshape.fill")
                 .font(.title3)
-                            .foregroundColor(.white)
-                    }
-                }
+                .foregroundColor(.white)
+        }
+    }
 
     private var accountGroupsList: some View {
         ScrollView {
