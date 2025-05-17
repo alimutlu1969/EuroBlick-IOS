@@ -527,26 +527,10 @@ struct TransactionView: View {
     }
 
     func deleteTransactions(at offsets: IndexSet) {
-        let sortedOffsets = offsets.sorted(by: >)
-        
-        var transactionsToDelete: [(index: Int, transaction: Transaction)] = []
-        for index in sortedOffsets {
-            guard index >= 0 && index < transactions.count else {
-                print("Ungültiger Index \(index) für transactions mit Länge \(transactions.count)")
-                continue
-            }
-            let transaction = transactions[index]
-            transactionsToDelete.append((index: index, transaction: transaction))
-        }
-        
-        for (index, transaction) in transactionsToDelete {
-            viewModel.deleteTransaction(transaction) {
-                guard index >= 0 && index < transactions.count else {
-                    print("Index \(index) ist nach dem asynchronen Löschen ungültig")
-                    return
-                }
-                
-                transactions.remove(at: index)
+        let transactionsToDelete = offsets.map { filteredTransactions[$0] }
+        viewModel.deleteTransactions(transactionsToDelete) {
+            DispatchQueue.main.async {
+                self.fetchTransactions()
             }
         }
     }
@@ -648,54 +632,62 @@ struct TransactionView: View {
 struct TransactionRow: View {
     let transaction: Transaction
     let onEdit: (Transaction) -> Void
+    let isSelected: Bool
+    let isSelectionMode: Bool
+    let onToggleSelection: () -> Void
+
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
 
     var body: some View {
-        VStack(alignment: .leading) {
-            HStack {
-                Text(transaction.type?.capitalized ?? "Unbekannt")
-                    .foregroundColor({
-                        switch transaction.type {
-                        case "einnahme":
-                            return .green
-                        case "ausgabe":
-                            return .red
-                        default:
-                            return .white
-                        }
-                    }())
-                    .font(.subheadline)
+        HStack {
+            if isSelectionMode {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(isSelected ? .blue : .gray)
+                    .imageScale(.large)
                     .padding(.leading, 8)
-                Spacer()
-                Text(transaction.amount.isNaN ? "0.00 €" : "\(String(format: "%.2f €", transaction.amount))")
-                    .foregroundColor({
-                        switch transaction.type {
-                        case "einnahme":
-                            return .green
-                        case "ausgabe":
-                            return .red
-                        default:
-                            return .white
-                        }
-                    }())
-                    .font(.caption)
-                    .padding(.trailing, 8)
+                    .animation(.easeInOut, value: isSelected)
             }
-            Text(transaction.categoryRelationship?.name ?? "")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .padding(.leading, 8)
-            if let usage = transaction.usage, !usage.isEmpty {
-                Text(usage)
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .padding(.leading, 8)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(dateFormatter.string(from: transaction.date))
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Text(transaction.categoryRelationship?.name ?? "Unbekannt")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .padding(.leading, 8)
+                    Spacer()
+                    Text(String(format: "%.2f €", transaction.amount))
+                        .foregroundColor(transaction.amount >= 0 ? .green : .red)
+                }
+                if let usage = transaction.usage, !usage.isEmpty {
+                    Text(usage)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .padding(.leading, 8)
+                }
             }
+            .padding(.vertical, 6)
         }
-        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture {
-            onEdit(transaction)
+            if isSelectionMode {
+                onToggleSelection()
+                // Füge haptisches Feedback hinzu
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+            } else {
+                onEdit(transaction)
+            }
         }
+        .background(isSelected ? Color.blue.opacity(0.1) : Color.clear)
+        .animation(.easeInOut, value: isSelected)
     }
 }
 
@@ -768,6 +760,9 @@ struct TransactionListView: View {
     let isLoading: Bool
     let onDelete: (IndexSet) -> Void
     let onEdit: (Transaction) -> Void
+    @State private var selectedTransactions: Set<UUID> = []
+    @State private var isSelectionMode: Bool = false
+    @State private var longPressTransaction: Transaction? = nil
 
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -777,45 +772,87 @@ struct TransactionListView: View {
     }()
 
     var body: some View {
-        if isLoading {
-            Text("Lade Transaktionen...")
-                .foregroundColor(.white)
-                .padding()
-        } else if filteredTransactions.isEmpty {
-            Text("Keine Transaktion ausgewählt")
-                .foregroundColor(.white)
-        } else {
-            List {
-                ForEach(groupedTransactions, id: \.id) { group in
-                    Section(header: HStack {
-                        Text(dateFormatter.string(from: group.date))
-                            .foregroundColor(.white)
-                            .font(.system(size: 12))
-                        Spacer()
-                        Text(group.dailyBalance.isNaN ? "(0.00 €)" : "(\(String(format: group.dailyBalance >= 0 ? "+%.2f €" : "%.2f €", group.dailyBalance)))")
-                            .foregroundColor(group.dailyBalance >= 0 ? .green : .red)
-                            .font(.system(size: 12))
-                        Text(group.cumulativeBalance.isNaN ? "0.00 €" : "\(String(format: "%.2f €", group.cumulativeBalance))")
-                            .foregroundColor(group.cumulativeBalance >= 0 ? .green : .red)
-                            .font(.system(size: 12))
+        VStack {
+            if isSelectionMode {
+                HStack {
+                    Button(action: {
+                        isSelectionMode = false
+                        selectedTransactions.removeAll()
                     }) {
-                        ForEach(group.transactions, id: \.id) { transaction in
-                            transactionRowView(transaction: transaction)
+                        Text("Abbrechen")
+                            .foregroundColor(.red)
+                    }
+                    Spacer()
+                    if !selectedTransactions.isEmpty {
+                        Button(action: {
+                            let indexSet = IndexSet(filteredTransactions.enumerated()
+                                .filter { selectedTransactions.contains($0.element.id) }
+                                .map { $0.offset })
+                            onDelete(indexSet)
+                            selectedTransactions.removeAll()
+                            isSelectionMode = false
+                        }) {
+                            Text("Löschen (\(selectedTransactions.count))")
+                                .foregroundColor(.red)
                         }
                     }
                 }
+                .padding(.horizontal)
             }
-            .foregroundColor(.white)
-            .scrollContentBackground(.hidden)
+
+            if isLoading {
+                Text("Lade Transaktionen...")
+                    .foregroundColor(.white)
+                    .padding()
+            } else if filteredTransactions.isEmpty {
+                Text("Keine Transaktion ausgewählt")
+                    .foregroundColor(.white)
+            } else {
+                List {
+                    ForEach(groupedTransactions, id: \.id) { group in
+                        Section(header: HStack {
+                            Text(dateFormatter.string(from: group.date))
+                                .foregroundColor(.white)
+                                .font(.system(size: 12))
+                            Spacer()
+                            Text(group.dailyBalance.isNaN ? "(0.00 €)" : "(\(String(format: group.dailyBalance >= 0 ? "+%.2f €" : "%.2f €", group.dailyBalance)))")
+                                .foregroundColor(group.dailyBalance >= 0 ? .green : .red)
+                                .font(.system(size: 12))
+                            Text(group.cumulativeBalance.isNaN ? "0.00 €" : "\(String(format: "%.2f €", group.cumulativeBalance))")
+                                .foregroundColor(group.cumulativeBalance >= 0 ? .green : .red)
+                                .font(.system(size: 12))
+                        }) {
+                            ForEach(group.transactions, id: \.id) { transaction in
+                                transactionRowView(transaction: transaction)
+                            }
+                        }
+                    }
+                }
+                .foregroundColor(.white)
+                .scrollContentBackground(.hidden)
+            }
         }
     }
 
     @ViewBuilder
     private func transactionRowView(transaction: Transaction) -> some View {
-        TransactionRow(transaction: transaction, onEdit: onEdit)
-            .listRowBackground(Color.gray.opacity(0.2))
-            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
-            .swipeActions(edge: .leading) {
+        TransactionRow(
+            transaction: transaction,
+            onEdit: onEdit,
+            isSelected: selectedTransactions.contains(transaction.id),
+            isSelectionMode: isSelectionMode,
+            onToggleSelection: {
+                if selectedTransactions.contains(transaction.id) {
+                    selectedTransactions.remove(transaction.id)
+                } else {
+                    selectedTransactions.insert(transaction.id)
+                }
+            }
+        )
+        .listRowBackground(Color.gray.opacity(0.2))
+        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
+        .if(!isSelectionMode) { view in
+            view.swipeActions(edge: .leading) {
                 Button(action: {
                     onEdit(transaction)
                 }) {
@@ -833,6 +870,27 @@ struct TransactionListView: View {
                     Label("Löschen", systemImage: "trash")
                 }
             }
+        }
+        .onLongPressGesture(minimumDuration: 0.5) {
+            if !isSelectionMode {
+                isSelectionMode = true
+                selectedTransactions.insert(transaction.id)
+                // Füge haptisches Feedback hinzu
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+            }
+        }
+    }
+}
+
+// Helper view modifier for conditional modifiers
+extension View {
+    @ViewBuilder func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
     }
 }
 
