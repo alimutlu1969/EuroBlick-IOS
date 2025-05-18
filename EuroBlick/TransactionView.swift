@@ -35,8 +35,8 @@ struct TransactionView: View {
     @State private var loadingError: String? = nil
     @State private var transactionCache: [UUID: Transaction] = [:]
 
-    private var isGiroAccount: Bool {
-        return account.name?.lowercased().contains("giro") ?? false
+    private var isCSVImportEnabled: Bool {
+        return account.value(forKey: "type") as? String == "bankkonto"
     }
 
     private var availableMonths: [String] {
@@ -284,7 +284,7 @@ struct TransactionView: View {
                     Spacer()
                     
                     BottomBarView(
-                        isGiroAccount: isGiroAccount,
+                        isCSVImportEnabled: isCSVImportEnabled,
                         onExport: exportToCSV,
                         onImport: {
                             print("Import-Button gedrückt")
@@ -884,7 +884,7 @@ extension View {
 }
 
 struct BottomBarView: View {
-    let isGiroAccount: Bool
+    let isCSVImportEnabled: Bool
     let onExport: () -> Void
     let onImport: () -> Void
     let onDateFilter: () -> Void
@@ -892,7 +892,7 @@ struct BottomBarView: View {
 
     var body: some View {
         HStack {
-            if isGiroAccount {
+            if isCSVImportEnabled {
                 Button(action: onExport) {
                     Image("csv_export")
                         .resizable()

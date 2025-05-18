@@ -13,6 +13,13 @@ struct AddAccountView: View {
     @State private var errorMessage = ""
     @State private var isViewReady = false
     @State private var isProcessing = false
+    @State private var selectedType = "offline"
+    
+    private let accountTypes = [
+        ("Bargeld", "bargeld", "banknote.fill"),
+        ("Offline", "offline", "building.columns.fill"),
+        ("Bankkonto", "bankkonto", "building.columns.fill")
+    ]
     
     var body: some View {
         NavigationStack {
@@ -23,102 +30,76 @@ struct AddAccountView: View {
                     ProgressView("Lade...")
                         .foregroundColor(.white)
                 } else {
-                    VStack(spacing: 20) {
-                        // Gruppen-Header
-                        HStack {
-                            Image(systemName: "folder.fill")
-                                .foregroundColor(.blue)
-                            Text("Gruppe: \(group.name ?? "")")
-                                .foregroundColor(.white)
-                        }
-                        .font(.system(size: AppFontSize.bodyLarge))
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.gray.opacity(0.2))
-                        .cornerRadius(10)
-                        
-                        // Konto-Name Eingabe
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Kontoname")
-                                .foregroundColor(.white)
-                                .font(.system(size: AppFontSize.bodyMedium))
-                            TextField("", text: $accountName)
-                                .foregroundColor(.black)
-                                .font(.system(size: AppFontSize.bodyLarge))
-                                .padding(10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.white)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
-                                        )
-                                )
-                        }
-                        
-                        // Icon Auswahl
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Icon")
-                                .foregroundColor(.white)
-                                .font(.system(size: AppFontSize.bodyMedium))
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 15) {
-                                    ForEach(["banknote.fill", "creditcard.fill", "building.columns.fill", "wallet.pass.fill"], id: \.self) { icon in
-                                        Button(action: { selectedIcon = icon }) {
-                                            Image(systemName: icon)
-                                                .font(.system(size: AppFontSize.mainIcon))
-                                                .foregroundColor(selectedIcon == icon ? selectedColor : .gray)
-                                                .padding(10)
-                                                .background(
-                                                    Circle()
-                                                        .fill(selectedIcon == icon ? Color.gray.opacity(0.3) : Color.clear)
-                                                )
+                    VStack {
+                        Form {
+                            Section(header: Text("Kontoinformationen").foregroundColor(.gray)) {
+                                // Komplett benutzerdefiniertes TextField
+                                VStack(alignment: .leading) {
+                                    Text("Kontoname")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                        .padding(.leading, 4)
+                                    
+                                    HStack {
+                                        TextField("", text: $accountName)
+                                            .foregroundColor(.white)
+                                            .font(.system(size: 16, weight: .medium))
+                                        
+                                        if !accountName.isEmpty {
+                                            Button(action: { accountName = "" }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .foregroundColor(.gray)
+                                            }
                                         }
                                     }
+                                    .padding(10)
+                                    .background(Color.blue.opacity(0.3))
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.blue, lineWidth: 1)
+                                    )
                                 }
-                                .padding(.horizontal)
-                            }
-                        }
-                        
-                        // Farb-Auswahl
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Farbe")
-                                .foregroundColor(.white)
-                                .font(.system(size: AppFontSize.bodyMedium))
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 15) {
-                                    ForEach([Color.blue, Color.green, Color.orange, Color.red, Color.purple], id: \.self) { color in
-                                        Button(action: { selectedColor = color }) {
-                                            Circle()
-                                                .fill(color)
-                                                .frame(width: 30, height: 30)
-                                                .overlay(
-                                                    Circle()
-                                                        .stroke(Color.white, lineWidth: selectedColor == color ? 2 : 0)
-                                                )
-                                        }
+                                .padding(.vertical, 8)
+                                
+                                // Kontotyp-Auswahl
+                                Picker("Kontotyp", selection: $selectedType) {
+                                    ForEach(accountTypes, id: \.1) { type in
+                                        HStack {
+                                            Image(systemName: type.2)
+                                            Text(type.0)
+                                        }.tag(type.1)
                                     }
                                 }
-                                .padding(.horizontal)
+                                .pickerStyle(MenuPickerStyle())
+                                .foregroundColor(.white)
+                                
+                                // Icon-Auswahl
+                                Picker("Icon", selection: $selectedIcon) {
+                                    ForEach(["banknote.fill", "building.columns.fill", "creditcard.fill", "wallet.pass.fill"], id: \.self) { icon in
+                                        Image(systemName: icon).tag(icon)
+                                    }
+                                }
+                                .pickerStyle(MenuPickerStyle())
+                                
+                                // Farb-Auswahl
+                                ColorPicker("Icon-Farbe", selection: $selectedColor)
                             }
                         }
+                        .scrollContentBackground(.hidden)
                         
-                        if isProcessing {
-                            ProgressView("Konto wird erstellt...")
+                        // Debug-Text zum Testen der Eingabe
+                        if !accountName.isEmpty {
+                            Text("Eingabe: \(accountName)")
                                 .foregroundColor(.white)
-                                .padding()
+                                .font(.caption)
+                                .padding(.top, 4)
                         }
-                        
-                        Spacer()
                     }
-                    .padding()
                 }
             }
             .navigationTitle("Neues Konto")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Color.black, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") {
@@ -148,7 +129,6 @@ struct AddAccountView: View {
                 await initializeView()
             }
             
-            // Beobachte Änderungen an Konten
             NotificationCenter.default.addObserver(
                 forName: NSNotification.Name("AccountsDidChange"),
                 object: nil,
@@ -162,24 +142,21 @@ struct AddAccountView: View {
     private func handleAddAccount() {
         guard !isProcessing else { return }
         
-        // Setze den Status synchron
         isProcessing = true
         
         do {
-            // Hole die Gruppe im Hauptkontext
             guard let currentGroup = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup else {
                 throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Gruppe nicht gefunden"])
             }
             
-            // Erstelle das Konto
             viewModel.addAccount(
                 name: accountName,
                 group: currentGroup,
                 icon: selectedIcon,
-                color: selectedColor
+                color: selectedColor,
+                type: selectedType
             )
             
-            // Schließe die View sofort
             dismiss()
             
         } catch {

@@ -412,13 +412,14 @@ class TransactionViewModel: ObservableObject {
     }
     
     // Füge ein neues Konto zu einer Gruppe hinzu
-    func addAccount(name: String, group: AccountGroup, icon: String = "banknote.fill", color: Color = .blue) {
+    func addAccount(name: String, group: AccountGroup, icon: String = "banknote.fill", color: Color = .blue, type: String = "offline") {
         print("DEBUG: TransactionViewModel.addAccount - Start")
         print("DEBUG: Name: \(name)")
         print("DEBUG: Gruppe: \(group.name ?? "unknown")")
         print("DEBUG: Gruppen-ID: \(group.objectID)")
         print("DEBUG: Kontext der Gruppe: \(String(describing: group.managedObjectContext))")
         print("DEBUG: Hauptkontext: \(context)")
+        print("DEBUG: Kontotyp: \(type)")
 
         do {
             // Hole die Gruppe in den richtigen Kontext
@@ -435,6 +436,7 @@ class TransactionViewModel: ObservableObject {
             account.group = groupInContext
             account.setValue(icon, forKey: "icon")
             account.setValue(color.toHex(), forKey: "iconColor")
+            account.setValue(type, forKey: "type")
             
             print("DEBUG: Account erstellt und Eigenschaften gesetzt")
             

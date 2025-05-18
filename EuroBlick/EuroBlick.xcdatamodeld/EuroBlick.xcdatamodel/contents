@@ -4,6 +4,7 @@
         <attribute name="icon" optional="YES" attributeType="String" defaultValueString="building.columns.fill"/>
         <attribute name="iconColor" optional="YES" attributeType="String" defaultValueString="#007AFF"/>
         <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="type" optional="YES" attributeType="String" defaultValueString="offline"/>
         <relationship name="group" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="AccountGroup" inverseName="accounts" inverseEntity="AccountGroup"/>
         <relationship name="targetedTransactions" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Transaction" inverseName="targetAccount" inverseEntity="Transaction"/>
         <relationship name="transactions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Transaction" inverseName="account" inverseEntity="Transaction"/>

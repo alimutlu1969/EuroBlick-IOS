@@ -927,6 +927,7 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
             .onAppear {
+                migrateExistingAccounts()
                 refreshBalances()
             }
         .onChange(of: viewModel.transactionsUpdated) { _, _ in
@@ -935,20 +936,62 @@ struct ContentView: View {
     }
 
     private func refreshBalances() {
-            let allBalances = viewModel.calculateAllBalances()
-            var newBalances: [AccountBalance] = []
+        let allBalances = viewModel.calculateAllBalances()
+        var newBalances: [AccountBalance] = []
 
-            for group in viewModel.accountGroups {
-                let accounts = (group.accounts?.allObjects as? [Account]) ?? []
-                for account in accounts {
-                    let balance = allBalances[account.objectID] ?? 0.0
-                    newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
-                }
-            }
-
-                accountBalances = newBalances
+        for group in viewModel.accountGroups {
+            let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+            for account in accounts {
+                let balance = allBalances[account.objectID] ?? 0.0
+                newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
             }
         }
+
+        accountBalances = newBalances
+    }
+
+    // Fügt eine Methode hinzu, um bestehende Konten zu migrieren
+    private func migrateExistingAccounts() {
+        let context = viewModel.getContext()
+        
+        // Hole alle Konten
+        let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
+        
+        do {
+            let accounts = try context.fetch(fetchRequest)
+            var updated = false
+            
+            for account in accounts {
+                // Wenn das Konto noch keinen Typ hat oder der Typ leer ist
+                if account.value(forKey: "type") == nil || (account.value(forKey: "type") as? String) == "" {
+                    let accountName = account.name?.lowercased() ?? ""
+                    
+                    // Setze Typ basierend auf dem Namen
+                    if accountName.contains("giro") || accountName.contains("banka") {
+                        account.setValue("bankkonto", forKey: "type")
+                        print("Konto \(account.name ?? "unbekannt") auf Typ 'bankkonto' gesetzt")
+                        updated = true
+                    } else if accountName.contains("bar") || accountName.contains("kasse") {
+                        account.setValue("bargeld", forKey: "type")
+                        print("Konto \(account.name ?? "unbekannt") auf Typ 'bargeld' gesetzt")
+                        updated = true
+                    } else {
+                        account.setValue("offline", forKey: "type")
+                        print("Konto \(account.name ?? "unbekannt") auf Typ 'offline' gesetzt")
+                        updated = true
+                    }
+                }
+            }
+            
+            if updated {
+                try context.save()
+                print("Kontotypen erfolgreich migriert")
+            }
+        } catch {
+            print("Fehler bei der Migration von Konten: \(error.localizedDescription)")
+        }
+    }
+}
 
 // MARK: - Subviews
 
