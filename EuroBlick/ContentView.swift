@@ -125,7 +125,7 @@ struct EditAccountView: View {
     @Environment(\.dismiss) var dismiss
     let viewModel: TransactionViewModel
     let account: Account
-    let onSave: () -> Void  // Neuer Callback
+    let onSave: () -> Void
     
     @State private var accountName: String
     @State private var selectedIcon: String
@@ -214,11 +214,6 @@ struct EditAccountView: View {
                 // Rufe den onSave callback auf
                 onSave()
                 
-                // Verzögerte UI-Aktualisierung
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    viewModel.objectWillChange.send()
-                }
-                
                 dismiss()
             } catch {
                 print("Error saving changes: \(error)")
@@ -266,7 +261,7 @@ struct AccountRowView: View {
     @State private var showContextMenu = false
 
     private var accountIcon: (systemName: String, color: Color) {
-        _ = refreshToggle
+        _ = refreshToggle // Force view update when refreshToggle changes
         let icon = account.value(forKey: "icon") as? String ?? "building.columns.fill"
         let colorHex = account.value(forKey: "iconColor") as? String ?? "#007AFF"
         return (icon, Color(hex: colorHex) ?? .blue)
@@ -334,7 +329,14 @@ struct AccountRowView: View {
             }
             .padding(.horizontal)
             .sheet(isPresented: $showEditSheet) {
-                EditAccountView(viewModel: viewModel, account: account)
+                EditAccountView(viewModel: viewModel, account: account) {
+                    // Callback nach dem Speichern
+                    DispatchQueue.main.async {
+                        refreshToggle.toggle() // Trigger UI update
+                        viewModel.objectWillChange.send()
+                        viewModel.refreshContextIfNeeded()
+                    }
+                }
             }
             .confirmationDialog(
                 "Konto löschen",
@@ -348,6 +350,7 @@ struct AccountRowView: View {
             } message: {
                 Text("Möchten Sie das Konto '\(account.name ?? "")' wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.")
             }
+            .id(refreshToggle) // Force view refresh when refreshToggle changes
         }
     }
 }

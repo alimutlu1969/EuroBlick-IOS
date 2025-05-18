@@ -891,65 +891,146 @@ struct BottomBarView: View {
     let onAddTransaction: () -> Void
 
     var body: some View {
-        HStack {
-            if isCSVImportEnabled {
-                Button(action: onExport) {
-                    Image("csv_export")
+        GeometryReader { geometry in
+            HStack {
+                if isCSVImportEnabled {
+                    HStack(spacing: 0) {
+                        // CSV Export Button
+                        ActionButton(
+                            action: onExport,
+                            icon: "csv_export",
+                            label: "Export",
+                            color: .blue,
+                            accessibilityLabel: "CSV Export"
+                        )
+                        .frame(width: geometry.size.width / (isCSVImportEnabled ? 4 : 2))
+                        
+                        // CSV Import Button
+                        ActionButton(
+                            action: onImport,
+                            icon: "csv_import",
+                            label: "Import",
+                            color: .blue,
+                            accessibilityLabel: "CSV Import"
+                        )
+                        .frame(width: geometry.size.width / (isCSVImportEnabled ? 4 : 2))
+                    }
+                }
+                
+                // Datum Filter Button
+                ActionButton(
+                    action: onDateFilter,
+                    systemIcon: "calendar",
+                    label: "Datum",
+                    color: .orange,
+                    accessibilityLabel: "Datum Filter"
+                )
+                .frame(width: geometry.size.width / (isCSVImportEnabled ? 4 : 2))
+                
+                // Neue Buchung Button
+                ActionButton(
+                    action: onAddTransaction,
+                    systemIcon: "plus.circle.fill",
+                    label: "Neu",
+                    color: .green,
+                    isProminent: true,
+                    accessibilityLabel: "Neue Buchung hinzufügen",
+                    bounceEffect: true
+                )
+                .frame(width: geometry.size.width / (isCSVImportEnabled ? 4 : 2))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: 70)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0.98),
+                        Color.black.opacity(0.95)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                
+                // Top border line
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.white.opacity(0.1),
+                        Color.white.opacity(0)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 1)
+                .offset(y: -6)
+            }
+        )
+        .shadow(color: .black.opacity(0.25), radius: 15, x: 0, y: -8)
+    }
+}
+
+// Hilfsstruct für die einheitlichen Action-Buttons
+struct ActionButton: View {
+    let action: () -> Void
+    var icon: String? = nil
+    var systemIcon: String? = nil
+    let label: String
+    let color: Color
+    var isProminent: Bool = false
+    var accessibilityLabel: String
+    var bounceEffect: Bool = false
+    
+    @State private var isPressed = false
+    @State private var isBouncing = false
+    
+    var body: some View {
+        Button(action: {
+            let generator = UIImpactFeedbackGenerator(style: isProminent ? .medium : .light)
+            generator.impactOccurred()
+            
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                isPressed = true
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    isPressed = false
+                }
+                action()
+            }
+        }) {
+            VStack(spacing: 4) {
+                if let icon = icon {
+                    Image(icon)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 40, height: 40)
-                        .padding(5)
-                        .background(
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: 20, height: 20)
-                                .cornerRadius(8)
-                        )
+                        .frame(width: isProminent ? 28 : 22, height: isProminent ? 28 : 22)
+                } else if let systemIcon = systemIcon {
+                    Image(systemName: systemIcon)
+                        .font(.system(size: isProminent ? 24 : 20))
+                        .foregroundColor(color)
                 }
-                Spacer()
-                Button(action: onImport) {
-                    Image("csv_import")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 40, height: 40)
-                        .padding(5)
-                        .background(
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: 20, height: 20)
-                                .cornerRadius(8)
-                        )
+                
+                Text(label)
+                    .font(.system(size: isProminent ? 13 : 12))
+                    .foregroundColor(color)
+            }
+            .padding(.vertical, 8)
+            .scaleEffect(isPressed ? 0.95 : 1.0)
+            .scaleEffect(bounceEffect && isBouncing ? 1.05 : 1.0)
+            .animation(bounceEffect ? .spring(response: 0.5, dampingFraction: 0.6).repeatForever(autoreverses: true) : .none, value: isBouncing)
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .onAppear {
+            if bounceEffect {
+                withAnimation {
+                    isBouncing = true
                 }
-                Spacer()
-            }
-            Button(action: onDateFilter) {
-                Image(systemName: "calendar")
-                    .foregroundColor(.blue)
-                    .font(.system(size: 30))
-                    .padding(5)
-                    .background(
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(width: 20, height: 20)
-                            .cornerRadius(8)
-                    )
-            }
-            Spacer()
-            Button(action: onAddTransaction) {
-                Image(systemName: "plus")
-                    .foregroundColor(.blue)
-                    .font(.system(size: 30))
-                    .padding(5)
-                    .background(
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(width: 20, height: 20)
-                            .cornerRadius(8)
-                    )
             }
         }
-        .padding()
-        .background(Color.black)
     }
 }
 
@@ -959,47 +1040,127 @@ struct DatePickerSheetView: View {
     @Binding var showCustomDateRangeSheet: Bool
     let availableMonths: [String]
     let onFilter: () -> Void
+    @State private var searchText = ""
+
+    var filteredMonths: [String] {
+        if searchText.isEmpty {
+            return availableMonths
+        }
+        return availableMonths.filter { $0.lowercased().contains(searchText.lowercased()) }
+    }
 
     var body: some View {
-        ZStack {
-            Color.black.edgesIgnoringSafeArea(.all)
-            VStack {
-                Text("Monat auswählen")
-                    .foregroundColor(.white)
-                    .font(.headline)
-                    .padding()
-                Picker("Monat auswählen", selection: $selectedMonth) {
-                    ForEach(availableMonths, id: \.self) { month in
-                        Text(month).tag(month)
+        NavigationView {
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                VStack(spacing: 16) {
+                    // Suchfeld
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.gray)
+                        TextField("Suchen...", text: $searchText)
                             .foregroundColor(.white)
                     }
-                }
-                .pickerStyle(MenuPickerStyle())
-                .padding()
-                .foregroundColor(.white)
-                .background(Color.gray.opacity(0.2))
-                .cornerRadius(10)
-                .onChange(of: selectedMonth) { oldValue, newValue in
-                    if newValue == "Benutzerdefinierter Zeitraum" {
-                        showDatePickerSheet = false
-                        showCustomDateRangeSheet = true
+                    .padding(12)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+                    
+                    // Schnellauswahl-Buttons
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            selectedMonth = "Alle Monate"
+                            onFilter()
+                            showDatePickerSheet = false
+                        }) {
+                            HStack {
+                                Image(systemName: "calendar")
+                                    .foregroundColor(.white)
+                                    .frame(width: 24)
+                                Text("Alle Monate")
+                                    .foregroundColor(.white)
+                                Spacer()
+                                if selectedMonth == "Alle Monate" {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(10)
+                        }
+                        
+                        Button(action: {
+                            selectedMonth = "Benutzerdefinierter Zeitraum"
+                            showDatePickerSheet = false
+                            showCustomDateRangeSheet = true
+                        }) {
+                            HStack {
+                                Image(systemName: "calendar.badge.plus")
+                                    .foregroundColor(.white)
+                                    .frame(width: 24)
+                                Text("Benutzerdefinierter Zeitraum")
+                                    .foregroundColor(.white)
+                                Spacer()
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(10)
+                        }
+                    }
+                    .padding(.horizontal)
+                    
+                    // Verfügbare Monate Überschrift
+                    HStack {
+                        Text("Verfügbare Monate")
+                            .foregroundColor(.gray)
+                            .font(.subheadline)
+                            .padding(.horizontal)
+                        Spacer()
+                    }
+                    
+                    // Liste der Monate
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.flexible())], spacing: 12) {
+                            ForEach(filteredMonths.filter { 
+                                $0 != "Alle Monate" && $0 != "Benutzerdefinierter Zeitraum"
+                            }, id: \.self) { month in
+                                Button(action: {
+                                    selectedMonth = month
+                                    onFilter()
+                                    showDatePickerSheet = false
+                                }) {
+                                    HStack {
+                                        Text(month)
+                                            .foregroundColor(.white)
+                                        Spacer()
+                                        if selectedMonth == month {
+                                            Image(systemName: "checkmark")
+                                                .foregroundColor(.blue)
+                                        }
+                                    }
+                                    .padding()
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(Color.blue.opacity(selectedMonth == month ? 0.3 : 0.1))
+                                    )
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
                     }
                 }
-                Button(action: {
-                    onFilter()
-                    showDatePickerSheet = false
-                }) {
-                    Text("Filtern")
+                .navigationTitle("Zeitraum wählen")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Fertig") {
+                            showDatePickerSheet = false
+                        }
                         .foregroundColor(.blue)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.gray.opacity(0.2))
-                        .cornerRadius(10)
+                    }
                 }
-                .padding(.horizontal)
-                Spacer()
             }
-            .padding(.top, 20)
         }
     }
 }
