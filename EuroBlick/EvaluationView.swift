@@ -12,7 +12,6 @@ struct EvaluationView: View {
     @State private var showMonthPickerSheet = false
     @State private var showCustomDateRangeSheet = false
     @State private var showTransactionsSheet = false
-    @State private var shouldShowTransactionsSheet = false
     @State private var transactionsToShow: [Transaction] = []
     @State private var transactionsTitle: String = ""
     @State private var monthlyData: [MonthlyData] = []
@@ -274,7 +273,17 @@ struct EvaluationView: View {
                             // Charts and other content
                             if let data = monthlyData.first {
                                 // Einnahmen/Ausgaben/Überschuss Balkendiagramm
-                                BarChartView(data: data)
+                                BarChartView(data: data, showTransactions: { transactions, title in
+                                    print("🔍 EvaluationView: showTransactions aufgerufen mit Titel '\(title)' und \(transactions.count) Transaktionen")
+                                    transactionsToShow = transactions
+                                    transactionsTitle = title
+                                    print("🔍 EvaluationView: showTransactionsSheet wird auf true gesetzt")
+                                    // Verwende DispatchQueue.main.async für zuverlässigere Zustandsänderungen
+                                    DispatchQueue.main.async {
+                                        showTransactionsSheet = true
+                                    }
+                                    print("🔍 EvaluationView: showTransactionsSheet wurde gesetzt")
+                                })
                                     .frame(height: 300)
                                     .padding()
                                     .background(Color.black.opacity(0.2))
@@ -286,9 +295,15 @@ struct EvaluationView: View {
                                         categoryData: categoryData,
                                         totalExpenses: totalCategoryExpenses,
                                         showTransactions: { transactions, title in
+                                            print("🔍 EvaluationView: showTransactions aufgerufen mit Titel '\(title)' und \(transactions.count) Transaktionen")
                                             transactionsToShow = transactions
                                             transactionsTitle = title
-                                            shouldShowTransactionsSheet = true
+                                            print("🔍 EvaluationView: showTransactionsSheet wird auf true gesetzt")
+                                            // Verwende DispatchQueue.main.async für zuverlässigere Zustandsänderungen
+                                            DispatchQueue.main.async {
+                                                showTransactionsSheet = true
+                                            }
+                                            print("🔍 EvaluationView: showTransactionsSheet wurde gesetzt")
                                         }
                                     )
                                 }
@@ -299,9 +314,15 @@ struct EvaluationView: View {
                                         categoryData: incomeCategoryData,
                                         totalIncome: totalCategoryIncome,
                                         showTransactions: { transactions, title in
+                                            print("🔍 EvaluationView: showTransactions aufgerufen mit Titel '\(title)' und \(transactions.count) Transaktionen")
                                             transactionsToShow = transactions
                                             transactionsTitle = title
-                                            shouldShowTransactionsSheet = true
+                                            print("🔍 EvaluationView: showTransactionsSheet wird auf true gesetzt")
+                                            // Verwende DispatchQueue.main.async für zuverlässigere Zustandsänderungen
+                                            DispatchQueue.main.async {
+                                                showTransactionsSheet = true
+                                            }
+                                            print("🔍 EvaluationView: showTransactionsSheet wurde gesetzt")
                                         }
                                     )
                                 }
@@ -383,14 +404,19 @@ struct EvaluationView: View {
                     }
                 )
             }
-            .sheet(isPresented: $shouldShowTransactionsSheet) {
+            .sheet(isPresented: $showTransactionsSheet) {
                 TransactionSheet(
                     transactionsTitle: transactionsTitle,
                     transactions: transactionsToShow,
                     isPresented: $showTransactionsSheet,
-                    showTransactionsSheet: $shouldShowTransactionsSheet,
                     viewModel: viewModel
                 )
+                .onDisappear {
+                    print("🔍 EvaluationView: Sheet wird geschlossen")
+                }
+            }
+            .onChange(of: showTransactionsSheet) { oldValue, newValue in
+                print("🔍 EvaluationView: showTransactionsSheet geändert von \(oldValue) zu \(newValue)")
             }
             .onAppear {
                 loadMonthlyData()
@@ -672,12 +698,11 @@ struct MonthPickerSheet: View {
     }
 }
 
-// Sub-View für das Transaktions-Sheet
+// Zurück zur ursprünglichen TransactionSheet
 struct TransactionSheet: View {
     let transactionsTitle: String
     let transactions: [Transaction]
     @Binding var isPresented: Bool
-    @Binding var showTransactionsSheet: Bool
     @ObservedObject var viewModel: TransactionViewModel
     
     @State private var editingTransaction: Transaction?
@@ -691,8 +716,9 @@ struct TransactionSheet: View {
                     .foregroundColor(.white)
                 Spacer()
                 Button("Schließen") {
+                    print("🔍 TransactionSheet: Schließen-Button getippt")
                     isPresented = false
-                    showTransactionsSheet = false
+                    print("🔍 TransactionSheet: isPresented auf false gesetzt")
                 }
                 .foregroundColor(.blue)
             }
@@ -733,6 +759,9 @@ struct TransactionSheet: View {
                 ),
                 viewModel: viewModel
             )
+        }
+        .onAppear {
+            print("🔍 TransactionSheet: erscheint mit Titel '\(transactionsTitle)' und \(transactions.count) Transaktionen")
         }
     }
 }
@@ -892,8 +921,11 @@ struct CategoryChartView: View {
                         }
                         .fill(categoryColor(for: segment.name))
                         .onTapGesture {
+                            print("🔍 CategoryChart: Segment '\(segment.name)' wurde angetippt")
                             if let categoryData = categoryData.first(where: { $0.name == segment.name }) {
+                                print("🔍 CategoryChart: \(categoryData.transactions.count) Transaktionen gefunden für '\(segment.name)'")
                                 showTransactions(categoryData.transactions, "Ausgaben: \(segment.name)")
+                                print("🔍 CategoryChart: showTransactions aufgerufen")
                             }
                         }
                     }
@@ -1019,7 +1051,9 @@ struct ExpenseCategoryTableView: View {
                 .foregroundColor(.white)
                 .font(.callout)
                 .onTapGesture {
+                    print("🔍 ExpenseCategoryTableView: Zeile für '\(category.name)' angetippt")
                     showTransactions(category.transactions, "Ausgaben: \(category.name)")
+                    print("🔍 ExpenseCategoryTableView: showTransactions aufgerufen")
                 }
                 
                 Divider()
@@ -1096,8 +1130,11 @@ struct IncomeCategoryChartView: View {
                         }
                         .fill(categoryColor(for: segment.name))
                         .onTapGesture {
+                            print("🔍 IncomeChart: Segment '\(segment.name)' wurde angetippt")
                             if let categoryData = categoryData.first(where: { $0.name == segment.name }) {
+                                print("🔍 IncomeChart: \(categoryData.transactions.count) Transaktionen gefunden für '\(segment.name)'")
                                 showTransactions(categoryData.transactions, "Einnahmen: \(segment.name)")
+                                print("🔍 IncomeChart: showTransactions aufgerufen")
                             }
                         }
                     }
@@ -1216,7 +1253,9 @@ struct IncomeCategoryTableView: View {
                 .foregroundColor(.white)
                 .font(.callout)
                 .onTapGesture {
+                    print("🔍 IncomeCategoryTableView: Zeile für '\(category.name)' angetippt")
                     showTransactions(category.transactions, "Einnahmen: \(category.name)")
+                    print("🔍 IncomeCategoryTableView: showTransactions aufgerufen")
                 }
                 
                 Divider()
@@ -1285,8 +1324,11 @@ struct UsageChartView: View {
                         }
                         .fill(usageColor(for: segment.name))
                         .onTapGesture {
+                            print("🔍 UsageChartView: Segment '\(segment.name)' wurde angetippt")
                             if let usageData = usageData.first(where: { $0.name == segment.name }) {
+                                print("🔍 UsageChartView: \(usageData.transactions.count) Transaktionen gefunden für '\(segment.name)'")
                                 showTransactions(usageData.transactions, "Verwendungszweck: \(segment.name)")
+                                print("🔍 UsageChartView: showTransactions aufgerufen")
                             }
                         }
                     }
@@ -1647,8 +1689,8 @@ struct CustomOverlayAnnotationsView: View {
         let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
         let radius = min(geometry.size.width, geometry.size.height) / 3.2
         
-        // Verwende den labelAngle für die Position der Etiketten
-        let angle = segment.labelAngle ?? (segment.startAngle + (segment.endAngle - segment.startAngle) / 2)
+        // Verwende den Mittelpunkt für die Position der Etiketten
+        let angle = segment.startAngle + (segment.endAngle - segment.startAngle) / 2
         
         // Startpunkt am Rand des Segments
         let startPoint = CGPoint(
@@ -1686,11 +1728,6 @@ struct CustomOverlayAnnotationsView: View {
     }
 }
 
-// Erweitere das bestehende SegmentData Model
-extension SegmentData {
-    var labelAngle: Double? { nil }
-}
-
 extension DateFormatter {
     static let monthFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -1703,6 +1740,7 @@ extension DateFormatter {
 // Neue BarChartView
 struct BarChartView: View {
     let data: MonthlyData
+    let showTransactions: ([Transaction], String) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -1722,6 +1760,10 @@ struct BarChartView: View {
                     Rectangle()
                         .fill(Color.green)
                         .frame(width: 80, height: CGFloat(abs(data.income)) * scaleFactor)
+                        .onTapGesture {
+                            print("🔍 BarChartView: Einnahmen-Balken wurde angetippt")
+                            showTransactions(data.incomeTransactions, "Einnahmen")
+                        }
                     Text("Einnahmen")
                         .foregroundColor(.white)
                         .font(.caption)
@@ -1739,6 +1781,10 @@ struct BarChartView: View {
                     Rectangle()
                         .fill(Color.red)
                         .frame(width: 80, height: CGFloat(abs(data.expenses)) * scaleFactor)
+                        .onTapGesture {
+                            print("🔍 BarChartView: Ausgaben-Balken wurde angetippt")
+                            showTransactions(data.expenseTransactions, "Ausgaben")
+                        }
                     Text("Ausgaben")
                         .foregroundColor(.white)
                         .font(.caption)
@@ -1756,6 +1802,10 @@ struct BarChartView: View {
                     Rectangle()
                         .fill(data.surplus >= 0 ? Color.green : Color.red)
                         .frame(width: 80, height: CGFloat(abs(data.surplus)) * scaleFactor)
+                        .onTapGesture {
+                            print("🔍 BarChartView: Überschuss-Balken wurde angetippt")
+                            showTransactions(data.incomeTransactions + data.expenseTransactions, "Alle Transaktionen")
+                        }
                     Text("Überschuss")
                         .foregroundColor(.white)
                         .font(.caption)
