@@ -936,7 +936,7 @@ struct ContentView: View {
             }
             .sheet(item: Binding(
                 get: {
-                    if case .addAccount(let group) = sheetState {
+                    if case .addAccount = sheetState {
                         return sheetState
                     }
                     return nil
