@@ -34,6 +34,9 @@ struct AddTransactionView: View {
     private let ausgabeColorSelected = Color(red: 1.0, green: 0.0, blue: 0.0)
     private let umbuchungColorSelected = Color(red: 0.118, green: 0.565, blue: 1.0)
     private let defaultColor = Color.gray
+    
+    private let inputBackground = Color(white: 0.15)
+    private let spacing: CGFloat = 20 // 0.5cm spacing
 
     var body: some View {
         NavigationStack {
@@ -41,185 +44,134 @@ struct AddTransactionView: View {
                 Color.black.edgesIgnoringSafeArea(.all)
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(spacing: 20) {
-                            Text("Neue Buchung")
-                                .font(.title)
-                                .foregroundColor(.white)
-                                .padding(.top, 10)
-                            
+                        VStack(spacing: spacing) {
                             typeButtonsView
-                                .padding(.horizontal)
+                                .padding(.top, spacing)
                             
-                            // Betrag
-                            HStack(spacing: 10) {
-                                Image(systemName: "eurosign.circle.fill")
-                                    .foregroundColor(.gray)
-                                    .font(.system(size: 18))
-                                CustomTextField(text: $amount, placeholder: "Betrag", isSecure: false)
-                                    .foregroundColor(.white)
-                                    .keyboardType(.decimalPad)
-                                    .focused($focusedField, equals: .amount)
-                                    .frame(height: 32)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.gray.opacity(0.6))
-                            .cornerRadius(8)
-                            .padding(.horizontal)
-
-                            // Kategorie
-                            Picker("Kategorie", selection: $category) {
-                                Text("Kategorie auswählen").tag("")
-                                Text("Neue Kategorie").tag("new")
-                                ForEach(viewModel.categories, id: \.self) { category in
-                                    Text(category.name ?? "").tag(category.name ?? "")
+                            // Amount Field
+                            InputField(
+                                icon: "eurosign.circle.fill",
+                                placeholder: "Betrag",
+                                text: $amount,
+                                keyboardType: .decimalPad,
+                                field: .amount,
+                                focusedField: $focusedField
+                            )
+                            
+                            // Category Picker
+                            Menu {
+                                Button(action: { category = "" }) {
+                                    Text("Kategorie auswählen")
                                 }
+                                Button(action: { category = "new" }) {
+                                    Text("Neue Kategorie")
+                                }
+                                ForEach(viewModel.categories, id: \.self) { cat in
+                                    Button(action: { category = cat.name ?? "" }) {
+                                        Text(cat.name ?? "")
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "tag.fill")
+                                        .foregroundColor(.gray)
+                                    Text(category.isEmpty ? "Kategorie auswählen" : category)
+                                        .foregroundColor(category.isEmpty ? .gray : .white)
+                                    Spacer()
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .foregroundColor(.gray)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 36)
+                                .background(inputBackground)
+                                .cornerRadius(8)
                             }
-                            .pickerStyle(.menu)
-                            .accentColor(.white)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .frame(height: 44)
-                            .background(Color.gray.opacity(0.6))
-                            .cornerRadius(8)
                             .padding(.horizontal)
 
                             if category == "new" {
-                                CustomTextField(text: $newCategory, placeholder: "Neue Kategorie", isSecure: false)
-                                    .foregroundColor(.white)
+                                InputField(
+                                    icon: "tag.fill",
+                                    placeholder: "Neue Kategorie",
+                                    text: $newCategory,
+                                    field: .newCategory,
+                                    focusedField: $focusedField
+                                )
+                            }
+
+                            // Target Account Selection
+                            if type == "umbuchung" {
+                                Button(action: { showAccountPicker = true }) {
+                                    HStack {
+                                        Image(systemName: "building.columns.fill")
+                                            .foregroundColor(.gray)
+                                        Text(targetAccount?.name ?? "Zielkonto auswählen")
+                                            .foregroundColor(targetAccount == nil ? .gray : .white)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(.gray)
+                                    }
                                     .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .frame(height: 44)
-                                    .background(Color.gray.opacity(0.6))
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 36)
+                                    .background(inputBackground)
                                     .cornerRadius(8)
-                                    .padding(.horizontal)
-                                    .focused($focusedField, equals: .newCategory)
+                                }
+                                .padding(.horizontal)
                             }
 
-                            // Kontoauswahl
-                            Button(action: {
-                                showAccountPicker = true
-                            }) {
-                                HStack {
-                                    Image(systemName: "building.columns.fill")
-                                        .foregroundColor(.gray)
-                                    Text(targetAccount?.name ?? "Zielkonto auswählen")
-                                        .foregroundColor(targetAccount == nil ? .gray : .white)
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .foregroundColor(.gray)
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .frame(height: 44)
-                                .background(Color.gray.opacity(0.6))
-                                .cornerRadius(8)
-                            }
-                            .padding(.horizontal)
-                            .sheet(isPresented: $showAccountPicker) {
-                                NavigationStack {
-                                    List {
-                                        ForEach(viewModel.accountGroups) { group in
-                                            Section(header: Text(group.name ?? "").foregroundColor(.white)) {
-                                                ForEach(group.accounts?.allObjects as? [Account] ?? [], id: \.self) { acc in
-                                                    if acc != account {
-                                                        Button(action: {
-                                                            targetAccount = acc
-                                                            showAccountPicker = false
-                                                        }) {
-                                                            HStack {
-                                                                Text(acc.name ?? "")
-                                                                    .foregroundColor(.white)
-                                                                Spacer()
-                                                                if acc == targetAccount {
-                                                                    Image(systemName: "checkmark")
-                                                                        .foregroundColor(.blue)
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .listStyle(InsetGroupedListStyle())
-                                    .scrollContentBackground(.hidden)
-                                    .background(Color.black)
-                                    .navigationTitle("Konto auswählen")
-                                    .navigationBarTitleDisplayMode(.inline)
-                                    .toolbar {
-                                        ToolbarItem(placement: .navigationBarTrailing) {
-                                            Button("Fertig") {
-                                                showAccountPicker = false
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            // Usage Field
+                            InputField(
+                                icon: "text.alignleft",
+                                placeholder: "Verwendungszweck",
+                                text: $usage,
+                                field: .usage,
+                                focusedField: $focusedField
+                            )
 
-                            // Verwendungszweck
-                            HStack(spacing: 10) {
-                                Image(systemName: "text.alignleft")
+                            // Date Picker
+                            HStack {
+                                Image(systemName: "calendar")
                                     .foregroundColor(.gray)
-                                    .font(.system(size: 18))
-                                CustomTextField(text: $usage, placeholder: "Verwendungszweck", isSecure: false)
-                                    .foregroundColor(.white)
-                                    .focused($focusedField, equals: .usage)
-                                    .frame(height: 32)
+                                DatePicker("", selection: $date, displayedComponents: [.date])
+                                    .datePickerStyle(.compact)
+                                    .labelsHidden()
+                                    .tint(.white)
+                                    .environment(\.locale, Locale(identifier: "de_DE"))
                             }
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.gray.opacity(0.6))
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 36)
+                            .background(inputBackground)
                             .cornerRadius(8)
                             .padding(.horizontal)
 
-                            // Datum
-                            DatePicker("Datum", selection: $date, displayedComponents: [.date])
-                                .foregroundStyle(.white)
-                                .tint(.white)
-                                .datePickerStyle(.compact)
-                                .labelsHidden()
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .frame(height: 44)
-                                .background(Color.gray.opacity(0.6))
-                                .cornerRadius(8)
-                                .padding(.horizontal)
-                                .environment(\.locale, Locale(identifier: "de_DE"))
-
-                            // Buttons
-                            HStack(spacing: 20) {
-                                Button(action: {
+                            Spacer(minLength: 50) // Increased space before buttons
+                            
+                            // Action Buttons
+                            HStack(spacing: spacing) {
+                                ActionButton(
+                                    title: "Abbrechen",
+                                    backgroundColor: Color(red: 0.9, green: 0.3, blue: 0.3)
+                                ) {
                                     isCancelled = true
                                     dismiss()
-                                }) {
-                                    Text("Abbrechen")
-                                        .foregroundColor(.white)
-                                        .padding(.vertical, 8)
-                                        .padding(.horizontal, 20)
-                                        .background(Color.red)
-                                        .cornerRadius(8)
-                                        .font(.system(size: 15))
                                 }
 
-                                Button(action: {
+                                ActionButton(
+                                    title: "Speichern",
+                                    backgroundColor: Color.blue
+                                ) {
                                     validateAndSave()
-                                }) {
-                                    Text("Speichern")
-                                        .foregroundColor(.white)
-                                        .padding(.vertical, 8)
-                                        .padding(.horizontal, 20)
-                                        .background(Color.blue)
-                                        .cornerRadius(8)
-                                        .font(.system(size: 15))
                                 }
                             }
-                            .padding(.top, 10)
-                            .padding(.bottom, keyboard.keyboardHeight > 0 ? keyboard.keyboardHeight : 20)
+                            .padding(.horizontal)
+                            .padding(.bottom, 50) // Increased bottom padding by 0.5cm (20 points)
                         }
                     }
-                    .scrollDismissesKeyboard(.interactively)
                 }
             }
             .alert(isPresented: $showAlert) {
@@ -229,6 +181,14 @@ struct AddTransactionView: View {
                     dismissButton: .default(Text("OK")) {
                         alertMessage = ""
                     }
+                )
+            }
+            .sheet(isPresented: $showAccountPicker) {
+                AccountPickerView(
+                    viewModel: viewModel,
+                    currentAccount: account,
+                    selectedAccount: $targetAccount,
+                    isPresented: $showAccountPicker
                 )
             }
         }
@@ -243,6 +203,7 @@ struct AddTransactionView: View {
             umbuchungColorSelected: umbuchungColorSelected,
             defaultColor: defaultColor
         )
+        .padding(.horizontal)
     }
 
     private func validateAndSave() {
@@ -327,6 +288,89 @@ struct AddTransactionView: View {
                     print("Fehler beim Speichern der Transaktion: \(error)")
                 } else {
                     self.dismiss()
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Supporting Views
+
+struct InputField: View {
+    let icon: String
+    let placeholder: String
+    @Binding var text: String
+    var keyboardType: UIKeyboardType = .default
+    var field: AddTransactionView.Field
+    @FocusState.Binding var focusedField: AddTransactionView.Field?
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundColor(.gray)
+                .font(.system(size: 16))
+            CustomTextField(
+                text: $text,
+                placeholder: placeholder,
+                isSecure: false
+            )
+            .foregroundColor(.white)
+            .keyboardType(keyboardType)
+            .focused($focusedField, equals: field)
+            .frame(height: 28)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .frame(height: 36)
+        .background(Color(white: 0.15))
+        .cornerRadius(8)
+        .padding(.horizontal)
+    }
+}
+
+struct AccountPickerView: View {
+    let viewModel: TransactionViewModel
+    let currentAccount: Account
+    @Binding var selectedAccount: Account?
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(viewModel.accountGroups) { group in
+                    Section(header: Text(group.name ?? "").foregroundColor(.white)) {
+                        ForEach(group.accounts?.allObjects as? [Account] ?? [], id: \.self) { acc in
+                            if acc != currentAccount {
+                                Button(action: {
+                                    selectedAccount = acc
+                                    isPresented = false
+                                }) {
+                                    HStack {
+                                        Text(acc.name ?? "")
+                                            .foregroundColor(.white)
+                                        Spacer()
+                                        if acc == selectedAccount {
+                                            Image(systemName: "checkmark")
+                                                .foregroundColor(.blue)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(InsetGroupedListStyle())
+            .scrollContentBackground(.hidden)
+            .background(Color.black)
+            .navigationTitle("Konto auswählen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Fertig") {
+                        isPresented = false
+                    }
                 }
             }
         }
