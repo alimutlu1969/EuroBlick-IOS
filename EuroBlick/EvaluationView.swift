@@ -313,11 +313,11 @@ struct EvaluationView: View {
                                     .background(Color.black.opacity(0.2))
                                     .cornerRadius(10)
                                 
-                                // Ausgaben nach Kategorie
-                                if !data.expenseTransactions.isEmpty {
-                                    CategoryChartView(
-                                        categoryData: categoryData,
-                                        totalExpenses: totalCategoryExpenses,
+                                // Einnahmen nach Kategorie
+                                if !data.incomeTransactions.isEmpty {
+                                    IncomeCategoryChartView(
+                                        categoryData: incomeCategoryData,
+                                        totalIncome: totalCategoryIncome,
                                         showTransactions: { transactions, title in
                                             print("🔍 EvaluationView: showTransactions aufgerufen mit Titel '\(title)' und \(transactions.count) Transaktionen")
                                             transactionsToShow = transactions
@@ -332,11 +332,11 @@ struct EvaluationView: View {
                                     )
                                 }
                                 
-                                // Einnahmen nach Kategorie
-                                if !data.incomeTransactions.isEmpty {
-                                    IncomeCategoryChartView(
-                                        categoryData: incomeCategoryData,
-                                        totalIncome: totalCategoryIncome,
+                                // Ausgaben nach Kategorie
+                                if !data.expenseTransactions.isEmpty {
+                                    CategoryChartView(
+                                        categoryData: categoryData,
+                                        totalExpenses: totalCategoryExpenses,
                                         showTransactions: { transactions, title in
                                             print("🔍 EvaluationView: showTransactions aufgerufen mit Titel '\(title)' und \(transactions.count) Transaktionen")
                                             transactionsToShow = transactions
@@ -364,7 +364,7 @@ struct EvaluationView: View {
                                         Image(systemName: "square.and.arrow.up")
                                             .font(.title2)
                                         Text("PDF teilen")
-                                            .font(.headline)
+                                            .font(.subheadline)
                                     }
                                     .foregroundColor(.white)
                                     .padding()
@@ -383,7 +383,7 @@ struct EvaluationView: View {
                                         Image(systemName: "doc.fill")
                                             .font(.title2)
                                         Text("PDF erstellen")
-                                            .font(.headline)
+                                            .font(.subheadline)
                                     }
                                     .foregroundColor(.white)
                                     .padding()
@@ -402,6 +402,21 @@ struct EvaluationView: View {
             }
             .navigationTitle("Auswertungen")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack {
+                        Text("Auswertungen")
+                            .font(.headline)
+                        if let accountGroupName = accounts.first?.group?.name {
+                            Text("•")
+                                .foregroundColor(.gray)
+                            Text(accountGroupName)
+                                .foregroundColor(.gray)
+                                .font(.subheadline)
+                        }
+                    }
+                }
+            }
             .font(.title2)
             .sheet(isPresented: $showMonthPickerSheet) {
                 MonthPickerSheet(
@@ -563,13 +578,13 @@ struct DateFilterHeader: View {
                     
                     Text(selectedMonth == "Benutzerdefinierter Zeitraum" && customDateRange != nil ? customDateRangeDisplay : selectedMonth)
                         .foregroundColor(.white)
-                        .font(.headline)
+                        .font(.subheadline)
                     
                     Spacer()
                     
                     Image(systemName: "chevron.down")
                         .foregroundColor(.white)
-                        .font(.caption)
+                        .font(.caption2)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -960,7 +975,7 @@ struct CategoryChartView: View {
     var body: some View {
         VStack(spacing: 20) {
             Text("Ausgaben nach Kategorie")
-                .font(.headline)
+                .font(.subheadline)
                 .foregroundColor(.white)
                 .padding(.bottom, 5)
             
@@ -1095,7 +1110,7 @@ struct ExpenseCategoryTableView: View {
             .padding(.vertical, 8)
             .background(Color.gray.opacity(0.3))
             .foregroundColor(.white)
-            .font(.subheadline)
+            .font(.caption)
             
             // Tabellenzeilen
             ForEach(categoryData) { category in
@@ -1106,21 +1121,26 @@ struct ExpenseCategoryTableView: View {
                             .fill(categoryColor(for: category.name))
                             .frame(width: 12, height: 12)
                         Text(category.name)
+                            .foregroundColor(.white)
+                            .font(.caption2)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     
                     // Prozentanteil
                     Text(String(format: "%.1f%%", (category.value / totalExpenses) * 100))
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                        .foregroundColor(.white)
+                        .font(.caption2)
                     
-                    // Betrag
+                    // Betrag in Rot für Ausgaben
                     Text(formatAmount(category.value))
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                        .foregroundColor(.red)
+                        .font(.caption2)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
                 .background(Color.clear)
-                .foregroundColor(.white)
                 .font(.callout)
                 .onTapGesture {
                     print("🔍 ExpenseCategoryTableView: Zeile für '\(category.name)' angetippt")
@@ -1179,7 +1199,7 @@ struct IncomeCategoryChartView: View {
     var body: some View {
         VStack(spacing: 20) {
             Text("Einnahmen nach Kategorie")
-                .font(.headline)
+                .font(.subheadline)
                 .foregroundColor(.white)
                 .padding(.bottom, 5)
             
@@ -1309,7 +1329,7 @@ struct IncomeCategoryTableView: View {
             .padding(.vertical, 8)
             .background(Color.gray.opacity(0.3))
             .foregroundColor(.white)
-            .font(.subheadline)
+            .font(.caption)
             
             // Tabellenzeilen
             ForEach(categoryData) { category in
@@ -1320,21 +1340,26 @@ struct IncomeCategoryTableView: View {
                             .fill(categoryColor(for: category.name))
                             .frame(width: 12, height: 12)
                         Text(category.name)
+                            .foregroundColor(.white)
+                            .font(.caption2)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     
                     // Prozentanteil
                     Text(String(format: "%.1f%%", (category.value / totalIncome) * 100))
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                        .foregroundColor(.white)
+                        .font(.caption2)
                     
-                    // Betrag
+                    // Betrag in Grün für Einnahmen
                     Text(formatAmount(category.value))
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                        .foregroundColor(.green)
+                        .font(.caption2)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
                 .background(Color.clear)
-                .foregroundColor(.white)
                 .font(.callout)
                 .onTapGesture {
                     print("🔍 IncomeCategoryTableView: Zeile für '\(category.name)' angetippt")
@@ -1387,7 +1412,7 @@ struct UsageChartView: View {
     var body: some View {
         VStack {
             Text("Ausgaben nach Verwendungszweck")
-                .font(.headline)
+                .font(.subheadline)
                 .foregroundColor(.white)
                 .padding(.bottom, 5)
             
@@ -1498,6 +1523,58 @@ struct ForecastView: View {
     let transactions: [Transaction]
     let colorForValue: (Double) -> Color
 
+    private func calculateDailyAverages() -> (income: Double, expenses: Double, surplus: Double)? {
+        let calendar = Calendar.current
+        
+        // Gruppiere Transaktionen nach Typ
+        let incomeTransactions = transactions.filter { $0.type == "einnahme" }
+        let expenseTransactions = transactions.filter { $0.type == "ausgabe" }
+        
+        // Berechne Summen
+        let totalIncome = incomeTransactions.reduce(0.0) { $0 + $1.amount }
+        let totalExpenses = expenseTransactions.reduce(0.0) { $0 + abs($1.amount) }
+        
+        // Berechne die Anzahl der Tage zwischen der ersten und letzten Transaktion
+        if let firstIncomeDate = incomeTransactions.map({ $0.date }).min(),
+           let lastIncomeDate = incomeTransactions.map({ $0.date }).max() {
+            let daysIncome = max(1.0, Double(calendar.dateComponents([.day], from: firstIncomeDate, to: lastIncomeDate).day ?? 0) + 1)
+            let dailyIncome = totalIncome / daysIncome
+            
+            let daysExpenses = if let firstExpenseDate = expenseTransactions.map({ $0.date }).min(),
+                                 let lastExpenseDate = expenseTransactions.map({ $0.date }).max() {
+                max(1.0, Double(calendar.dateComponents([.day], from: firstExpenseDate, to: lastExpenseDate).day ?? 0) + 1)
+            } else {
+                1.0
+            }
+            let dailyExpenses = totalExpenses / daysExpenses
+            let dailySurplus = dailyIncome - dailyExpenses
+            
+            return (dailyIncome, dailyExpenses, dailySurplus)
+        }
+        
+        return nil
+    }
+
+    private func calculateMonthEndProjection() -> (income: Double, expenses: Double, surplus: Double)? {
+        guard let averages = calculateDailyAverages() else { return nil }
+        
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // Berechne die verbleibenden Tage im Monat
+        guard let range = calendar.range(of: .day, in: .month, for: today) else { return nil }
+        let daysInMonth = range.count
+        let currentDay = calendar.component(.day, from: today)
+        let remainingDays = daysInMonth - currentDay
+        
+        // Berechne die projizierten Werte für die verbleibenden Tage
+        let projectedIncome = averages.income * Double(remainingDays)
+        let projectedExpenses = averages.expenses * Double(remainingDays)
+        let projectedSurplus = projectedIncome - projectedExpenses
+        
+        return (projectedIncome, projectedExpenses, projectedSurplus)
+    }
+
     private func formatAmount(_ amount: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -1514,96 +1591,84 @@ struct ForecastView: View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Prognostizierter Kontostand am Monatsende")
                 .foregroundColor(.white)
-                .font(.headline)
+                .font(.subheadline)
                 .padding(.horizontal)
             
-            // Tägliche Durchschnittswerte
             if let averages = calculateDailyAverages() {
+                // Tägliche Durchschnittswerte
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Tägliche Durchschnittswerte:")
                         .foregroundColor(.white)
-                        .font(.subheadline)
-                    
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("Einnahmen: \(formatAmount(averages.income))")
-                                .foregroundColor(.green)
-                            Text("Ausgaben: \(formatAmount(averages.expenses))")
-                                .foregroundColor(.red)
-                            Text("Überschuss: \(formatAmount(averages.surplus))")
-                                .foregroundColor(colorForValue(averages.surplus))
-                        }
                         .font(.caption)
+                    
+                    VStack(alignment: .leading) {
+                        Text("Einnahmen: \(formatAmount(averages.income))")
+                            .foregroundColor(.green)
+                        Text("Ausgaben: \(formatAmount(-averages.expenses))")
+                            .foregroundColor(.red)
+                        Text("Überschuss: \(formatAmount(averages.surplus))")
+                            .foregroundColor(colorForValue(averages.surplus))
                     }
-                    .padding(.horizontal)
+                    .font(.caption2)
                 }
-                .padding(.vertical, 10)
+                .padding()
                 .background(Color.black.opacity(0.3))
                 .cornerRadius(10)
                 .padding(.horizontal)
-            }
 
-            if let forecast = transactions.first {
-                let maxValue = max(abs(forecast.amount), abs(forecast.amount))
-                let maxHeight: CGFloat = 150
-                let scaleFactor = maxValue > 0 ? maxHeight / maxValue : 1.0
-
-                HStack {
-                    // Prognostizierte Einnahmen
-                    VStack {
-                        Spacer()
-                        Rectangle()
-                            .fill(Color.green)
-                            .frame(width: 80, height: barHeight(for: forecast.amount, scaleFactor: scaleFactor))
-                            .onTapGesture {
-                                // Handle tap for income transactions
-                            }
-                        Text("Einnahmen")
-                            .foregroundColor(.white)
-                            .font(.caption)
-                            .padding(.top, 8)
-                        Text(formatAmount(forecast.amount))
-                            .foregroundColor(.green)
-                            .font(.caption)
-                            .padding(.top, 4)
+                // Prognose
+                if let projection = calculateMonthEndProjection() {
+                    HStack(spacing: 20) {
+                        // Prognostizierte Einnahmen
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(Color.green)
+                                .frame(width: 80, height: barHeight(for: projection.income))
+                            Text("Einnahmen")
+                                .foregroundColor(.white)
+                                .font(.caption2)
+                                .padding(.top, 8)
+                            Text(formatAmount(projection.income))
+                                .foregroundColor(.green)
+                                .font(.caption2)
+                                .padding(.top, 4)
+                        }
+                        
+                        // Prognostizierte Ausgaben
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(Color.red)
+                                .frame(width: 80, height: barHeight(for: projection.expenses))
+                            Text("Ausgaben")
+                                .foregroundColor(.white)
+                                .font(.caption2)
+                                .padding(.top, 8)
+                            Text(formatAmount(-projection.expenses))
+                                .foregroundColor(.red)
+                                .font(.caption2)
+                                .padding(.top, 4)
+                        }
+                        
+                        // Prognostizierter Überschuss
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(colorForValue(projection.surplus))
+                                .frame(width: 80, height: barHeight(for: projection.surplus))
+                            Text("Überschuss")
+                                .foregroundColor(.white)
+                                .font(.caption2)
+                                .padding(.top, 8)
+                            Text(formatAmount(projection.surplus))
+                                .foregroundColor(colorForValue(projection.surplus))
+                                .font(.caption2)
+                                .padding(.top, 4)
+                        }
                     }
-                    Spacer()
-                    // Prognostizierte Ausgaben
-                    VStack {
-                        Spacer()
-                        Rectangle()
-                            .fill(Color.red)
-                            .frame(width: 80, height: barHeight(for: forecast.amount, scaleFactor: scaleFactor))
-                            .onTapGesture {
-                                // Handle tap for expense transactions
-                            }
-                        Text("Ausgaben")
-                            .foregroundColor(.white)
-                            .font(.caption)
-                            .padding(.top, 8)
-                        Text(formatAmount(forecast.amount))
-                            .foregroundColor(.red)
-                            .font(.caption)
-                            .padding(.top, 4)
-                    }
-                    Spacer()
-                    // Prognostizierter Kontostand
-                    VStack {
-                        Spacer()
-                        Rectangle()
-                            .fill(colorForValue(forecast.amount))
-                            .frame(width: 80, height: barHeight(for: forecast.amount, scaleFactor: scaleFactor))
-                        Text("Kontostand")
-                            .foregroundColor(.white)
-                            .font(.caption)
-                            .padding(.top, 8)
-                        Text(formatAmount(forecast.amount))
-                            .foregroundColor(colorForValue(forecast.amount))
-                            .font(.caption)
-                            .padding(.top, 4)
-                    }
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
             }
         }
         .padding(.vertical)
@@ -1611,22 +1676,12 @@ struct ForecastView: View {
         .cornerRadius(10)
     }
 
-    private func calculateDailyAverages() -> (income: Double, expenses: Double, surplus: Double)? {
-        guard let data = transactions.first else { return nil }
-        
-        let calendar = Calendar.current
-        let today = Date()
-        let currentDay = Double(calendar.component(.day, from: today))
-        
-        let dailyIncome = data.amount / currentDay
-        let dailyExpenses = data.amount / currentDay
-        let dailySurplus = dailyIncome - dailyExpenses
-        
-        return (dailyIncome, dailyExpenses, dailySurplus)
-    }
-
-    private func barHeight(for value: Double, scaleFactor: CGFloat) -> CGFloat {
-        CGFloat(abs(value)) * scaleFactor
+    private func barHeight(for value: Double) -> CGFloat {
+        let maxHeight: CGFloat = 80 // Reduziert von 100 auf 80
+        let minHeight: CGFloat = 20
+        let scaleFactor: CGFloat = 0.2 // Stark reduziert von 0.4 auf 0.2
+        let normalizedHeight = CGFloat(abs(value)) / 2000 * maxHeight * scaleFactor // Erhöhter Divisor für kleinere Balken
+        return max(normalizedHeight, minHeight)
     }
 }
 
@@ -1852,13 +1907,13 @@ struct BarChartView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Einnahmen / Ausgaben / Überschuss")
+                .font(.caption)
                 .foregroundColor(.white)
-                .font(.subheadline)
                 .padding(.horizontal)
             
             let maxValue = max(abs(data.income), abs(data.expenses), abs(data.surplus))
-            let maxHeight: CGFloat = 150
-            let scaleFactor = maxValue > 0 ? maxHeight / maxValue : 1.0
+            let maxHeight: CGFloat = 100 // Reduzierte Höhe von 150 auf 100
+            let scaleFactor = maxValue > 0 ? (maxHeight / maxValue) * 0.7 : 1.0 // Zusätzlicher Skalierungsfaktor 0.7
             
             HStack {
                 // Einnahmen (links, grün)
@@ -1866,18 +1921,18 @@ struct BarChartView: View {
                     Spacer()
                     Rectangle()
                         .fill(Color.green)
-                        .frame(width: 80, height: CGFloat(abs(data.income)) * scaleFactor)
+                        .frame(width: 80, height: max(CGFloat(abs(data.income)) * scaleFactor, 20)) // Mindesthöhe von 20
                         .onTapGesture {
                             print("🔍 BarChartView: Einnahmen-Balken wurde angetippt")
                             showTransactions(data.incomeTransactions, "Einnahmen")
                         }
                     Text("Einnahmen")
                         .foregroundColor(.white)
-                        .font(.caption)
+                        .font(.caption2)
                         .padding(.top, 8)
                     Text(formatAmount(data.income))
                         .foregroundColor(.green)
-                        .font(.caption)
+                        .font(.caption2)
                         .padding(.top, 4)
                 }
                 Spacer()
@@ -1887,18 +1942,18 @@ struct BarChartView: View {
                     Spacer()
                     Rectangle()
                         .fill(Color.red)
-                        .frame(width: 80, height: CGFloat(abs(data.expenses)) * scaleFactor)
+                        .frame(width: 80, height: max(CGFloat(abs(data.expenses)) * scaleFactor, 20)) // Mindesthöhe von 20
                         .onTapGesture {
                             print("🔍 BarChartView: Ausgaben-Balken wurde angetippt")
                             showTransactions(data.expenseTransactions, "Ausgaben")
                         }
                     Text("Ausgaben")
                         .foregroundColor(.white)
-                        .font(.caption)
+                        .font(.caption2)
                         .padding(.top, 8)
                     Text(formatAmount(data.expenses))
                         .foregroundColor(.red)
-                        .font(.caption)
+                        .font(.caption2)
                         .padding(.top, 4)
                 }
                 Spacer()
@@ -1908,18 +1963,18 @@ struct BarChartView: View {
                     Spacer()
                     Rectangle()
                         .fill(data.surplus >= 0 ? Color.green : Color.red)
-                        .frame(width: 80, height: CGFloat(abs(data.surplus)) * scaleFactor)
+                        .frame(width: 80, height: max(CGFloat(abs(data.surplus)) * scaleFactor, 20)) // Mindesthöhe von 20
                         .onTapGesture {
                             print("🔍 BarChartView: Überschuss-Balken wurde angetippt")
                             showTransactions(data.incomeTransactions + data.expenseTransactions, "Alle Transaktionen")
                         }
                     Text("Überschuss")
                         .foregroundColor(.white)
-                        .font(.caption)
+                        .font(.caption2)
                         .padding(.top, 8)
                     Text(formatAmount(data.surplus))
                         .foregroundColor(data.surplus >= 0 ? .green : .red)
-                        .font(.caption)
+                        .font(.caption2)
                         .padding(.top, 4)
                 }
             }
