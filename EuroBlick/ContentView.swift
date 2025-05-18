@@ -267,6 +267,18 @@ struct AccountRowView: View {
         return (icon, Color(hex: colorHex) ?? .blue)
     }
 
+    private func formatBalance(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+
     var body: some View {
         NavigationStack {
             HStack {
@@ -280,7 +292,7 @@ struct AccountRowView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer()
-                Text("\(String(format: "%.2f €", balance))")
+                Text(formatBalance(balance))
                     .foregroundColor(balance >= 0 ? Color.green : Color.red)
                     .font(.system(size: AppFontSize.bodyMedium))
                     .lineLimit(1)

@@ -254,6 +254,30 @@ struct EvaluationView: View {
         value >= 0 ? .green : .red
     }
 
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return amount >= 0 ? "+\(formattedAmount) €" : "-\(formattedAmount) €"
+    }
+
+    private func formatBalance(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -503,6 +527,30 @@ struct DateFilterHeader: View {
     @Binding var customDateRange: (start: Date, end: Date)?
     let monthlyData: [MonthlyData]
     
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return amount >= 0 ? "+\(formattedAmount) €" : "-\(formattedAmount) €"
+    }
+
+    private func formatBalance(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+    
     var body: some View {
         VStack(spacing: 12) {
             Button(action: {
@@ -533,9 +581,9 @@ struct DateFilterHeader: View {
             if selectedMonth != "Alle Monate", let data = monthlyData.first {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Einnahmen: \(String(format: "%.2f €", data.income))")
+                        Text("Einnahmen: \(formatBalance(data.income))")
                             .foregroundColor(.green)
-                        Text("Ausgaben: \(String(format: "%.2f €", abs(data.expenses)))")
+                        Text("Ausgaben: \(formatBalance(abs(data.expenses)))")
                             .foregroundColor(.red)
                     }
                     .font(.caption)
@@ -546,7 +594,7 @@ struct DateFilterHeader: View {
                         Text("Überschuss")
                             .font(.caption)
                             .foregroundColor(.gray)
-                        Text(String(format: "%.2f €", data.surplus))
+                        Text(formatAmount(data.surplus))
                             .font(.headline)
                             .foregroundColor(data.surplus >= 0 ? .green : .red)
                     }
@@ -707,6 +755,18 @@ struct TransactionSheet: View {
     
     @State private var editingTransaction: Transaction?
     
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+
     var body: some View {
         VStack {
             // Header
@@ -730,7 +790,7 @@ struct TransactionSheet: View {
                     VStack(alignment: .leading) {
                         Text(transaction.date, style: .date)
                             .foregroundColor(.white)
-                        Text("Betrag: \(String(format: "%.2f €", transaction.amount))")
+                        Text("Betrag: \(formatAmount(transaction.amount))")
                             .foregroundColor(transaction.amount >= 0 ? .green : .red)
                         Text("Kategorie: \(transaction.categoryRelationship?.name ?? "Unbekannt")")
                             .foregroundColor(.white)
@@ -1008,6 +1068,18 @@ struct ExpenseCategoryTableView: View {
     let totalExpenses: Double
     let showTransactions: ([Transaction], String) -> Void
 
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Tabellenkopf
@@ -1042,7 +1114,7 @@ struct ExpenseCategoryTableView: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     
                     // Betrag
-                    Text(String(format: "%.2f €", category.value))
+                    Text(formatAmount(category.value))
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .padding(.horizontal)
@@ -1210,6 +1282,18 @@ struct IncomeCategoryTableView: View {
     let totalIncome: Double
     let showTransactions: ([Transaction], String) -> Void
 
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Tabellenkopf
@@ -1244,7 +1328,7 @@ struct IncomeCategoryTableView: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     
                     // Betrag
-                    Text(String(format: "%.2f €", category.value))
+                    Text(formatAmount(category.value))
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .padding(.horizontal)
@@ -1414,6 +1498,18 @@ struct ForecastView: View {
     let transactions: [Transaction]
     let colorForValue: (Double) -> Color
 
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return amount >= 0 ? "+\(formattedAmount) €" : "-\(formattedAmount) €"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Prognostizierter Kontostand am Monatsende")
@@ -1430,11 +1526,11 @@ struct ForecastView: View {
                     
                     HStack {
                         VStack(alignment: .leading) {
-                            Text("Einnahmen: \(String(format: "%.2f €", averages.income))")
+                            Text("Einnahmen: \(formatAmount(averages.income))")
                                 .foregroundColor(.green)
-                            Text("Ausgaben: \(String(format: "%.2f €", averages.expenses))")
+                            Text("Ausgaben: \(formatAmount(averages.expenses))")
                                 .foregroundColor(.red)
-                            Text("Überschuss: \(String(format: "%.2f €", averages.surplus))")
+                            Text("Überschuss: \(formatAmount(averages.surplus))")
                                 .foregroundColor(colorForValue(averages.surplus))
                         }
                         .font(.caption)
@@ -1466,7 +1562,7 @@ struct ForecastView: View {
                             .foregroundColor(.white)
                             .font(.caption)
                             .padding(.top, 8)
-                        Text(String(format: "%.2f €", forecast.amount))
+                        Text(formatAmount(forecast.amount))
                             .foregroundColor(.green)
                             .font(.caption)
                             .padding(.top, 4)
@@ -1485,7 +1581,7 @@ struct ForecastView: View {
                             .foregroundColor(.white)
                             .font(.caption)
                             .padding(.top, 8)
-                        Text(String(format: "%.2f €", forecast.amount))
+                        Text(formatAmount(forecast.amount))
                             .foregroundColor(.red)
                             .font(.caption)
                             .padding(.top, 4)
@@ -1501,14 +1597,13 @@ struct ForecastView: View {
                             .foregroundColor(.white)
                             .font(.caption)
                             .padding(.top, 8)
-                        Text(String(format: "%.2f €", forecast.amount))
+                        Text(formatAmount(forecast.amount))
                             .foregroundColor(colorForValue(forecast.amount))
                             .font(.caption)
                             .padding(.top, 4)
                     }
                 }
                 .padding(.horizontal)
-                .frame(height: maxHeight + 60)
             }
         }
         .padding(.vertical)
@@ -1742,6 +1837,18 @@ struct BarChartView: View {
     let data: MonthlyData
     let showTransactions: ([Transaction], String) -> Void
     
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Einnahmen / Ausgaben / Überschuss")
@@ -1768,7 +1875,7 @@ struct BarChartView: View {
                         .foregroundColor(.white)
                         .font(.caption)
                         .padding(.top, 8)
-                    Text("\(String(format: "%.2f €", data.income))")
+                    Text(formatAmount(data.income))
                         .foregroundColor(.green)
                         .font(.caption)
                         .padding(.top, 4)
@@ -1789,7 +1896,7 @@ struct BarChartView: View {
                         .foregroundColor(.white)
                         .font(.caption)
                         .padding(.top, 8)
-                    Text("\(String(format: "%.2f €", data.expenses))")
+                    Text(formatAmount(data.expenses))
                         .foregroundColor(.red)
                         .font(.caption)
                         .padding(.top, 4)
@@ -1810,14 +1917,13 @@ struct BarChartView: View {
                         .foregroundColor(.white)
                         .font(.caption)
                         .padding(.top, 8)
-                    Text("\(String(format: "%.2f €", data.surplus))")
+                    Text(formatAmount(data.surplus))
                         .foregroundColor(data.surplus >= 0 ? .green : .red)
                         .font(.caption)
                         .padding(.top, 4)
                 }
             }
             .padding(.horizontal)
-            .frame(height: maxHeight + 60)
         }
     }
 }
