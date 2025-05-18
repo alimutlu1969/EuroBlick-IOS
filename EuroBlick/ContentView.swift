@@ -900,9 +900,9 @@ struct ContentView: View {
     private var accountGroupsList: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 20) {
-                ForEach(viewModel.accountGroups) { group in
+                ForEach(viewModel.accountGroups) { accountGroup in
                     AccountGroupView(
-                        group: group,
+                        group: accountGroup,
                         viewModel: viewModel,
                         balances: accountBalances,
                         showEditGroupSheet: .constant(false),
