@@ -551,6 +551,7 @@ struct AccountGroupView: View {
 
     private func calculateBalances() {
         let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+        let groupName = (group.name ?? "").lowercased()
         
         // Berechne alle Kontostände
         accountBalances = accounts
@@ -560,9 +561,32 @@ struct AccountGroupView: View {
                 return (account, balance)
             }
         
-        // Berechne Gruppensaldo inklusive aller Konten
-        groupBalance = accountBalances.reduce(0.0) { total, item in
-            total + item.balance
+        // Berechne Gruppensaldo nur für Hauptkonten
+        if groupName.contains("drinks") {
+            // Für Drinks-Gruppe: Nur Kasa und Banka einbeziehen
+            groupBalance = accountBalances
+                .filter { account in
+                    let name = (account.account.name ?? "").lowercased()
+                    return name == "kasa" || name == "banka"
+                }
+                .reduce(0.0) { total, item in
+                    total + item.balance
+                }
+        } else if groupName.contains("kaffee") {
+            // Für Kaffee-Gruppe: Nur Bargeld und Giro einbeziehen
+            groupBalance = accountBalances
+                .filter { account in
+                    let name = (account.account.name ?? "").lowercased()
+                    return name == "bargeld" || name == "giro"
+                }
+                .reduce(0.0) { total, item in
+                    total + item.balance
+                }
+        } else {
+            // Für andere Gruppen: Alle Konten einbeziehen
+            groupBalance = accountBalances.reduce(0.0) { total, item in
+                total + item.balance
+            }
         }
     }
 }
