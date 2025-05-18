@@ -241,7 +241,7 @@ struct TransactionView: View {
                     )
                     
                     if !searchText.isEmpty {
-                        Text("Gesamtbetrag: \(String(format: searchTotalAmount >= 0 ? "+%.2f €" : "%.2f €", searchTotalAmount))")
+                        Text("Gesamtbetrag: \(formatAmount(searchTotalAmount))")
                             .foregroundColor(searchTotalAmount >= 0 ? .green : .red)
                             .font(.subheadline)
                             .padding(4)
@@ -615,6 +615,30 @@ struct TransactionView: View {
             }
         }
     }
+
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+
+    private func formatBalance(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
 }
 
 struct TransactionRow: View {
@@ -623,13 +647,18 @@ struct TransactionRow: View {
     let isSelected: Bool
     let isSelectionMode: Bool
     let onToggleSelection: () -> Void
-
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
+    
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
         formatter.locale = Locale(identifier: "de_DE")
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
 
     var body: some View {
         HStack {
@@ -643,22 +672,18 @@ struct TransactionRow: View {
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(dateFormatter.string(from: transaction.date))
-                        .font(.caption)
-                        .foregroundColor(.gray)
                     Text(transaction.categoryRelationship?.name ?? "Unbekannt")
                         .font(.caption)
-                        .foregroundColor(.gray)
-                        .padding(.leading, 8)
+                        .foregroundColor(.blue)
                     Spacer()
-                    Text(String(format: "%.2f €", transaction.amount))
+                    Text(formatAmount(transaction.amount))
                         .font(.caption)
                         .foregroundColor(transaction.amount >= 0 ? .green : .red)
                 }
                 if let usage = transaction.usage, !usage.isEmpty {
                     Text(usage)
                         .font(.caption)
-                        .foregroundColor(.gray)
+                        .foregroundColor(.orange)
                         .padding(.leading, 8)
                 }
             }
@@ -804,10 +829,10 @@ struct TransactionListView: View {
                                 .foregroundColor(.white)
                                 .font(.system(size: 12))
                             Spacer()
-                            Text(group.dailyBalance.isNaN ? "(0.00 €)" : "(\(String(format: group.dailyBalance >= 0 ? "+%.2f €" : "%.2f €", group.dailyBalance)))")
+                            Text(group.dailyBalance.isNaN ? "(0,00 €)" : "(\(formatAmount(group.dailyBalance)))")
                                 .foregroundColor(group.dailyBalance >= 0 ? .green : .red)
                                 .font(.system(size: 12))
-                            Text(group.cumulativeBalance.isNaN ? "0.00 €" : "\(String(format: "%.2f €", group.cumulativeBalance))")
+                            Text(group.cumulativeBalance.isNaN ? "0,00 €" : formatBalance(group.cumulativeBalance))
                                 .foregroundColor(group.cumulativeBalance >= 0 ? .green : .red)
                                 .font(.system(size: 12))
                         }) {
@@ -869,6 +894,30 @@ struct TransactionListView: View {
                 generator.impactOccurred()
             }
         }
+    }
+
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return amount >= 0 ? "+\(formattedAmount) €" : "-\(formattedAmount) €"
+    }
+
+    private func formatBalance(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
     }
 }
 
@@ -971,8 +1020,6 @@ struct BottomBarView: View {
         .shadow(color: .black.opacity(0.25), radius: 15, x: 0, y: -8)
     }
 }
-
-
 
 struct DatePickerSheetView: View {
     @Binding var selectedMonth: String

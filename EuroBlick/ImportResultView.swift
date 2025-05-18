@@ -66,13 +66,25 @@ struct SectionHeaderView: View {
 struct TransactionInfoRow: View {
     let transaction: TransactionViewModel.ImportResult.TransactionInfo
     
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(transaction.date)
                     .foregroundColor(.white)
                 Spacer()
-                Text(String(format: "%.2f €", transaction.amount))
+                Text(formatAmount(transaction.amount))
                     .foregroundColor(transaction.amount >= 0 ? .green : .red)
             }
             Text("Konto: \(transaction.account)")
