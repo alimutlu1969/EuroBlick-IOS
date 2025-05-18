@@ -5,40 +5,45 @@ struct SelectAccountGroupView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.managedObjectContext) var managedObjectContext
     @ObservedObject var viewModel: TransactionViewModel
-    @Binding var showAddAccountSheet: Bool
-    @Binding var groupToEdit: AccountGroup?
+    let onGroupSelected: (AccountGroup) -> Void
     
     @State private var isLoading = true
     @State private var accountGroups: [AccountGroup] = []
     
     var body: some View {
         NavigationStack {
-            VStack {
-                if isLoading {
-                    ProgressView("Lade Kontogruppen...")
-                        .foregroundColor(.white)
-                } else if accountGroups.isEmpty {
-                    Text("Keine Kontogruppen vorhanden")
-                        .foregroundColor(.white)
-                } else {
-                    List {
-                        ForEach(accountGroups) { group in
-                            Button(action: {
-                                handleGroupSelection(group)
-                            }) {
-                                HStack {
-                                    Image(systemName: "folder.fill")
-                                        .foregroundColor(.blue)
-                                    Text(group.name ?? "")
-                                        .foregroundColor(.white)
-                                    Spacer()
-                                    Text("\(group.accounts?.count ?? 0) Konten")
-                                        .foregroundColor(.gray)
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                
+                VStack {
+                    if isLoading {
+                        ProgressView("Lade Kontogruppen...")
+                            .foregroundColor(.white)
+                    } else if accountGroups.isEmpty {
+                        Text("Keine Kontogruppen vorhanden")
+                            .foregroundColor(.white)
+                    } else {
+                        List {
+                            ForEach(accountGroups) { group in
+                                Button(action: {
+                                    handleGroupSelection(group)
+                                }) {
+                                    HStack {
+                                        Image(systemName: "folder.fill")
+                                            .foregroundColor(.blue)
+                                        Text(group.name ?? "")
+                                            .foregroundColor(.white)
+                                        Spacer()
+                                        Text("\(group.accounts?.count ?? 0) Konten")
+                                            .foregroundColor(.gray)
+                                    }
                                 }
+                                .listRowBackground(Color.gray.opacity(0.2))
                             }
                         }
+                        .listStyle(PlainListStyle())
+                        .scrollContentBackground(.hidden)
                     }
-                    .listStyle(PlainListStyle())
                 }
             }
             .navigationTitle("Kontogruppe auswählen")
@@ -48,6 +53,7 @@ struct SelectAccountGroupView: View {
                     Button("Abbrechen") {
                         dismiss()
                     }
+                    .foregroundColor(.white)
                 }
             }
         }
@@ -61,19 +67,14 @@ struct SelectAccountGroupView: View {
         print("DEBUG: Gruppe ausgewählt - Name: \(group.name ?? "unknown"), ID: \(group.objectID)")
         print("DEBUG: Gruppe Details - Konten: \(group.accounts?.count ?? 0)")
         
-        // Stelle sicher, dass die Gruppe im richtigen Kontext ist
         do {
-            if let groupInContext = try managedObjectContext.existingObject(with: group.objectID) as? AccountGroup {
-                print("DEBUG: Gruppe erfolgreich in aktuellen Kontext geholt")
-                
-                // Aktualisiere den ViewModel-Zustand synchron
-                groupToEdit = groupInContext
-                showAddAccountSheet = true
-                
-                // Schließe die View sofort
+            let context = viewModel.getContext()
+            if let groupInContext = try context.existingObject(with: group.objectID) as? AccountGroup {
+                print("DEBUG: Gruppe erfolgreich in ViewModel-Kontext geholt: \(groupInContext.name ?? "unknown")")
                 dismiss()
+                onGroupSelected(groupInContext)
             } else {
-                print("DEBUG: FEHLER - Konnte Gruppe nicht in aktuellen Kontext holen")
+                print("DEBUG: FEHLER - Konnte Gruppe nicht in ViewModel-Kontext holen")
             }
         } catch {
             print("DEBUG: FEHLER beim Laden der Gruppe: \(error)")
@@ -82,22 +83,30 @@ struct SelectAccountGroupView: View {
     
     private func loadGroups() {
         isLoading = true
-        // Lade die Gruppen im Hauptkontext
-        let fetchRequest: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
-        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
         
-        do {
-            accountGroups = try managedObjectContext.fetch(fetchRequest)
-            print("DEBUG: Verfügbare Gruppen:")
-            for group in accountGroups {
-                print("DEBUG: - Gruppe: \(group.name ?? "unknown"), ID: \(group.objectID)")
+        DispatchQueue.main.async {
+            print("DEBUG: Lade Kontogruppen...")
+            
+            let context = viewModel.getContext()
+            let fetchRequest: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
+            fetchRequest.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+            
+            do {
+                accountGroups = try context.fetch(fetchRequest)
+                print("DEBUG: \(accountGroups.count) Gruppen geladen")
+                
+                print("DEBUG: Verfügbare Gruppen:")
+                for group in accountGroups {
+                    print("DEBUG: - Gruppe: \(group.name ?? "unknown"), ID: \(group.objectID), Konten: \(group.accounts?.count ?? 0)")
+                }
+                
+                isLoading = false
+            } catch {
+                print("DEBUG: FEHLER beim Laden der Gruppen: \(error)")
+                accountGroups = []
+                isLoading = false
             }
-        } catch {
-            print("DEBUG: FEHLER beim Laden der Gruppen: \(error)")
-            accountGroups = []
         }
-        
-        isLoading = false
     }
 }
 
@@ -107,7 +116,7 @@ struct SelectAccountGroupView: View {
     let testGroup = AccountGroup(context: context)
     testGroup.name = "Testgruppe"
     viewModel.accountGroups.append(testGroup)
-    return SelectAccountGroupView(viewModel: viewModel, showAddAccountSheet: .constant(false), groupToEdit: .constant(nil))
+    return SelectAccountGroupView(viewModel: viewModel, onGroupSelected: { _ in })
         .environment(\.managedObjectContext, context)
         .environmentObject(viewModel)
         .environmentObject(AuthenticationManager())

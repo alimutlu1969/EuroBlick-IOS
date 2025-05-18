@@ -778,17 +778,46 @@ struct ContentMainView: View {
     }
 }
 
+// Add this enum before ContentView
+enum SheetPresentationState: Equatable, Identifiable {
+    case none
+    case selectGroup
+    case addAccount(group: AccountGroup)
+    
+    var id: String {
+        switch self {
+        case .none:
+            return "none"
+        case .selectGroup:
+            return "selectGroup"
+        case .addAccount(let group):
+            return "addAccount-\(group.objectID)"
+        }
+    }
+    
+    static func == (lhs: SheetPresentationState, rhs: SheetPresentationState) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none):
+            return true
+        case (.selectGroup, .selectGroup):
+            return true
+        case (.addAccount(let lhsGroup), .addAccount(let rhsGroup)):
+            return lhsGroup.objectID == rhsGroup.objectID
+        default:
+            return false
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject var authManager: AuthenticationManager
     @StateObject private var viewModel: TransactionViewModel
-    @State private var showAddAccountSheet = false
-    @State private var showAddAccountGroupSheet = false
+    @State private var sheetState: SheetPresentationState = .none
     @State private var showSettingsSheet = false
-    @State private var selectedAccountGroup: AccountGroup?
     @State private var showLogoutAlert = false
-    @State private var showAccountGroupPicker = false
     @State private var accountBalances: [AccountBalance] = []
+    @State private var showAddAccountGroupSheet = false
     
     init(context: NSManagedObjectContext) {
         _viewModel = StateObject(wrappedValue: TransactionViewModel(context: context))
@@ -822,7 +851,7 @@ struct ContentView: View {
                 // Settings Menu - rechts oben
                 settingsMenu
             }
-            .padding(.bottom, 36) // Zusätzlicher Abstand von einem halben Zentimeter
+            .padding(.bottom, 36)
             
             // EuroBlick Logo - mittig
             VStack(spacing: 8) {
@@ -847,14 +876,14 @@ struct ContentView: View {
     private var settingsMenu: some View {
         Menu {
             Button(action: {
+                sheetState = .selectGroup
+            }) {
+                Label("Konto hinzufügen", systemImage: "plus.circle")
+            }
+            Button(action: {
                 showAddAccountGroupSheet = true
             }) {
                 Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-            }
-            Button(action: {
-                showAccountGroupPicker = true
-            }) {
-                Label("Konto hinzufügen", systemImage: "plus.circle")
             }
             Button(action: {
                 showSettingsSheet = true
@@ -894,24 +923,32 @@ struct ContentView: View {
                 accountGroupsList
             }
             .background(Color.black)
+            .sheet(item: Binding(
+                get: { sheetState == .selectGroup ? sheetState : nil },
+                set: { _ in sheetState = .none }
+            )) { _ in
+                SelectAccountGroupView(
+                    viewModel: viewModel,
+                    onGroupSelected: { group in
+                        sheetState = .addAccount(group: group)
+                    }
+                )
+            }
+            .sheet(item: Binding(
+                get: {
+                    if case .addAccount(let group) = sheetState {
+                        return sheetState
+                    }
+                    return nil
+                },
+                set: { _ in sheetState = .none }
+            )) { state in
+                if case .addAccount(let group) = state {
+                    AddAccountView(viewModel: viewModel, group: group)
+                }
+            }
             .sheet(isPresented: $showAddAccountGroupSheet) {
                 AddAccountGroupView(viewModel: viewModel)
-            }
-            .sheet(isPresented: $showAccountGroupPicker) {
-                SelectAccountGroupView(viewModel: viewModel, showAddAccountSheet: $showAddAccountSheet, groupToEdit: $selectedAccountGroup)
-                    .onDisappear {
-                        if showAddAccountSheet, selectedAccountGroup == nil {
-                            showAddAccountSheet = false
-                        }
-                    }
-            }
-            .sheet(isPresented: $showAddAccountSheet) {
-                if let group = selectedAccountGroup {
-                    AddAccountView(viewModel: viewModel, group: group)
-                        .onDisappear {
-                            selectedAccountGroup = nil
-                        }
-                }
             }
             .sheet(isPresented: $showSettingsSheet) {
                 SettingsView()
@@ -926,12 +963,12 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
-            .onAppear {
-                migrateExistingAccounts()
-                refreshBalances()
-            }
+        .onAppear {
+            migrateExistingAccounts()
+            refreshBalances()
+        }
         .onChange(of: viewModel.transactionsUpdated) { _, _ in
-                refreshBalances()
+            refreshBalances()
         }
     }
 
