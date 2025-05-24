@@ -3,6 +3,17 @@ import CoreData
 import UniformTypeIdentifiers // Für UIDocumentPickerViewController
 import UIKit // Für UIImpactFeedbackGenerator
 
+fileprivate func formatBalance(_ amount: Double) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.locale = Locale(identifier: "de_DE")
+    formatter.minimumFractionDigits = 2
+    formatter.maximumFractionDigits = 2
+    let number = NSNumber(value: abs(amount))
+    let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+    return "\(formattedAmount) €"
+}
+
 struct AuthenticationView: View {
     @Binding var isAuthenticated: Bool
     @EnvironmentObject var authManager: AuthenticationManager // Verwende den AuthenticationManager
@@ -267,18 +278,6 @@ struct AccountRowView: View {
         return (icon, Color(hex: colorHex) ?? .blue)
     }
 
-    private func formatBalance(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.locale = Locale(identifier: "de_DE")
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        
-        let number = NSNumber(value: abs(amount))
-        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
-        return "\(formattedAmount) €"
-    }
-
     var body: some View {
         NavigationStack {
             HStack {
@@ -288,13 +287,14 @@ struct AccountRowView: View {
                     .frame(width: 30)
                 Text(account.name ?? "Unbekanntes Konto")
                     .foregroundColor(.white)
-                    .font(.system(size: AppFontSize.bodyLarge))
+                    .font(.system(size: (AppFontSize.bodyLarge + AppFontSize.bodyMedium) / 2))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer()
-                Text(formatBalance(balance))
+                let formattedBalance = formatBalance(balance)
+                Text(formattedBalance)
                     .foregroundColor(balance >= 0 ? Color.green : Color.red)
-                    .font(.system(size: AppFontSize.bodyMedium))
+                    .font(.system(size: (AppFontSize.bodyMedium + AppFontSize.bodySmall) / 2 + 0.5))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -372,6 +372,7 @@ struct AccountGroupView: View {
     let group: AccountGroup
     let viewModel: TransactionViewModel
     let balances: [AccountBalance]
+    let onAccountTapped: (Account) -> Void
     @State private var groupBalance: Double = 0.0
     @State private var accountBalances: [(account: Account, balance: Double)] = []
     @State private var expanded: Bool = false
@@ -485,7 +486,7 @@ struct AccountGroupView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(String(format: "%.2f €", groupBalance))")
+                    Text(formatBalance(groupBalance))
                         .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
                         .font(.system(size: AppFontSize.bodyMedium))
                 }
@@ -524,6 +525,7 @@ struct AccountGroupView: View {
             if expanded {
                 VStack(spacing: 0) {
                     ForEach(regularAccounts + specialAccounts, id: \ .account.objectID) { item in
+                        let formattedBalance = formatBalance(item.balance)
                         HStack(spacing: 12) {
                             let icon = item.account.value(forKey: "icon") as? String ?? "building.columns.fill"
                             let colorHex = item.account.value(forKey: "iconColor") as? String ?? "#007AFF"
@@ -532,9 +534,11 @@ struct AccountGroupView: View {
                                 .frame(width: 24, height: 24)
                             Text(item.account.name ?? "Unbekanntes Konto")
                                 .foregroundColor(.white)
+                                .font(.system(size: (AppFontSize.bodyLarge + AppFontSize.bodyMedium) / 2))
                             Spacer()
-                            Text(String(format: "%.2f €", item.balance))
+                            Text(formattedBalance)
                                 .foregroundColor(item.balance >= 0 ? .green : .red)
+                                .font(.system(size: (AppFontSize.bodyMedium + AppFontSize.bodySmall) / 2 + 0.5))
                             if !isAccountIncludedInBalance(item.account) {
                                 Image(systemName: "slash.circle")
                                     .foregroundColor(.gray)
@@ -545,7 +549,7 @@ struct AccountGroupView: View {
                         .padding(.vertical, 10)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            navigateToTransactions = true
+                            onAccountTapped(item.account)
                         }
                         .onLongPressGesture {
                             let generator = UIImpactFeedbackGenerator(style: .medium)
@@ -805,8 +809,7 @@ struct ContentMainView: View {
     let accountGroups: [AccountGroup]
     let balances: [AccountBalance]
     let viewModel: TransactionViewModel
-    @Binding var showAddGroupSheet: Bool
-    @Binding var showSelectGroupSheet: Bool
+    let onAccountTapped: (Account) -> Void
 
     var body: some View {
         if accountGroups.isEmpty {
@@ -825,7 +828,10 @@ struct ContentMainView: View {
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
-                        balances: balances
+                        balances: balances,
+                        onAccountTapped: { account in
+                            onAccountTapped(account)
+                        }
                     )
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
@@ -872,6 +878,12 @@ enum SheetPresentationState: Equatable, Identifiable {
     }
 }
 
+// Enum für Hauptansicht
+enum MainViewState {
+    case accounts
+    case analysis(group: AccountGroup?)
+}
+
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject var authManager: AuthenticationManager
@@ -881,6 +893,11 @@ struct ContentView: View {
     @State private var showLogoutAlert = false
     @State private var accountBalances: [AccountBalance] = []
     @State private var showAddAccountGroupSheet = false
+    @State private var showSideMenu = false
+    @State private var mainViewState: MainViewState = .accounts
+    @State private var showGroupSelectionSheet = false
+    @State private var selectedAnalysisGroup: AccountGroup? = nil
+    @State private var selectedAccount: Account? = nil
     
     init(context: NSManagedObjectContext) {
         _viewModel = StateObject(wrappedValue: TransactionViewModel(context: context))
@@ -888,34 +905,27 @@ struct ContentView: View {
     
     private var headerView: some View {
         VStack(spacing: 20) {
-            // Obere Zeile mit Abmelden-Button und Settings
+            // Obere Zeile mit Hamburger-Button und Settings
             HStack {
-                // Abmelden Button - kleiner und links
+                // Hamburger-Menü-Button links
                 Button(action: {
-                    showLogoutAlert = true
+                    withAnimation { showSideMenu.toggle() }
                 }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .red)
-                            .font(.system(size: 14))
-                        Text("Abmelden")
-                            .foregroundColor(.white)
-                            .font(.system(size: 14))
-                    }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    .background(Color.red.opacity(0.2))
-                    .cornerRadius(6)
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(10)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.5), lineWidth: 1.5)
+                        )
                 }
-                
+                // Spacer für mittiges Logo
                 Spacer()
-                
                 // Settings Menu - rechts oben
                 settingsMenu
             }
             .padding(.bottom, 36)
-            
             // EuroBlick Logo - mittig
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
@@ -960,16 +970,26 @@ struct ContentView: View {
         }
     }
 
-    private var accountGroupsList: some View {
+    private var accountGroupsListWithNavigation: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 20) {
-                ContentMainView(
-                    accountGroups: viewModel.accountGroups,
-                    balances: accountBalances,
-                    viewModel: viewModel,
-                    showAddGroupSheet: $showAddAccountGroupSheet,
-                    showSelectGroupSheet: .constant(false)
-                )
+                ForEach(viewModel.accountGroups) { group in
+                    AccountGroupView(
+                        group: group,
+                        viewModel: viewModel,
+                        balances: accountBalances,
+                        onAccountTapped: { account in
+                            selectedAccount = account
+                        }
+                    )
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            viewModel.deleteAccountGroup(group)
+                        } label: {
+                            Label("Löschen", systemImage: "trash")
+                        }
+                    }
+                }
             }
             .padding(.top, 8)
             .padding(.bottom, 20)
@@ -977,58 +997,131 @@ struct ContentView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                headerView
-                accountGroupsList
-            }
-            .background(Color.black)
-            .sheet(item: Binding(
-                get: { sheetState == .selectGroup ? sheetState : nil },
-                set: { _ in sheetState = .none }
-            )) { _ in
-                SelectAccountGroupView(
-                    viewModel: viewModel,
-                    onGroupSelected: { group in
-                        sheetState = .addAccount(group: group)
+        ZStack(alignment: .leading) {
+            NavigationStack {
+                VStack(spacing: 0) {
+                    if case .accounts = mainViewState {
+                        headerView
                     }
-                )
-            }
-            .sheet(item: Binding(
-                get: {
-                    if case .addAccount = sheetState {
-                        return sheetState
+                    Group {
+                        switch mainViewState {
+                        case .accounts:
+                            accountGroupsListWithNavigation
+                        case .analysis(let group):
+                            if let group = group {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    HStack {
+                                        Button(action: { mainViewState = .accounts }) {
+                                            Image(systemName: "chevron.left")
+                                                .font(.system(size: 20, weight: .medium))
+                                                .foregroundColor(.white)
+                                                .padding(.trailing, 4)
+                                        }
+                                        Text(group.name ?? "Auswertung")
+                                            .font(.headline)
+                                            .foregroundColor(.white)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal)
+                                    .padding(.top, 12)
+                                    EvaluationView(accounts: (group.accounts?.allObjects as? [Account]) ?? [], viewModel: viewModel)
+                                }
+                            } else {
+                                Text("Keine Kontogruppe ausgewählt")
+                                    .foregroundColor(.gray)
+                            }
+                        }
                     }
-                    return nil
-                },
-                set: { _ in sheetState = .none }
-            )) { state in
-                if case .addAccount(let group) = state {
-                    AddAccountView(viewModel: viewModel, group: group)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+                .background(Color.black)
+                .navigationDestination(item: $selectedAccount) { account in
+                    TransactionView(account: account, viewModel: viewModel)
+                }
+                .sheet(item: Binding(
+                    get: { sheetState == .selectGroup ? sheetState : nil },
+                    set: { _ in sheetState = .none }
+                )) { _ in
+                    SelectAccountGroupView(
+                        viewModel: viewModel,
+                        onGroupSelected: { group in
+                            sheetState = .addAccount(group: group)
+                        }
+                    )
+                }
+                .sheet(item: Binding(
+                    get: {
+                        if case .addAccount = sheetState {
+                            return sheetState
+                        }
+                        return nil
+                    },
+                    set: { _ in sheetState = .none }
+                )) { state in
+                    if case .addAccount(let group) = state {
+                        AddAccountView(viewModel: viewModel, group: group)
+                    }
+                }
+                .sheet(isPresented: $showAddAccountGroupSheet) {
+                    AddAccountGroupView(viewModel: viewModel)
+                }
+                .sheet(isPresented: $showSettingsSheet) {
+                    SettingsView()
+                }
+                .alert("Abmelden", isPresented: $showLogoutAlert) {
+                    Button("Abbrechen", role: .cancel) { }
+                    Button("Abmelden", role: .destructive) {
+                        authManager.logout()
+                    }
+                } message: {
+                    Text("Möchten Sie sich wirklich abmelden?")
                 }
             }
-            .sheet(isPresented: $showAddAccountGroupSheet) {
-                AddAccountGroupView(viewModel: viewModel)
+            // SideMenu Overlay
+            if showSideMenu {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation { showSideMenu = false }
+                    }
             }
-            .sheet(isPresented: $showSettingsSheet) {
-                SettingsView()
-            }
-            .alert("Abmelden", isPresented: $showLogoutAlert) {
-                Button("Abbrechen", role: .cancel) { }
-                Button("Abmelden", role: .destructive) {
-                    authManager.logout()
-                }
-            } message: {
-                Text("Möchten Sie sich wirklich abmelden?")
+            // SideMenu selbst
+            if showSideMenu {
+                SideMenuView(showSideMenu: $showSideMenu)
+                    .transition(.move(edge: .leading))
+                    .zIndex(1)
             }
         }
         .preferredColorScheme(.dark)
         .onAppear {
             migrateExistingAccounts()
             refreshBalances()
+            // Notification-Handling
+            NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowAccounts"), object: nil, queue: .main) { _ in
+                mainViewState = .accounts
+            }
+            NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowAnalysis"), object: nil, queue: .main) { _ in
+                if viewModel.accountGroups.count > 1 {
+                    showGroupSelectionSheet = true
+                } else if let group = viewModel.accountGroups.first {
+                    mainViewState = .analysis(group: group)
+                }
+            }
+            NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuLogout"), object: nil, queue: .main) { _ in
+                showLogoutAlert = true
+            }
         }
-        .onChange(of: viewModel.transactionsUpdated) { _, _ in
-            refreshBalances()
+        .sheet(isPresented: $showGroupSelectionSheet) {
+            GroupSelectionSheet(groups: viewModel.accountGroups) { group in
+                selectedAnalysisGroup = group
+                mainViewState = .analysis(group: group)
+                showGroupSelectionSheet = false
+            }
+        }
+        .onChange(of: selectedAnalysisGroup) { _, group in
+            if let group = group {
+                mainViewState = .analysis(group: group)
+            }
         }
     }
 
@@ -1176,7 +1269,8 @@ struct AccountListView: View {
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
-                        balances: accountBalances
+                        balances: accountBalances,
+                        onAccountTapped: { _ in }
                     )
                 }
             }
@@ -1267,4 +1361,45 @@ struct SettingsView: View {
     return ContentView(context: context)
         .environment(\.managedObjectContext, context)
         .environmentObject(AuthenticationManager())
+}
+
+// Sheet für Gruppenauswahl
+struct GroupSelectionSheet: View {
+    let groups: [AccountGroup]
+    let onSelect: (AccountGroup) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(groups, id: \.objectID) { group in
+                Button(action: {
+                    onSelect(group)
+                    dismiss()
+                }) {
+                    Text(group.name ?? "Unbekannte Gruppe")
+                        .foregroundColor(.primary)
+                }
+            }
+            .navigationTitle("Kontogruppe wählen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// Platzhalter für die Auswertungs-View
+struct AnalysisView: View {
+    let group: AccountGroup
+    let viewModel: TransactionViewModel
+    var body: some View {
+        Text("Auswertung für \(group.name ?? "Unbekannt")")
+            .foregroundColor(.white)
+            .font(.title2)
+            .padding()
+        // Hier kann später die echte Auswertungs-Logik rein
+    }
 }
