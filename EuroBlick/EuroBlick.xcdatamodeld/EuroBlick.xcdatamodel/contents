@@ -3,6 +3,7 @@
     <entity name="Account" representedClassName="Account" syncable="YES">
         <attribute name="icon" optional="YES" attributeType="String" defaultValueString="building.columns.fill"/>
         <attribute name="iconColor" optional="YES" attributeType="String" defaultValueString="#007AFF"/>
+        <attribute name="includeInBalance" optional="YES" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="type" optional="YES" attributeType="String" defaultValueString="offline"/>
         <relationship name="group" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="AccountGroup" inverseName="accounts" inverseEntity="AccountGroup"/>
@@ -24,6 +25,7 @@
         <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="type" attributeType="String"/>
         <attribute name="usage" optional="YES" attributeType="String"/>
+        <attribute name="note" optional="YES" attributeType="String"/>
         <relationship name="account" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Account" inverseName="transactions" inverseEntity="Account"/>
         <relationship name="categoryRelationship" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Category" inverseName="transactions" inverseEntity="Category"/>
         <relationship name="targetAccount" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Account" inverseName="targetedTransactions" inverseEntity="Account"/>

@@ -372,12 +372,15 @@ struct AccountGroupView: View {
     let group: AccountGroup
     let viewModel: TransactionViewModel
     let balances: [AccountBalance]
-    @Binding var showEditGroupSheet: Bool
-    @Binding var groupToEdit: AccountGroup?
-    @Binding var newGroupName: String
-
     @State private var groupBalance: Double = 0.0
     @State private var accountBalances: [(account: Account, balance: Double)] = []
+    @State private var expanded: Bool = false
+    @State private var showEditAlert = false
+    @State private var editedName = ""
+    @State private var showAccountContextMenu = false
+    @State private var selectedAccount: (account: Account, balance: Double)? = nil
+    @State private var navigateToTransactions = false
+    @State private var showEditSheet = false
 
     private var groupIcon: (systemName: String, color: Color) {
         let groupName = (group.name ?? "").lowercased()
@@ -394,154 +397,192 @@ struct AccountGroupView: View {
 
     private var regularAccounts: [(account: Account, balance: Double)] {
         let groupName = (group.name ?? "").lowercased()
-        
         if groupName.contains("drinks") {
-            // Sortierung für Drinks-Gruppe: Kasa, Banka, [andere]
-            return accountBalances
-                .filter { account in
-                    let name = (account.account.name ?? "").lowercased()
-                    return name != "bize"
+            return accountBalances.filter { account in
+                let name = (account.account.name ?? "").lowercased()
+                return name != "bize"
+            }
+            .sorted { first, second in
+                let firstName = (first.account.name ?? "").lowercased()
+                let secondName = (second.account.name ?? "").lowercased()
+                let order = ["kasa", "banka"]
+                let firstIndex = order.firstIndex(of: firstName) ?? order.count
+                let secondIndex = order.firstIndex(of: secondName) ?? order.count
+                if firstIndex != secondIndex {
+                    return firstIndex < secondIndex
                 }
-                .sorted { first, second in
-                    let firstName = (first.account.name ?? "").lowercased()
-                    let secondName = (second.account.name ?? "").lowercased()
-                    
-                    let order = ["kasa", "banka"]
-                    let firstIndex = order.firstIndex(of: firstName) ?? order.count
-                    let secondIndex = order.firstIndex(of: secondName) ?? order.count
-                    
-                    if firstIndex != secondIndex {
-                        return firstIndex < secondIndex
-                    }
-                    return firstName < secondName
-                }
+                return firstName < secondName
+            }
         } else if groupName.contains("kaffee") {
-            // Sortierung für Kaffee-Gruppe: Bargeld, Giro, [andere]
-            return accountBalances
-                .filter { ($0.account.name ?? "").lowercased() != "bk" }
-                .sorted { first, second in
-                    let firstName = (first.account.name ?? "").lowercased()
-                    let secondName = (second.account.name ?? "").lowercased()
-                    
-                    let order = ["bargeld", "giro"]
-                    let firstIndex = order.firstIndex(of: firstName) ?? order.count
-                    let secondIndex = order.firstIndex(of: secondName) ?? order.count
-                    
-                    if firstIndex != secondIndex {
-                        return firstIndex < secondIndex
-                    }
-                    return firstName < secondName
+            return accountBalances.filter { account in
+                let name = (account.account.name ?? "").lowercased()
+                return name != "bk"
+            }
+            .sorted { first, second in
+                let firstName = (first.account.name ?? "").lowercased()
+                let secondName = (second.account.name ?? "").lowercased()
+                let order = ["bargeld", "giro"]
+                let firstIndex = order.firstIndex(of: firstName) ?? order.count
+                let secondIndex = order.firstIndex(of: secondName) ?? order.count
+                if firstIndex != secondIndex {
+                    return firstIndex < secondIndex
                 }
+                return firstName < secondName
+            }
         }
-        
-        // Standardsortierung für andere Gruppen
-        return accountBalances
+        return accountBalances.sorted { $0.account.name ?? "" < $1.account.name ?? "" }
     }
 
     private var specialAccounts: [(account: Account, balance: Double)] {
         let groupName = (group.name ?? "").lowercased()
-        
         if groupName.contains("drinks") {
-            // Bize-Konten für Drinks-Gruppe
             return accountBalances.filter { ($0.account.name ?? "").lowercased() == "bize" }
         } else if groupName.contains("kaffee") {
-            // BK-Konten für Kaffee-Gruppe
             return accountBalances.filter { ($0.account.name ?? "").lowercased() == "bk" }
         }
-        
         return []
     }
 
+    private func isAccountIncludedInBalance(_ account: Account) -> Bool {
+        return account.value(forKey: "includeInBalance") as? Bool ?? true
+    }
+
+    private func toggleAccountBalanceInclusion(_ account: Account) {
+        let currentValue = isAccountIncludedInBalance(account)
+        account.setValue(!currentValue, forKey: "includeInBalance")
+        
+        if let context = account.managedObjectContext {
+            do {
+                try context.save()
+                calculateBalances()
+            } catch {
+                print("Error saving account balance inclusion: \(error)")
+            }
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Gruppenkopf mit Name und Gesamtbilanz
-            HStack {
-                Image(systemName: groupIcon.systemName)
-                    .foregroundColor(groupIcon.color)
-                    .font(.system(size: AppFontSize.groupIcon))
-                    .padding(.trailing, 6)
-                Text(group.name ?? "Unbekannte Gruppe")
-                    .font(.system(size: AppFontSize.groupTitle, weight: .semibold))
-                    .foregroundColor(.white)
+        VStack(spacing: 0) {
+            // Kopf der Karte
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(groupIcon.color.opacity(0.2))
+                        .frame(width: 48, height: 48)
+                    Image(systemName: groupIcon.systemName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                        .foregroundColor(groupIcon.color)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.name ?? "Unbekannte Gruppe")
+                        .font(.system(size: AppFontSize.groupTitle, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text("\(regularAccounts.count + specialAccounts.count) Konten")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
                 Spacer()
-                Text("\(String(format: "%.2f €", groupBalance))")
-                    .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
-                    .font(.system(size: AppFontSize.bodyMedium))
-                Button(action: {
-                    groupToEdit = group
-                    newGroupName = group.name ?? ""
-                    showEditGroupSheet = true
-                }) {
-                    Image(systemName: "pencil")
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(String(format: "%.2f €", groupBalance))")
+                        .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
+                        .font(.system(size: AppFontSize.bodyMedium))
+                }
+                Button(action: { expanded.toggle() }) {
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .foregroundColor(.white)
-                        .font(.system(size: AppFontSize.smallIcon))
+                        .font(.title3)
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 5)
+            .padding()
+            .background(Color(.systemGray6).opacity(0.15))
+            .cornerRadius(18)
+            .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
             .overlay(
-                Rectangle()
-                    .frame(height: 1)
-                    .foregroundColor(.gray.opacity(0.5))
-                    .padding(.horizontal),
-                alignment: .bottom
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(groupIcon.color.opacity(0.3), lineWidth: 1)
             )
-
-            // Reguläre Konten
-            ForEach(regularAccounts, id: \.account.objectID) { item in
-                AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
-                    .padding(.vertical, 2)
+            .onTapGesture { expanded.toggle() }
+            .onLongPressGesture {
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+                editedName = group.name ?? ""
+                showEditAlert = true
+            }
+            .alert("Kontogruppe bearbeiten", isPresented: $showEditAlert) {
+                TextField("Name", text: $editedName)
+                    .foregroundColor(.white)
+                Button("Abbrechen", role: .cancel) { }
+                Button("Speichern") {
+                    viewModel.updateAccountGroup(group: group, name: editedName)
+                }
+            } message: {
+                Text("Geben Sie einen neuen Namen für die Kontogruppe ein")
             }
 
-            // Trennlinie und spezielle Konten
-            if !specialAccounts.isEmpty {
-                Divider()
-                    .background(Color.gray.opacity(0.5))
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-
-                ForEach(specialAccounts, id: \.account.objectID) { item in
-                    AccountRowView(account: item.account, balance: item.balance, viewModel: viewModel)
-                        .padding(.vertical, 2)
-                }
-            }
-
-            // Link zu Auswertungen
-            NavigationLink(
-                destination: EvaluationView(accounts: accountBalances.map { $0.account }, viewModel: viewModel)
-            ) {
-                HStack(spacing: 6) {
-                    Image(systemName: "chart.pie.fill")
-                        .foregroundColor(.white)
-                        .font(.system(size: AppFontSize.smallIcon))
-                    Text("Auswertung")
-                        .font(.system(size: AppFontSize.bodySmall))
-                }
-                .foregroundColor(.white)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .background(
-                    Group {
-                        if (group.name ?? "").lowercased().contains("kaffee") {
-                            Color.brown
-                        } else if (group.name ?? "").lowercased().contains("drinks") {
-                            Color.purple
-                        } else {
-                            Color.blue
+            if expanded {
+                VStack(spacing: 0) {
+                    ForEach(regularAccounts + specialAccounts, id: \ .account.objectID) { item in
+                        HStack(spacing: 12) {
+                            let icon = item.account.value(forKey: "icon") as? String ?? "building.columns.fill"
+                            let colorHex = item.account.value(forKey: "iconColor") as? String ?? "#007AFF"
+                            Image(systemName: icon)
+                                .foregroundColor(Color(hex: colorHex) ?? .blue)
+                                .frame(width: 24, height: 24)
+                            Text(item.account.name ?? "Unbekanntes Konto")
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text(String(format: "%.2f €", item.balance))
+                                .foregroundColor(item.balance >= 0 ? .green : .red)
+                            if !isAccountIncludedInBalance(item.account) {
+                                Image(systemName: "slash.circle")
+                                    .foregroundColor(.gray)
+                                    .font(.system(size: 16))
+                            }
                         }
+                        .padding(.horizontal)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            navigateToTransactions = true
+                        }
+                        .onLongPressGesture {
+                            let generator = UIImpactFeedbackGenerator(style: .medium)
+                            generator.impactOccurred()
+                            selectedAccount = item
+                            showAccountContextMenu = true
+                        }
+                        Divider().background(Color.gray)
                     }
+                }
+                .background(Color(.systemGray6).opacity(0.10))
+                .cornerRadius(12)
+                .padding(.horizontal, 8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(groupIcon.color.opacity(0.2), lineWidth: 1)
                 )
-                .cornerRadius(8)
-                .shadow(radius: 2)
+                .confirmationDialog(
+                    "Konto verwalten",
+                    isPresented: $showAccountContextMenu,
+                    titleVisibility: .visible
+                ) {
+                    if let account = selectedAccount?.account {
+                        Button(isAccountIncludedInBalance(account) ? "Aus Bilanz ausschließen" : "In Bilanz einbeziehen") {
+                            toggleAccountBalanceInclusion(account)
+                        }
+                        Button("Bearbeiten") {
+                            showEditSheet = true
+                        }
+                        Button("Abbrechen", role: .cancel) {}
+                    }
+                }
             }
-            .padding(.horizontal)
-            .padding(.top, 5)
-            .buttonStyle(PlainButtonStyle())
         }
-        .padding(.vertical)
-        .onAppear {
-            calculateBalances()
-        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .onAppear { calculateBalances() }
         .onChange(of: viewModel.transactionsUpdated) { _, _ in
             calculateBalances()
             viewModel.fetchAccountGroups()
@@ -552,41 +593,30 @@ struct AccountGroupView: View {
     private func calculateBalances() {
         let accounts = (group.accounts?.allObjects as? [Account]) ?? []
         let groupName = (group.name ?? "").lowercased()
-        
-        // Berechne alle Kontostände
         accountBalances = accounts
             .sorted { $0.name ?? "" < $1.name ?? "" }
             .map { account in
                 let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
                 return (account, balance)
             }
-        
-        // Berechne Gruppensaldo nur für Hauptkonten
         if groupName.contains("drinks") {
-            // Für Drinks-Gruppe: Nur Kasa und Banka einbeziehen
             groupBalance = accountBalances
                 .filter { account in
                     let name = (account.account.name ?? "").lowercased()
-                    return name == "kasa" || name == "banka"
+                    return (name == "kasa" || name == "banka") && isAccountIncludedInBalance(account.account)
                 }
-                .reduce(0.0) { total, item in
-                    total + item.balance
-                }
+                .reduce(0.0) { total, item in total + item.balance }
         } else if groupName.contains("kaffee") {
-            // Für Kaffee-Gruppe: Nur Bargeld und Giro einbeziehen
             groupBalance = accountBalances
                 .filter { account in
                     let name = (account.account.name ?? "").lowercased()
-                    return name == "bargeld" || name == "giro"
+                    return (name == "bargeld" || name == "giro") && isAccountIncludedInBalance(account.account)
                 }
-                .reduce(0.0) { total, item in
-                    total + item.balance
-                }
+                .reduce(0.0) { total, item in total + item.balance }
         } else {
-            // Für andere Gruppen: Alle Konten einbeziehen
-            groupBalance = accountBalances.reduce(0.0) { total, item in
-                total + item.balance
-            }
+            groupBalance = accountBalances
+                .filter { isAccountIncludedInBalance($0.account) }
+                .reduce(0.0) { total, item in total + item.balance }
         }
     }
 }
@@ -777,9 +807,6 @@ struct ContentMainView: View {
     let viewModel: TransactionViewModel
     @Binding var showAddGroupSheet: Bool
     @Binding var showSelectGroupSheet: Bool
-    @Binding var showEditGroupSheet: Bool
-    @Binding var groupToEdit: AccountGroup?
-    @Binding var newGroupName: String
 
     var body: some View {
         if accountGroups.isEmpty {
@@ -798,10 +825,7 @@ struct ContentMainView: View {
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
-                        balances: balances,
-                        showEditGroupSheet: $showEditGroupSheet,
-                        groupToEdit: $groupToEdit,
-                        newGroupName: $newGroupName
+                        balances: balances
                     )
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
@@ -939,19 +963,16 @@ struct ContentView: View {
     private var accountGroupsList: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 20) {
-                ForEach(viewModel.accountGroups) { accountGroup in
-                    AccountGroupView(
-                        group: accountGroup,
-                        viewModel: viewModel,
-                        balances: accountBalances,
-                        showEditGroupSheet: .constant(false),
-                        groupToEdit: .constant(nil),
-                        newGroupName: .constant("")
-                    )
-                }
+                ContentMainView(
+                    accountGroups: viewModel.accountGroups,
+                    balances: accountBalances,
+                    viewModel: viewModel,
+                    showAddGroupSheet: $showAddAccountGroupSheet,
+                    showSelectGroupSheet: .constant(false)
+                )
             }
             .padding(.top, 8)
-            .padding(.bottom, 20) // Add bottom padding to ensure last item is visible
+            .padding(.bottom, 20)
         }
     }
     
@@ -1075,39 +1096,53 @@ struct EditAccountGroupView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var viewModel: TransactionViewModel
     let group: AccountGroup
-    @Binding var newGroupName: String
+    @State private var editedName: String
+    
+    init(viewModel: TransactionViewModel, group: AccountGroup) {
+        self.viewModel = viewModel
+        self.group = group
+        // Initialize the state property directly
+        self._editedName = State(initialValue: group.name ?? "")
+    }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section(header: Text("Kontogruppe bearbeiten").foregroundColor(.white)) {
-                    TextField("Neuer Gruppenname", text: $newGroupName)
-                        .foregroundColor(.black)
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 20) {
+                    TextField("Neuer Gruppenname", text: $editedName)
+                        .foregroundColor(.white)
                         .padding()
                         .background(Color.gray.opacity(0.2))
-                        .cornerRadius(5)
+                        .cornerRadius(8)
+                        .padding(.horizontal)
                 }
+                .padding(.top)
             }
-            .background(Color.black)
-            .scrollContentBackground(.hidden)
             .navigationTitle("Kontogruppe bearbeiten")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { dismiss() }
-                        .foregroundColor(.white)
+                    Button("Abbrechen") { 
+                        dismiss() 
+                    }
+                    .foregroundColor(.white)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
-                        viewModel.updateAccountGroup(group: group, name: newGroupName)
+                        viewModel.updateAccountGroup(group: group, name: editedName)
                         dismiss()
                     }
                     .foregroundColor(.white)
-                    .disabled(newGroupName.isEmpty)
+                    .disabled(editedName.isEmpty)
                 }
             }
-            .onAppear {
-                print("EditAccountGroupView erschienen für \(group.name ?? "unknown")")
-            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            // Ensure the name is set when the view appears
+            editedName = group.name ?? ""
         }
     }
 }
@@ -1141,10 +1176,7 @@ struct AccountListView: View {
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
-                        balances: accountBalances,
-                        showEditGroupSheet: .constant(false),
-                        groupToEdit: .constant(nil),
-                        newGroupName: .constant("")
+                        balances: accountBalances
                     )
                 }
             }
