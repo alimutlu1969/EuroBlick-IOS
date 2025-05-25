@@ -557,6 +557,7 @@ class TransactionViewModel: ObservableObject {
                     // Erstelle ein automatisches Backup nach der Umbuchung
                     if let backupURL = self.backupData() {
                         print("Automatisches Backup nach Umbuchung erstellt: \(backupURL)")
+                        self.uploadBackupToWebDAV(backupURL: backupURL)
                     } else {
                         print("Fehler beim Erstellen des automatischen Backups nach Umbuchung")
                     }
@@ -586,6 +587,7 @@ class TransactionViewModel: ObservableObject {
                     // Erstelle ein automatisches Backup nach der Transaktion
                     if let backupURL = self.backupData() {
                         print("Automatisches Backup nach Transaktion erstellt: \(backupURL)")
+                        self.uploadBackupToWebDAV(backupURL: backupURL)
                     } else {
                         print("Fehler beim Erstellen des automatischen Backups nach Transaktion")
                     }
@@ -1683,6 +1685,7 @@ class TransactionViewModel: ObservableObject {
         // Erstelle ein automatisches Backup nach dem Import
         if let backupURL = self.backupData() {
             print("Automatisches Backup nach Import erstellt: \(backupURL)")
+            self.uploadBackupToWebDAV(backupURL: backupURL)
         } else {
             print("Fehler beim Erstellen des automatischen Backups nach Import")
         }
@@ -2095,6 +2098,52 @@ class TransactionViewModel: ObservableObject {
             }
         } catch {
             print("Fehler bei der Korrektur der Ausgaben: \(error)")
+        }
+    }
+
+    func uploadBackupToWebDAV(backupURL: URL) {
+        let webdavURL = UserDefaults.standard.string(forKey: "webdavURL") ?? ""
+        let webdavUser = UserDefaults.standard.string(forKey: "webdavUser") ?? ""
+        let webdavPassword = UserDefaults.standard.string(forKey: "webdavPassword") ?? ""
+        
+        guard !webdavURL.isEmpty, !webdavUser.isEmpty, !webdavPassword.isEmpty else {
+            print("WebDAV-Zugangsdaten fehlen")
+            return
+        }
+        
+        guard let serverURL = URL(string: webdavURL) else {
+            print("Ungültige WebDAV-URL")
+            return
+        }
+        
+        var request = URLRequest(url: serverURL)
+        request.httpMethod = "PUT"
+        let authString = "\(webdavUser):\(webdavPassword)"
+        let authData = authString.data(using: .utf8)!
+        let base64Auth = authData.base64EncodedString()
+        request.setValue("Basic \(base64Auth)", forHTTPHeaderField: "Authorization")
+        
+        do {
+            let backupData = try Data(contentsOf: backupURL)
+            request.httpBody = backupData
+            
+            let task = URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("WebDAV Upload Fehler: \(error)")
+                    return
+                }
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+                        print("WebDAV Backup erfolgreich hochgeladen")
+                    } else {
+                        print("WebDAV Upload fehlgeschlagen: Status \(httpResponse.statusCode)")
+                    }
+                }
+            }
+            task.resume()
+        } catch {
+            print("Fehler beim Lesen der Backup-Datei: \(error)")
         }
     }
 }
