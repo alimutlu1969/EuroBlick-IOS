@@ -386,6 +386,8 @@ struct AccountGroupView: View {
     @State private var accountBalances: [(account: Account, balance: Double)] = []
     @State private var expanded: Bool = false
     @State private var showEditAlert = false
+    @State private var showSortSheet = false
+    @State private var showActionDialog = false
     @State private var editedName = ""
     @State private var showAccountContextMenu = false
     @State private var selectedAccount: (account: Account, balance: Double)? = nil
@@ -406,8 +408,12 @@ struct AccountGroupView: View {
     }
 
     private var regularAccounts: [(account: Account, balance: Double)] {
-        // Dynamisch: Alle Konten alphabetisch sortiert
-        accountBalances.sorted { ($0.account.name ?? "") < ($1.account.name ?? "") }
+        // Sortiere nach order-Feld
+        accountBalances.sorted { 
+            let o1 = $0.account.value(forKey: "order") as? Int16 ?? 0
+            let o2 = $1.account.value(forKey: "order") as? Int16 ?? 0
+            return o1 < o2
+        }
     }
 
     private var specialAccounts: [(account: Account, balance: Double)] {
@@ -479,8 +485,21 @@ struct AccountGroupView: View {
             .onLongPressGesture {
                 let generator = UIImpactFeedbackGenerator(style: .medium)
                 generator.impactOccurred()
-                editedName = group.name ?? ""
-                showEditAlert = true
+                showActionDialog = true
+            }
+            .confirmationDialog(
+                "Aktion wählen",
+                isPresented: $showActionDialog,
+                titleVisibility: .visible
+            ) {
+                Button("Gruppe umbenennen") {
+                    editedName = group.name ?? ""
+                    showEditAlert = true
+                }
+                Button("Konten sortieren") {
+                    showSortSheet = true
+                }
+                Button("Abbrechen", role: .cancel) {}
             }
             .alert("Kontogruppe bearbeiten", isPresented: $showEditAlert) {
                 TextField("Name", text: $editedName)
@@ -539,6 +558,12 @@ struct AccountGroupView: View {
             viewModel.fetchAccountGroups()
         }
         .id(group.objectID)
+        .sheet(isPresented: $showSortSheet) {
+            AccountSortSheet(group: group, onSave: {
+                calculateBalances()
+                viewModel.fetchAccountGroups()
+            })
+        }
     }
 
     private func calculateBalances() {
@@ -1366,5 +1391,73 @@ struct AnalysisView: View {
             .font(.title2)
             .padding()
         // Hier kann später die echte Auswertungs-Logik rein
+    }
+}
+
+struct AccountSortSheet: View {
+    @Environment(\.dismiss) var dismiss
+    let group: AccountGroup
+    let onSave: () -> Void
+    @State private var accounts: [Account] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        NavigationStack {
+            VStack {
+                if isLoading {
+                    ProgressView()
+                        .padding()
+                } else {
+                    List {
+                        ForEach(accounts, id: \.objectID) { account in
+                            HStack {
+                                Image(systemName: account.value(forKey: "icon") as? String ?? "building.columns.fill")
+                                    .foregroundColor(Color(hex: account.value(forKey: "iconColor") as? String ?? "#007AFF") ?? .blue)
+                                Text(account.name ?? "Unbekanntes Konto")
+                                    .foregroundColor(.primary)
+                            }
+                        }
+                        .onMove(perform: moveAccount)
+                    }
+                    .environment(\.editMode, .constant(.active))
+                }
+            }
+            .navigationTitle("Konten sortieren")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Speichern") {
+                        saveOrder()
+                        onSave()
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                let acc = (group.accounts?.allObjects as? [Account]) ?? []
+                accounts = acc.sorted { ($0.value(forKey: "order") as? Int16 ?? 0) < ($1.value(forKey: "order") as? Int16 ?? 0) }
+                isLoading = false
+            }
+        }
+    }
+
+    private func moveAccount(from source: IndexSet, to destination: Int) {
+        accounts.move(fromOffsets: source, toOffset: destination)
+    }
+
+    private func saveOrder() {
+        for (idx, account) in accounts.enumerated() {
+            account.setValue(Int16(idx), forKey: "order")
+        }
+        if let context = group.managedObjectContext {
+            do {
+                try context.save()
+            } catch {
+                print("Fehler beim Speichern der Kontenreihenfolge: \(error)")
+            }
+        }
     }
 }
