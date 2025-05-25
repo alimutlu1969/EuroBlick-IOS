@@ -44,11 +44,11 @@ struct AddTransactionView: View {
                 Color.black.edgesIgnoringSafeArea(.all)
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(spacing: spacing) {
+                        VStack(spacing: 20) {
                             typeButtonsView
                                 .padding(.top, spacing)
-                            
-                            // Amount Field
+                            Spacer(minLength: 20)
+                            // Betrag-Feld
                             InputField(
                                 icon: "eurosign.circle.fill",
                                 placeholder: "Betrag",
@@ -148,9 +148,7 @@ struct AddTransactionView: View {
                             .background(inputBackground)
                             .cornerRadius(8)
                             .padding(.horizontal)
-
-                            Spacer(minLength: 50) // Increased space before buttons
-                            
+                            Spacer(minLength: 20)
                             // Action Buttons
                             HStack(spacing: spacing) {
                                 ActionButton(
@@ -160,7 +158,6 @@ struct AddTransactionView: View {
                                     isCancelled = true
                                     dismiss()
                                 }
-
                                 ActionButton(
                                     title: "Speichern",
                                     backgroundColor: Color.blue
@@ -169,7 +166,7 @@ struct AddTransactionView: View {
                                 }
                             }
                             .padding(.horizontal)
-                            .padding(.bottom, 50) // Increased bottom padding by 0.5cm (20 points)
+                            .padding(.bottom, 50)
                         }
                     }
                 }

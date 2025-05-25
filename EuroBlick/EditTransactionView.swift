@@ -71,9 +71,10 @@ struct EditTransactionView: View {
                             Spacer()
                                 .frame(height: 40)  // Zusätzlicher Abstand oben
                         typeButtonsView
+                        Spacer(minLength: 20)
                         transactionFormView(proxy: proxy)
                         errorMessages
-                            Spacer(minLength: 30)
+                        Spacer(minLength: 20)
                         actionButtons
                     }
                     .padding(.top)
@@ -97,8 +98,7 @@ struct EditTransactionView: View {
     
     @ViewBuilder
     private var typeButtonsView: some View {
-        HStack(spacing: 10) {
-            // Einnahmen Button
+        HStack(spacing: 0) {
             Button(action: { type = "einnahme" }) {
                 VStack(spacing: 4) {
                     Image(systemName: type == "einnahme" ? "arrow.down.circle.fill" : "arrow.down.circle")
@@ -111,8 +111,9 @@ struct EditTransactionView: View {
                 .background(type == "einnahme" ? einnahmeColorSelected : Color.clear)
                 .cornerRadius(8)
             }
+            .buttonStyle(PlainButtonStyle())
+            .padding(.horizontal, 2)
 
-            // Ausgaben Button
             Button(action: { type = "ausgabe" }) {
                 VStack(spacing: 4) {
                     Image(systemName: type == "ausgabe" ? "arrow.up.circle.fill" : "arrow.up.circle")
@@ -125,8 +126,9 @@ struct EditTransactionView: View {
                 .background(type == "ausgabe" ? ausgabeColorSelected : Color.clear)
                 .cornerRadius(8)
             }
+            .buttonStyle(PlainButtonStyle())
+            .padding(.horizontal, 2)
 
-            // Umbuchung Button
             Button(action: { type = "umbuchung" }) {
                 VStack(spacing: 4) {
                     Image(systemName: type == "umbuchung" ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
@@ -139,6 +141,8 @@ struct EditTransactionView: View {
                 .background(type == "umbuchung" ? umbuchungColorSelected : Color.clear)
                 .cornerRadius(8)
             }
+            .buttonStyle(PlainButtonStyle())
+            .padding(.horizontal, 2)
         }
         .padding(.horizontal)
     }
@@ -214,26 +218,25 @@ struct EditTransactionView: View {
             Divider()
                 .background(Color.gray.opacity(0.3))
                 .padding(.bottom, 20)
-            
             HStack(spacing: 15) {
-            Button(action: {
-                isCancelled = true
-                dismiss()
-                if transaction.type == nil && transaction.amount == 0.0 {
-                    viewModel.getContext().delete(transaction)
-                    viewModel.saveContext(viewModel.getContext())
-                }
-            }) {
-                Text("Abbrechen")
+                Button(action: {
+                    isCancelled = true
+                    dismiss()
+                    if transaction.type == nil && transaction.amount == 0.0 {
+                        viewModel.getContext().delete(transaction)
+                        viewModel.saveContext(viewModel.getContext())
+                    }
+                }) {
+                    Text("Abbrechen")
                         .font(.system(size: 16))
-                    .foregroundColor(.white)
+                        .foregroundColor(.white)
                         .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity)
-                        .background(Color.red.opacity(0.8))
-                        .cornerRadius(8)
-            }
-
-            Button(action: {
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red)
+                        .cornerRadius(12)
+                }
+                .buttonStyle(PlainButtonStyle())
+                Button(action: {
                     saveTransaction()
                 }) {
                     Text("Speichern")
@@ -241,10 +244,11 @@ struct EditTransactionView: View {
                         .foregroundColor(.white)
                         .padding(.vertical, 12)
                         .frame(maxWidth: .infinity)
-                        .background(isValidInput ? Color.blue.opacity(0.8) : Color.gray.opacity(0.5))
-                        .cornerRadius(8)
+                        .background(isValidInput ? Color.blue : Color.gray)
+                        .cornerRadius(12)
                 }
                 .disabled(!isValidInput)
+                .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal)
