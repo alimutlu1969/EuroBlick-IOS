@@ -59,6 +59,7 @@ struct SideMenuView: View {
                     showSideMenu = false
                 }
                 SideMenuItem(icon: "gear", title: "Einstellungen") {
+                    NotificationCenter.default.post(name: NSNotification.Name("SideMenuShowSettings"), object: nil)
                     showSideMenu = false
                 }
                 SideMenuItem(icon: "info.circle", title: "Info / Rechtliches") {
