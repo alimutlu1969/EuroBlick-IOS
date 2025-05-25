@@ -905,7 +905,6 @@ struct ContentView: View {
     
     private var headerView: some View {
         VStack(spacing: 20) {
-            // Obere Zeile mit Hamburger-Button und Settings
             HStack {
                 // Hamburger-Menü-Button links
                 Button(action: {
@@ -914,19 +913,28 @@ struct ContentView: View {
                     Image(systemName: "line.3.horizontal")
                         .font(.system(size: 22, weight: .bold))
                         .foregroundColor(.white)
-                        .padding(10)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.5), lineWidth: 1.5)
-                        )
                 }
-                // Spacer für mittiges Logo
+                .buttonStyle(PlainButtonStyle())
+                
                 Spacer()
-                // Settings Menu - rechts oben
-                settingsMenu
+                
+                // Plus-Button als Menu rechts oben
+                Menu {
+                    Button(action: { sheetState = .selectGroup }) {
+                        Label("Konto hinzufügen", systemImage: "creditcard")
+                    }
+                    Button(action: { showAddAccountGroupSheet = true }) {
+                        Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
             .padding(.bottom, 36)
-            // EuroBlick Logo - mittig
+            
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "eurosign.circle.fill")
@@ -946,30 +954,6 @@ struct ContentView: View {
         .padding(.bottom, 8)
     }
     
-    private var settingsMenu: some View {
-        Menu {
-            Button(action: {
-                sheetState = .selectGroup
-            }) {
-                Label("Konto hinzufügen", systemImage: "plus.circle")
-            }
-            Button(action: {
-                showAddAccountGroupSheet = true
-            }) {
-                Label("Kontogruppe hinzufügen", systemImage: "folder.badge.plus")
-            }
-            Button(action: {
-                showSettingsSheet = true
-            }) {
-                Label("Einstellungen", systemImage: "gear")
-            }
-        } label: {
-            Image(systemName: "gearshape.fill")
-                .font(.title3)
-                .foregroundColor(.white)
-        }
-    }
-
     private var accountGroupsListWithNavigation: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 20) {
@@ -1109,6 +1093,9 @@ struct ContentView: View {
             }
             NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuLogout"), object: nil, queue: .main) { _ in
                 showLogoutAlert = true
+            }
+            NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowSettings"), object: nil, queue: .main) { _ in
+                showSettingsSheet = true
             }
         }
         .sheet(isPresented: $showGroupSelectionSheet) {
