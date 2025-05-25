@@ -95,69 +95,38 @@ struct TransactionView: View {
     }
 
     private var groupedTransactions: [TransactionGroup] {
-        var cumulativeBalance: Double = viewModel.getBalance(for: account)
-        if cumulativeBalance.isNaN {
-            cumulativeBalance = 0.0
-            print("Warnung: Kumulativer Kontostand ist NaN, auf 0.0 gesetzt")
-        }
-        
         let validTransactions = filteredTransactions.filter { transaction in
-            guard !transaction.isFault, !transaction.isDeleted else {
-                print("Ungültige Transaktion (gelöscht oder Fault): Transaktion ist ungültig")
-                return false
-            }
-            
+            guard !transaction.isFault, !transaction.isDeleted else { return false }
             let date = transaction.date
             let timestamp = date.timeIntervalSince1970
-            if timestamp.isNaN || timestamp <= 0 {
-                print("Ungültige Transaktion (ungültiges Datum): id=\(transaction.id.uuidString), date=\(date)")
-                return false
-            }
-            
+            if timestamp.isNaN || timestamp <= 0 { return false }
             let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
             guard components.isValidDate(in: Calendar.current),
                   let year = components.year, year >= 1970,
                   let month = components.month, month >= 1, month <= 12,
-                  let day = components.day, day >= 1, day <= 31 else {
-                print("Ungültige Transaktion (ungültige Datumsbestandteile): id=\(transaction.id.uuidString), date=\(date), year=\(components.year ?? 0), month=\(components.month ?? 0), day=\(components.day ?? 0)")
-                return false
-            }
-            
+                  let day = components.day, day >= 1, day <= 31 else { return false }
             return true
         }
-        
         let grouped = Dictionary(grouping: validTransactions, by: { transaction -> Date in
             let calendar = Calendar.current
             let components = calendar.dateComponents([.year, .month, .day], from: transaction.date)
-            guard let groupedDate = calendar.date(from: components) else {
-                print("Warnung: Ungültige Datumsgruppe für Transaktion: id=\(transaction.id.uuidString), date=\(transaction.date)")
-                return Date()
-            }
-            return groupedDate
+            return calendar.date(from: components) ?? Date()
         })
-        
-        return grouped.map { (date, transactions) -> TransactionGroup in
-            let dailyTransactions = transactions.sorted { $0.date > $1.date }
-            var dailyBalance = dailyTransactions.reduce(0.0) { $0 + $1.amount }
-            if dailyBalance.isNaN {
-                dailyBalance = 0.0
-                print("Warnung: Tagesbilanz ist NaN, auf 0.0 gesetzt für Datum: \(date)")
-            }
-            
+        var cumulativeBalance: Double = 0.0
+        let sortedGroups = grouped.sorted { $0.key < $1.key }
+        var result: [TransactionGroup] = []
+        for (date, transactions) in sortedGroups {
+            let dailyBalance = transactions.reduce(0.0) { $0 + $1.amount }
+            cumulativeBalance += dailyBalance
             let group = TransactionGroup(
                 date: date,
-                transactions: dailyTransactions,
+                transactions: transactions.sorted { $0.date > $1.date },
                 dailyBalance: dailyBalance,
                 cumulativeBalance: cumulativeBalance
             )
-            
-            cumulativeBalance -= dailyBalance
-            if cumulativeBalance.isNaN {
-                cumulativeBalance = 0.0
-                print("Warnung: Kumulativer Kontostand ist NaN nach Update, auf 0.0 gesetzt")
-            }
-            return group
-        }.sorted { $0.date > $1.date }
+            result.append(group)
+        }
+        return result.sorted { $0.date > $1.date }
     }
     
     private var selectedTransaction: Transaction? {
@@ -622,10 +591,9 @@ struct TransactionView: View {
         formatter.locale = Locale(identifier: "de_DE")
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
-        
         let number = NSNumber(value: abs(amount))
         let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
-        return "\(formattedAmount) €"
+        return amount >= 0 ? "+\(formattedAmount) €" : "-\(formattedAmount) €"
     }
 
     private func formatBalance(_ amount: Double) -> String {
@@ -634,10 +602,9 @@ struct TransactionView: View {
         formatter.locale = Locale(identifier: "de_DE")
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
-        
         let number = NSNumber(value: abs(amount))
         let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
-        return "\(formattedAmount) €"
+        return amount >= 0 ? "\(formattedAmount) €" : "-\(formattedAmount) €"
     }
 }
 
@@ -654,9 +621,8 @@ struct TransactionRow: View {
         formatter.locale = Locale(identifier: "de_DE")
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
-        
-        let number = NSNumber(value: abs(amount))
-        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        let number = NSNumber(value: amount)
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", amount)
         return "\(formattedAmount) €"
     }
 
@@ -902,7 +868,6 @@ struct TransactionListView: View {
         formatter.locale = Locale(identifier: "de_DE")
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
-        
         let number = NSNumber(value: abs(amount))
         let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
         return amount >= 0 ? "+\(formattedAmount) €" : "-\(formattedAmount) €"
@@ -914,10 +879,9 @@ struct TransactionListView: View {
         formatter.locale = Locale(identifier: "de_DE")
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
-        
         let number = NSNumber(value: abs(amount))
         let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
-        return "\(formattedAmount) €"
+        return amount >= 0 ? "\(formattedAmount) €" : "-\(formattedAmount) €"
     }
 }
 

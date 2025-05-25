@@ -11,7 +11,7 @@ struct TypeButtonsView: View {
     private let buttonHeight: CGFloat = 40
     
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 0) {
             ForEach([
                 (type: "einnahme", icon: "plus", title: "Einnahme", color: einnahmeColorSelected),
                 (type: "ausgabe", icon: "minus", title: "Ausgabe", color: ausgabeColorSelected),
@@ -25,11 +25,9 @@ struct TypeButtonsView: View {
                     color: button.color,
                     action: { selectedType = button.type }
                 )
+                .padding(.horizontal, 2)
             }
         }
-        .padding(8)
-        .background(Color(white: 0.15))
-        .cornerRadius(12)
     }
 }
 
@@ -53,8 +51,8 @@ struct TransactionTypeButton: View {
             .background(isSelected ? color : Color.clear)
             .foregroundColor(isSelected ? .white : .gray)
             .cornerRadius(8)
-            .animation(.easeInOut(duration: 0.2), value: isSelected)
         }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

@@ -15,5 +15,6 @@ struct ActionButton: View {
                 .cornerRadius(12)
                 .font(.system(size: 17, weight: .medium))
         }
+        .buttonStyle(PlainButtonStyle())
     }
 } 

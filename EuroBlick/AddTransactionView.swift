@@ -250,7 +250,7 @@ struct AddTransactionView: View {
                 return
             }
         }
-        let adjustedAmount = type == "ausgabe" ? -amountValue : amountValue
+        let adjustedAmount = type == "ausgabe" ? -abs(amountValue) : abs(amountValue)
         let finalCategory = category == "new" && !newCategory.isEmpty ? newCategory : category
         
         // Wenn eine neue Kategorie erstellt wird, speichere sie zuerst

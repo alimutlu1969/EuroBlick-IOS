@@ -9,9 +9,10 @@ fileprivate func formatBalance(_ amount: Double) -> String {
     formatter.locale = Locale(identifier: "de_DE")
     formatter.minimumFractionDigits = 2
     formatter.maximumFractionDigits = 2
+    
     let number = NSNumber(value: abs(amount))
     let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
-    return "\(formattedAmount) €"
+    return amount >= 0 ? "\(formattedAmount) €" : "-\(formattedAmount) €"
 }
 
 struct AuthenticationView: View {
@@ -298,6 +299,10 @@ struct AccountRowView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
+            .onAppear {
+                let formattedBalance = formatBalance(balance)
+                print("UI: \(account.name ?? "-") | balance: \(balance) | formatted: \(formattedBalance)")
+            }
             .contentShape(Rectangle())
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
@@ -373,6 +378,10 @@ struct AccountGroupView: View {
     let viewModel: TransactionViewModel
     let balances: [AccountBalance]
     let onAccountTapped: (Account) -> Void
+    @Binding var showEditGroupSheet: Bool
+    @Binding var groupToEdit: AccountGroup?
+    @Binding var newGroupName: String
+
     @State private var groupBalance: Double = 0.0
     @State private var accountBalances: [(account: Account, balance: Double)] = []
     @State private var expanded: Bool = false
@@ -397,51 +406,13 @@ struct AccountGroupView: View {
     }
 
     private var regularAccounts: [(account: Account, balance: Double)] {
-        let groupName = (group.name ?? "").lowercased()
-        if groupName.contains("drinks") {
-            return accountBalances.filter { account in
-                let name = (account.account.name ?? "").lowercased()
-                return name != "bize"
-            }
-            .sorted { first, second in
-                let firstName = (first.account.name ?? "").lowercased()
-                let secondName = (second.account.name ?? "").lowercased()
-                let order = ["kasa", "banka"]
-                let firstIndex = order.firstIndex(of: firstName) ?? order.count
-                let secondIndex = order.firstIndex(of: secondName) ?? order.count
-                if firstIndex != secondIndex {
-                    return firstIndex < secondIndex
-                }
-                return firstName < secondName
-            }
-        } else if groupName.contains("kaffee") {
-            return accountBalances.filter { account in
-                let name = (account.account.name ?? "").lowercased()
-                return name != "bk"
-            }
-            .sorted { first, second in
-                let firstName = (first.account.name ?? "").lowercased()
-                let secondName = (second.account.name ?? "").lowercased()
-                let order = ["bargeld", "giro"]
-                let firstIndex = order.firstIndex(of: firstName) ?? order.count
-                let secondIndex = order.firstIndex(of: secondName) ?? order.count
-                if firstIndex != secondIndex {
-                    return firstIndex < secondIndex
-                }
-                return firstName < secondName
-            }
-        }
-        return accountBalances.sorted { $0.account.name ?? "" < $1.account.name ?? "" }
+        // Dynamisch: Alle Konten alphabetisch sortiert
+        accountBalances.sorted { ($0.account.name ?? "") < ($1.account.name ?? "") }
     }
 
     private var specialAccounts: [(account: Account, balance: Double)] {
-        let groupName = (group.name ?? "").lowercased()
-        if groupName.contains("drinks") {
-            return accountBalances.filter { ($0.account.name ?? "").lowercased() == "bize" }
-        } else if groupName.contains("kaffee") {
-            return accountBalances.filter { ($0.account.name ?? "").lowercased() == "bk" }
-        }
-        return []
+        // Keine speziellen Konten
+        []
     }
 
     private func isAccountIncludedInBalance(_ account: Account) -> Bool {
@@ -524,39 +495,15 @@ struct AccountGroupView: View {
 
             if expanded {
                 VStack(spacing: 0) {
-                    ForEach(regularAccounts + specialAccounts, id: \ .account.objectID) { item in
-                        let formattedBalance = formatBalance(item.balance)
-                        HStack(spacing: 12) {
-                            let icon = item.account.value(forKey: "icon") as? String ?? "building.columns.fill"
-                            let colorHex = item.account.value(forKey: "iconColor") as? String ?? "#007AFF"
-                            Image(systemName: icon)
-                                .foregroundColor(Color(hex: colorHex) ?? .blue)
-                                .frame(width: 24, height: 24)
-                            Text(item.account.name ?? "Unbekanntes Konto")
-                                .foregroundColor(.white)
-                                .font(.system(size: (AppFontSize.bodyLarge + AppFontSize.bodyMedium) / 2))
-                            Spacer()
-                            Text(formattedBalance)
-                                .foregroundColor(item.balance >= 0 ? .green : .red)
-                                .font(.system(size: (AppFontSize.bodyMedium + AppFontSize.bodySmall) / 2 + 0.5))
-                            if !isAccountIncludedInBalance(item.account) {
-                                Image(systemName: "slash.circle")
-                                    .foregroundColor(.gray)
-                                    .font(.system(size: 16))
-                            }
-                        }
-                        .padding(.horizontal)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            onAccountTapped(item.account)
-                        }
-                        .onLongPressGesture {
-                            let generator = UIImpactFeedbackGenerator(style: .medium)
-                            generator.impactOccurred()
-                            selectedAccount = item
-                            showAccountContextMenu = true
-                        }
+                    ForEach(regularAccounts + specialAccounts, id: \.account.objectID) { item in
+                        AccountGroupRowView(
+                            item: item,
+                            isAccountIncludedInBalance: isAccountIncludedInBalance,
+                            onAccountTapped: onAccountTapped,
+                            selectedAccount: $selectedAccount,
+                            showAccountContextMenu: $showAccountContextMenu,
+                            showEditSheet: $showEditSheet
+                        )
                         Divider().background(Color.gray)
                     }
                 }
@@ -596,31 +543,66 @@ struct AccountGroupView: View {
 
     private func calculateBalances() {
         let accounts = (group.accounts?.allObjects as? [Account]) ?? []
-        let groupName = (group.name ?? "").lowercased()
         accountBalances = accounts
             .sorted { $0.name ?? "" < $1.name ?? "" }
             .map { account in
                 let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
+                print("Account: \(account.name ?? "-") | includeInBalance: \(isAccountIncludedInBalance(account)) | Balance: \(balance)")
                 return (account, balance)
             }
-        if groupName.contains("drinks") {
-            groupBalance = accountBalances
-                .filter { account in
-                    let name = (account.account.name ?? "").lowercased()
-                    return (name == "kasa" || name == "banka") && isAccountIncludedInBalance(account.account)
-                }
-                .reduce(0.0) { total, item in total + item.balance }
-        } else if groupName.contains("kaffee") {
-            groupBalance = accountBalances
-                .filter { account in
-                    let name = (account.account.name ?? "").lowercased()
-                    return (name == "bargeld" || name == "giro") && isAccountIncludedInBalance(account.account)
-                }
-                .reduce(0.0) { total, item in total + item.balance }
-        } else {
-            groupBalance = accountBalances
-                .filter { isAccountIncludedInBalance($0.account) }
-                .reduce(0.0) { total, item in total + item.balance }
+        // Gruppensaldo = Summe aller eingeschlossenen Konten
+        groupBalance = accountBalances.filter { isAccountIncludedInBalance($0.account) }.reduce(0.0) { total, item in
+            total + item.balance
+        }
+        print("Group: \(group.name ?? "-") | GroupBalance: \(groupBalance)")
+    }
+}
+
+struct AccountGroupRowView: View {
+    let item: (account: Account, balance: Double)
+    let isAccountIncludedInBalance: (Account) -> Bool
+    let onAccountTapped: (Account) -> Void
+    @Binding var selectedAccount: (account: Account, balance: Double)?
+    @Binding var showAccountContextMenu: Bool
+    @Binding var showEditSheet: Bool
+
+    var body: some View {
+        let icon = item.account.value(forKey: "icon") as? String ?? "building.columns.fill"
+        let colorHex = item.account.value(forKey: "iconColor") as? String ?? "#007AFF"
+        let formattedBalance = formatBalance(item.balance)
+        let accountName = item.account.name ?? "Unbekanntes Konto"
+        let isIncluded = isAccountIncludedInBalance(item.account)
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(Color(hex: colorHex) ?? .blue)
+                .frame(width: 24, height: 24)
+            Text(accountName)
+                .foregroundColor(.white)
+                .font(.system(size: (AppFontSize.bodyLarge + AppFontSize.bodyMedium) / 2))
+            Spacer()
+            Text(formattedBalance)
+                .foregroundColor(item.balance >= 0 ? .green : .red)
+                .font(.system(size: (AppFontSize.bodyMedium + AppFontSize.bodySmall) / 2 + 0.5))
+            if !isIncluded {
+                Image(systemName: "slash.circle")
+                    .foregroundColor(.gray)
+                    .font(.system(size: 16))
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onAccountTapped(item.account)
+        }
+        .onLongPressGesture {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            selectedAccount = item
+            showAccountContextMenu = true
+        }
+        .onAppear {
+            print("UI: \(accountName) | balance: \(item.balance) | formatted: \(formattedBalance)")
         }
     }
 }
@@ -831,7 +813,10 @@ struct ContentMainView: View {
                         balances: balances,
                         onAccountTapped: { account in
                             onAccountTapped(account)
-                        }
+                        },
+                        showEditGroupSheet: .constant(false),
+                        groupToEdit: .constant(nil),
+                        newGroupName: .constant("")
                     )
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
@@ -906,7 +891,6 @@ struct ContentView: View {
     private var headerView: some View {
         VStack(spacing: 20) {
             HStack {
-                // Hamburger-Menü-Button links
                 Button(action: {
                     withAnimation { showSideMenu.toggle() }
                 }) {
@@ -918,7 +902,6 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                // Plus-Button als Menu rechts oben
                 Menu {
                     Button(action: { sheetState = .selectGroup }) {
                         Label("Konto hinzufügen", systemImage: "creditcard")
@@ -962,9 +945,10 @@ struct ContentView: View {
                         group: group,
                         viewModel: viewModel,
                         balances: accountBalances,
-                        onAccountTapped: { account in
-                            selectedAccount = account
-                        }
+                        onAccountTapped: { account in selectedAccount = account },
+                        showEditGroupSheet: .constant(false),
+                        groupToEdit: .constant(nil),
+                        newGroupName: .constant("")
                     )
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
@@ -1061,7 +1045,6 @@ struct ContentView: View {
                     Text("Möchten Sie sich wirklich abmelden?")
                 }
             }
-            // SideMenu Overlay
             if showSideMenu {
                 Color.black.opacity(0.4)
                     .ignoresSafeArea()
@@ -1069,7 +1052,6 @@ struct ContentView: View {
                         withAnimation { showSideMenu = false }
                     }
             }
-            // SideMenu selbst
             if showSideMenu {
                 SideMenuView(showSideMenu: $showSideMenu)
                     .transition(.move(edge: .leading))
@@ -1080,7 +1062,6 @@ struct ContentView: View {
         .onAppear {
             migrateExistingAccounts()
             refreshBalances()
-            // Notification-Handling
             NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowAccounts"), object: nil, queue: .main) { _ in
                 mainViewState = .accounts
             }
@@ -1097,6 +1078,9 @@ struct ContentView: View {
             NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowSettings"), object: nil, queue: .main) { _ in
                 showSettingsSheet = true
             }
+        }
+        .onChange(of: viewModel.transactionsUpdated) { _, _ in
+            refreshBalances()
         }
         .sheet(isPresented: $showGroupSelectionSheet) {
             GroupSelectionSheet(groups: viewModel.accountGroups) { group in
@@ -1115,23 +1099,20 @@ struct ContentView: View {
     private func refreshBalances() {
         let allBalances = viewModel.calculateAllBalances()
         var newBalances: [AccountBalance] = []
-
+        
         for group in viewModel.accountGroups {
             let accounts = (group.accounts?.allObjects as? [Account]) ?? []
             for account in accounts {
-                let balance = allBalances[account.objectID] ?? 0.0
+                let balance = allBalances[account.objectID] ?? viewModel.getBalance(for: account)
                 newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
             }
         }
-
+        
         accountBalances = newBalances
     }
 
-    // Fügt eine Methode hinzu, um bestehende Konten zu migrieren
     private func migrateExistingAccounts() {
         let context = viewModel.getContext()
-        
-        // Hole alle Konten
         let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
         
         do {
@@ -1139,22 +1120,17 @@ struct ContentView: View {
             var updated = false
             
             for account in accounts {
-                // Wenn das Konto noch keinen Typ hat oder der Typ leer ist
                 if account.value(forKey: "type") == nil || (account.value(forKey: "type") as? String) == "" {
                     let accountName = account.name?.lowercased() ?? ""
                     
-                    // Setze Typ basierend auf dem Namen
                     if accountName.contains("giro") || accountName.contains("banka") {
                         account.setValue("bankkonto", forKey: "type")
-                        print("Konto \(account.name ?? "unbekannt") auf Typ 'bankkonto' gesetzt")
                         updated = true
                     } else if accountName.contains("bar") || accountName.contains("kasse") {
                         account.setValue("bargeld", forKey: "type")
-                        print("Konto \(account.name ?? "unbekannt") auf Typ 'bargeld' gesetzt")
                         updated = true
                     } else {
                         account.setValue("offline", forKey: "type")
-                        print("Konto \(account.name ?? "unbekannt") auf Typ 'offline' gesetzt")
                         updated = true
                     }
                 }
@@ -1162,7 +1138,6 @@ struct ContentView: View {
             
             if updated {
                 try context.save()
-                print("Kontotypen erfolgreich migriert")
             }
         } catch {
             print("Fehler bei der Migration von Konten: \(error.localizedDescription)")
@@ -1257,7 +1232,10 @@ struct AccountListView: View {
                         group: group,
                         viewModel: viewModel,
                         balances: accountBalances,
-                        onAccountTapped: { _ in }
+                        onAccountTapped: { _ in },
+                        showEditGroupSheet: .constant(false),
+                        groupToEdit: .constant(nil),
+                        newGroupName: .constant("")
                     )
                 }
             }
@@ -1278,7 +1256,7 @@ struct AccountListView: View {
         for group in viewModel.accountGroups {
             let accounts = (group.accounts?.allObjects as? [Account]) ?? []
             for account in accounts {
-                let balance = allBalances[account.objectID] ?? 0.0
+                let balance = allBalances[account.objectID] ?? viewModel.getBalance(for: account)
                 newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
             }
         }

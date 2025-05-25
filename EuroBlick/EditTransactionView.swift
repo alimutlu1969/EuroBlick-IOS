@@ -44,7 +44,7 @@ struct EditTransactionView: View {
         
         // Initialisiere die Zustandsvariablen mit den Werten der Transaktion
         _type = State(initialValue: transaction.type ?? "einnahme")
-        _amount = State(initialValue: String(format: "%.2f", abs(transaction.amount)))
+        _amount = State(initialValue: String(format: "%.2f", transaction.amount))
         _category = State(initialValue: transaction.categoryRelationship?.name ?? "")
         _newCategory = State(initialValue: "")
         _account = State(initialValue: transaction.account)
@@ -257,22 +257,32 @@ struct EditTransactionView: View {
     }
 
     private func saveTransaction() {
-        guard isValidInput else { return }
-        
-        let finalAmount = type == "ausgabe" ? -abs(Double(amount.replacingOccurrences(of: ",", with: ".")) ?? 0) : abs(Double(amount.replacingOccurrences(of: ",", with: ".")) ?? 0)
-                
-                viewModel.updateTransaction(
-                    transaction,
-                    type: type,
-            amount: finalAmount,
-            category: category == "new" ? newCategory : category,
-            account: account ?? transaction.account!,
-                    targetAccount: type == "umbuchung" ? targetAccount : nil,
+        // Betrag als Double parsen
+        guard let amountValue = Double(amount.replacingOccurrences(of: ",", with: ".")) else {
+            amountError = "Ungültiger Betrag"
+            return
+        }
+        // Vorzeichen nach Typ setzen
+        let isExpense = type == "ausgabe"
+        let signedAmount = isExpense ? -abs(amountValue) : abs(amountValue)
+        // Account unwrap
+        guard let account = account else {
+            accountError = "Kein Konto ausgewählt"
+            return
+        }
+        // Speichern (nur die Parameter, die updateTransaction wirklich erwartet!)
+        viewModel.updateTransaction(
+            transaction,
+            type: type,
+            amount: signedAmount,
+            category: category,
+            account: account,
+            targetAccount: targetAccount,
             usage: usage,
-                    date: date
-                ) {
-                    dismiss()
-                }
+            date: date
+        ) {
+            dismiss()
+        }
     }
 
     private var isValidInput: Bool {

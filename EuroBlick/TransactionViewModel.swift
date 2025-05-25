@@ -255,18 +255,33 @@ class TransactionViewModel: ObservableObject {
         expressionDesc.expression = NSExpression(forFunction: "sum:", arguments: [NSExpression(forKeyPath: "amount")])
         expressionDesc.expressionResultType = .doubleAttributeType
 
-        fetchRequest.propertiesToFetch = [expressionDesc]
+        fetchRequest.propertiesToGroupBy = ["type"]
+        fetchRequest.propertiesToFetch = ["type", expressionDesc]
 
         do {
-            if let result = try context.fetch(fetchRequest).first,
-               let total = result["totalAmount"] as? Double {
-                return total
+            let results = try context.fetch(fetchRequest)
+            var totalBalance: Double = 0.0
+            var summeEinnahmen: Double = 0.0
+            var summeAusgaben: Double = 0.0
+            
+            for result in results {
+                if let type = result["type"] as? String,
+                   let amount = result["totalAmount"] as? Double {
+                    if type == "einnahme" {
+                        totalBalance += amount
+                        summeEinnahmen += amount
+                    } else if type == "ausgabe" {
+                        totalBalance += amount // Korrigiert: addiere, da bereits negativ
+                        summeAusgaben += amount
+                    }
+                }
             }
+            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Bilanz: \(totalBalance)")
+            return totalBalance
         } catch {
             print("Fehler beim Berechnen des Kontostands: \(error.localizedDescription)")
+            return 0.0
         }
-
-        return 0.0
     }
 
     
@@ -1796,17 +1811,49 @@ class TransactionViewModel: ObservableObject {
         sumExpression.expression = NSExpression(forFunction: "sum:", arguments: [NSExpression(forKeyPath: "amount")])
         sumExpression.expressionResultType = .doubleAttributeType
 
-        fetchRequest.propertiesToGroupBy = ["account"]
-        fetchRequest.propertiesToFetch = ["account", sumExpression]
+        fetchRequest.propertiesToGroupBy = ["account", "type"]
+        fetchRequest.propertiesToFetch = ["account", "type", sumExpression]
 
         do {
             let results = try context.fetch(fetchRequest)
             var balanceDict: [NSManagedObjectID: Double] = [:]
+            var einnahmenDict: [NSManagedObjectID: Double] = [:]
+            var ausgabenDict: [NSManagedObjectID: Double] = [:]
+            
+            // Initialisiere alle Konten mit 0
+            let accountFetch = NSFetchRequest<Account>(entityName: "Account")
+            if let accounts = try? context.fetch(accountFetch) {
+                for account in accounts {
+                    balanceDict[account.objectID] = 0.0
+                    einnahmenDict[account.objectID] = 0.0
+                    ausgabenDict[account.objectID] = 0.0
+                }
+            }
+            
+            // Berechne die Bilanzen
             for result in results {
                 if let account = result["account"] as? NSManagedObjectID,
-                   let balance = result["totalAmount"] as? Double {
-                    balanceDict[account] = balance
+                   let balance = result["totalAmount"] as? Double,
+                   let type = result["type"] as? String {
+                    let currentBalance = balanceDict[account] ?? 0.0
+                    if type == "einnahme" {
+                        balanceDict[account] = currentBalance + balance
+                        einnahmenDict[account] = (einnahmenDict[account] ?? 0.0) + balance
+                    } else if type == "ausgabe" {
+                        balanceDict[account] = currentBalance + balance // Korrigiert: addiere, da bereits negativ
+                        ausgabenDict[account] = (ausgabenDict[account] ?? 0.0) + balance
+                    }
                 }
+            }
+            print("Berechnete Kontostände:")
+            for (accountID, balance) in balanceDict {
+                var name = "-"
+                let einnahmen = einnahmenDict[accountID] ?? 0.0
+                let ausgaben = ausgabenDict[accountID] ?? 0.0
+                if let account = try? context.existingObject(with: accountID) as? Account {
+                    name = account.name ?? "-"
+                }
+                print("  Konto: \(name) | Einnahmen: \(einnahmen) | Ausgaben: \(ausgaben) | Bilanz: \(balance)")
             }
             return balanceDict
         } catch {
@@ -2027,6 +2074,28 @@ class TransactionViewModel: ObservableObject {
         shortForm = shortForm.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
         
         return shortForm
+    }
+
+    /// Korrigiert alle Ausgaben, die fälschlicherweise als positiver Betrag gespeichert wurden
+    func fixAllPositiveExpenses() {
+        let fetchRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "type == %@ AND amount > 0", "ausgabe")
+        do {
+            let wrongTransactions = try context.fetch(fetchRequest)
+            var changed = 0
+            for tx in wrongTransactions {
+                tx.amount = -abs(tx.amount)
+                changed += 1
+            }
+            if changed > 0 {
+                try context.save()
+                print("Alle fehlerhaften Ausgaben korrigiert! (", changed, ")")
+            } else {
+                print("Keine fehlerhaften Ausgaben gefunden.")
+            }
+        } catch {
+            print("Fehler bei der Korrektur der Ausgaben: \(error)")
+        }
     }
 }
 
