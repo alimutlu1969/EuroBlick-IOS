@@ -263,6 +263,7 @@ class TransactionViewModel: ObservableObject {
             var totalBalance: Double = 0.0
             var summeEinnahmen: Double = 0.0
             var summeAusgaben: Double = 0.0
+            var summeUmbuchungen: Double = 0.0
             
             for result in results {
                 if let type = result["type"] as? String,
@@ -273,10 +274,13 @@ class TransactionViewModel: ObservableObject {
                     } else if type == "ausgabe" {
                         totalBalance += amount // Korrigiert: addiere, da bereits negativ
                         summeAusgaben += amount
+                    } else if type == "umbuchung" {
+                        totalBalance += amount // Umbuchungen werden auch addiert
+                        summeUmbuchungen += amount
                     }
                 }
             }
-            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Bilanz: \(totalBalance)")
+            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance)")
             return totalBalance
         } catch {
             print("Fehler beim Berechnen des Kontostands: \(error.localizedDescription)")
@@ -524,27 +528,19 @@ class TransactionViewModel: ObservableObject {
                 sourceTransaction.account = account
                 sourceTransaction.targetAccount = target
                 sourceTransaction.usage = usage
-                
-                // Prüfe, ob es sich um eine Bargeld-zu-Giro Umbuchung handelt
-                let isBarToGiro = account.name?.lowercased().contains("bargeld") ?? false &&
-                                 target.name?.lowercased().contains("giro") ?? false
-                
-                // Nur wenn es KEINE Bargeld-zu-Giro Umbuchung ist, erstelle die Zieltransaktion
-                if !isBarToGiro {
-                    let targetTransaction = Transaction(context: self.context)
-                    targetTransaction.id = UUID()
-                    targetTransaction.type = "umbuchung"
-                    targetTransaction.amount = amount
-                    targetTransaction.date = date
-                    targetTransaction.account = target
-                    targetTransaction.targetAccount = account
-                    targetTransaction.usage = usage
-                    
-                    self.setCategoryForTransaction(targetTransaction, categoryName: category)
-                }
-                
                 self.setCategoryForTransaction(sourceTransaction, categoryName: category)
-                
+
+                // Lege IMMER die Zieltransaktion an
+                let targetTransaction = Transaction(context: self.context)
+                targetTransaction.id = UUID()
+                targetTransaction.type = "umbuchung"
+                targetTransaction.amount = amount
+                targetTransaction.date = date
+                targetTransaction.account = target
+                targetTransaction.targetAccount = account
+                targetTransaction.usage = usage
+                self.setCategoryForTransaction(targetTransaction, categoryName: category)
+
                 self.saveContext(self.context) { error in
                     if let error = error {
                         print("Fehler beim Speichern der Umbuchung: \(error)")
@@ -724,15 +720,16 @@ class TransactionViewModel: ObservableObject {
     func buildCategoryData(for account: Account) -> [CategoryData] {
         context.performAndWait {
             let transactions = (account.transactions?.allObjects as? [Transaction]) ?? []
+            let filteredTransactions = transactions.filter { $0.type != "umbuchung" }
             var categoryTotals: [String: Double] = [:]
-            for transaction in transactions {
+            for transaction in filteredTransactions {
                 if transaction.type == "ausgabe", let category = transaction.categoryRelationship?.name {
                     categoryTotals[category, default: 0.0] += transaction.amount
                 }
             }
             let colors: [Color] = [.red, .blue, .green, .yellow, .purple, .orange]
             return categoryTotals.enumerated().map { (index, element) in
-                CategoryData(name: element.key, value: element.value, color: colors[index % colors.count], transactions: transactions.filter { $0.categoryRelationship?.name == element.key })
+                CategoryData(name: element.key, value: element.value, color: colors[index % colors.count], transactions: filteredTransactions.filter { $0.categoryRelationship?.name == element.key })
             }
         }
     }
@@ -741,11 +738,12 @@ class TransactionViewModel: ObservableObject {
     func buildMonthlyData(for account: Account) -> [MonthlyData] {
         context.performAndWait {
             let transactions = (account.transactions?.allObjects as? [Transaction]) ?? []
+            let filteredTransactions = transactions.filter { $0.type != "umbuchung" }
             var monthlyEinnahmen: [String: Double] = [:]
             var monthlyAusgaben: [String: Double] = [:]
             let dateFormatter = DateFormatter()
             dateFormatter.dateFormat = "MMM yyyy"
-            for transaction in transactions {
+            for transaction in filteredTransactions {
                 let monthKey = dateFormatter.string(from: transaction.date)
                 if transaction.type == "einnahme" {
                     monthlyEinnahmen[monthKey, default: 0.0] += transaction.amount
@@ -1822,6 +1820,7 @@ class TransactionViewModel: ObservableObject {
             var balanceDict: [NSManagedObjectID: Double] = [:]
             var einnahmenDict: [NSManagedObjectID: Double] = [:]
             var ausgabenDict: [NSManagedObjectID: Double] = [:]
+            var umbuchungenDict: [NSManagedObjectID: Double] = [:]
             
             // Initialisiere alle Konten mit 0
             let accountFetch = NSFetchRequest<Account>(entityName: "Account")
@@ -1830,6 +1829,7 @@ class TransactionViewModel: ObservableObject {
                     balanceDict[account.objectID] = 0.0
                     einnahmenDict[account.objectID] = 0.0
                     ausgabenDict[account.objectID] = 0.0
+                    umbuchungenDict[account.objectID] = 0.0
                 }
             }
             
@@ -1845,6 +1845,9 @@ class TransactionViewModel: ObservableObject {
                     } else if type == "ausgabe" {
                         balanceDict[account] = currentBalance + balance // Korrigiert: addiere, da bereits negativ
                         ausgabenDict[account] = (ausgabenDict[account] ?? 0.0) + balance
+                    } else if type == "umbuchung" {
+                        balanceDict[account] = currentBalance + balance // Umbuchungen werden auch addiert
+                        umbuchungenDict[account] = (umbuchungenDict[account] ?? 0.0) + balance
                     }
                 }
             }
@@ -1853,10 +1856,11 @@ class TransactionViewModel: ObservableObject {
                 var name = "-"
                 let einnahmen = einnahmenDict[accountID] ?? 0.0
                 let ausgaben = ausgabenDict[accountID] ?? 0.0
+                let umbuchungen = umbuchungenDict[accountID] ?? 0.0
                 if let account = try? context.existingObject(with: accountID) as? Account {
                     name = account.name ?? "-"
                 }
-                print("  Konto: \(name) | Einnahmen: \(einnahmen) | Ausgaben: \(ausgaben) | Bilanz: \(balance)")
+                print("  Konto: \(name) | Einnahmen: \(einnahmen) | Ausgaben: \(ausgaben) | Umbuchungen: \(umbuchungen) | Bilanz: \(balance)")
             }
             return balanceDict
         } catch {
