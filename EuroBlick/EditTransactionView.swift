@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreData
 
 struct EditTransactionView: View {
     @ObservedObject var viewModel: TransactionViewModel
@@ -42,15 +43,54 @@ struct EditTransactionView: View {
         self.viewModel = viewModel
         self.transaction = transaction
         
-        // Initialisiere die Zustandsvariablen mit den Werten der Transaktion
-        _type = State(initialValue: transaction.type ?? "einnahme")
-        _amount = State(initialValue: String(format: "%.2f", transaction.amount))
+        // Defensive Initialisierung der Zustandsvariablen
+        // Type
+        let initialType = transaction.type ?? "einnahme"
+        _type = State(initialValue: initialType)
+        // Amount
+        let initialAmount: String
+        if transaction.amount != 0.0 {
+            initialAmount = String(format: "%.2f", transaction.amount)
+        } else {
+            initialAmount = "0.00"
+        }
+        _amount = State(initialValue: initialAmount)
+        // Category
         _category = State(initialValue: transaction.categoryRelationship?.name ?? "")
         _newCategory = State(initialValue: "")
+        // Account
         _account = State(initialValue: transaction.account)
-        _targetAccount = State(initialValue: transaction.targetAccount)
+        // TargetAccount (Umbuchung)
+        if initialType == "umbuchung" && transaction.targetAccount == nil {
+            // Suche nach passender Gegenbuchung
+            let context = transaction.managedObjectContext
+            let fetchRequest = NSFetchRequest<Transaction>(entityName: "Transaction")
+            fetchRequest.predicate = NSPredicate(format: "type == %@ AND date == %@ AND amount == %@ AND account != %@", "umbuchung", transaction.date as NSDate? ?? NSDate(), NSNumber(value: -transaction.amount), transaction.account ?? NSNull())
+            if let context = context, let results = try? context.fetch(fetchRequest), let other = results.first {
+                _targetAccount = State(initialValue: other.account)
+            } else {
+                _targetAccount = State(initialValue: nil)
+            }
+        } else {
+            _targetAccount = State(initialValue: transaction.targetAccount)
+        }
+        // Usage
         _usage = State(initialValue: transaction.usage ?? "")
-        _date = State(initialValue: transaction.date)
+        // Date (defensiv, KVC)
+        let transactionDate = transaction.value(forKey: "date") as? Date
+        let initialDate: Date
+        if let transactionDate = transactionDate {
+            if transactionDate.timeIntervalSince1970.isNaN || transactionDate.timeIntervalSince1970 <= 0 {
+                print("[WARN] transaction.date ist ungültig, setze auf aktuelles Datum")
+                initialDate = Date()
+            } else {
+                initialDate = transactionDate
+            }
+        } else {
+            print("[WARN] transaction.date ist nil (KVC), setze auf aktuelles Datum")
+            initialDate = Date()
+        }
+        _date = State(initialValue: initialDate)
         
         print("EditTransactionView initialisiert mit:")
         print("- Type: \(transaction.type ?? "nil")")
@@ -58,7 +98,8 @@ struct EditTransactionView: View {
         print("- Category: \(transaction.categoryRelationship?.name ?? "nil")")
         print("- Account: \(transaction.account?.name ?? "nil")")
         print("- Usage: \(transaction.usage ?? "nil")")
-        print("- Date: \(transaction.date)")
+        print("- Date: \(initialDate)")
+        print("- TargetAccount: \(_targetAccount.wrappedValue?.name ?? "nil")")
     }
 
     var body: some View {
