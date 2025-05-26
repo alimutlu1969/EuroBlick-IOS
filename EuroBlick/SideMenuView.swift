@@ -3,6 +3,9 @@ import SwiftUI
 struct SideMenuView: View {
     @Binding var showSideMenu: Bool
     @State private var showLogoutAlert = false
+    @State private var showColorSchemeSheet = false
+    @State private var showFeedbackSheet = false
+    @State private var showInfoLegalSheet = false
     // Dummy-Daten für Profil
     let userName: String = "Ali Mutlu"
     let userEmail: String = "ali.mutlu@me.com"
@@ -33,10 +36,10 @@ struct SideMenuView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(userName)
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.primary)
                     Text(userEmail)
                         .font(.subheadline)
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.primary)
                 }
             }
             .padding(.bottom, 32)
@@ -53,17 +56,17 @@ struct SideMenuView: View {
                     showSideMenu = false
                 }
                 SideMenuItem(icon: "paintpalette", title: "Farbdesign") {
-                    showSideMenu = false
+                    showColorSchemeSheet = true
                 }
                 SideMenuItem(icon: "paperplane", title: "Feedback senden") {
-                    showSideMenu = false
+                    showFeedbackSheet = true
                 }
                 SideMenuItem(icon: "gear", title: "Einstellungen") {
                     NotificationCenter.default.post(name: NSNotification.Name("SideMenuShowSettings"), object: nil)
                     showSideMenu = false
                 }
                 SideMenuItem(icon: "info.circle", title: "Info / Rechtliches") {
-                    showSideMenu = false
+                    showInfoLegalSheet = true
                 }
             }
             .padding(.horizontal)
@@ -73,8 +76,17 @@ struct SideMenuView: View {
         }
         .padding(.top, 56)
         .frame(maxWidth: 320, alignment: .leading)
-        .background(Color(.black))
+        .background(Color(.systemBackground))
         .edgesIgnoringSafeArea(.all)
+        .sheet(isPresented: $showColorSchemeSheet) {
+            ColorSchemeSheetView()
+        }
+        .sheet(isPresented: $showFeedbackSheet) {
+            FeedbackSheetView()
+        }
+        .sheet(isPresented: $showInfoLegalSheet) {
+            InfoLegalSheetView()
+        }
     }
 }
 
@@ -90,7 +102,7 @@ struct SideMenuItem: View {
                     .foregroundColor(.orange)
                     .frame(width: 24, height: 24)
                 Text(title)
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.primary)
                     .font(.system(size: 18, weight: .medium))
                 Spacer()
             }

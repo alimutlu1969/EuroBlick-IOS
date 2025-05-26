@@ -23,11 +23,9 @@ struct AuthenticationView: View {
     var body: some View {
         VStack {
             Text("Bitte authentifizieren")
-                .foregroundColor(.white)
                 .font(.system(size: AppFontSize.sectionTitle))
             if let error = errorMessage {
                 Text(error)
-                    .foregroundColor(.red)
                     .font(.system(size: AppFontSize.bodySmall))
                     .padding(.bottom, 10)
             }
@@ -155,13 +153,13 @@ struct EditAccountView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("Kontodetails").foregroundColor(.white)) {
+                Section(header: Text("Kontodetails").foregroundColor(.primary)) {
                     TextField("Kontoname", text: $accountName)
                         .textFieldStyle(.plain)
                         .padding(8)
                         .background(Color.gray.opacity(0.2))
                         .cornerRadius(8)
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                     
                     IconSelectionView(
                         selectedIcon: selectedIcon,
@@ -184,7 +182,6 @@ struct EditAccountView: View {
             }
             .scrollContentBackground(.hidden)
             .background(Color.black)
-            .preferredColorScheme(.dark)
             .navigationTitle("Konto bearbeiten")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -287,14 +284,13 @@ struct AccountRowView: View {
                     .font(.system(size: AppFontSize.contentIcon))
                     .frame(width: 30)
                 Text(account.name ?? "Unbekanntes Konto")
-                    .foregroundColor(.white)
                     .font(.system(size: (AppFontSize.bodyLarge + AppFontSize.bodyMedium) / 2))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer()
                 let formattedBalance = formatBalance(balance)
                 Text(formattedBalance)
-                    .foregroundColor(balance >= 0 ? Color.green : Color.red)
+                    .foregroundColor(balance >= 0 ? .green : .red)
                     .font(.system(size: (AppFontSize.bodyMedium + AppFontSize.bodySmall) / 2 + 0.5))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -456,20 +452,17 @@ struct AccountGroupView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(group.name ?? "Unbekannte Gruppe")
                         .font(.system(size: AppFontSize.groupTitle, weight: .semibold))
-                        .foregroundColor(.white)
                     Text("\(regularAccounts.count + specialAccounts.count) Konten")
                         .font(.caption)
-                        .foregroundColor(.gray)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(formatBalance(groupBalance))
-                        .foregroundColor(groupBalance >= 0 ? Color.green : Color.red)
+                        .foregroundColor(groupBalance >= 0 ? .green : .red)
                         .font(.system(size: AppFontSize.bodyMedium))
                 }
                 Button(action: { expanded.toggle() }) {
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .foregroundColor(.white)
                         .font(.title3)
                 }
             }
@@ -503,7 +496,6 @@ struct AccountGroupView: View {
             }
             .alert("Kontogruppe bearbeiten", isPresented: $showEditAlert) {
                 TextField("Name", text: $editedName)
-                    .foregroundColor(.white)
                 Button("Abbrechen", role: .cancel) { }
                 Button("Speichern") {
                     viewModel.updateAccountGroup(group: group, name: editedName)
@@ -602,7 +594,6 @@ struct AccountGroupRowView: View {
                 .foregroundColor(Color(hex: colorHex) ?? .blue)
                 .frame(width: 24, height: 24)
             Text(accountName)
-                .foregroundColor(.white)
                 .font(.system(size: (AppFontSize.bodyLarge + AppFontSize.bodyMedium) / 2))
             Spacer()
             Text(formattedBalance)
@@ -610,7 +601,6 @@ struct AccountGroupRowView: View {
                 .font(.system(size: (AppFontSize.bodyMedium + AppFontSize.bodySmall) / 2 + 0.5))
             if !isIncluded {
                 Image(systemName: "slash.circle")
-                    .foregroundColor(.gray)
                     .font(.system(size: 16))
             }
         }
@@ -653,7 +643,6 @@ struct AboutView: View {
                                 .bold()
                             Text("Version 1.0.0")
                                 .font(.system(size: AppFontSize.bodySmall))
-                                .foregroundColor(.gray)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -707,7 +696,6 @@ struct AboutView: View {
                 }
             }
         }
-        .foregroundColor(.white)
     }
 }
 
@@ -724,10 +712,8 @@ struct FeatureRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: AppFontSize.bodyLarge))
-                    .foregroundColor(.white)
                 Text(description)
                     .font(.system(size: AppFontSize.bodySmall))
-                    .foregroundColor(.gray)
             }
         }
     }
@@ -739,7 +725,6 @@ struct TransparentGroupBoxStyle: GroupBoxStyle {
         VStack(alignment: .leading) {
             configuration.label
                 .font(.headline)
-                .foregroundColor(.white)
             configuration.content
         }
         .padding()
@@ -764,10 +749,9 @@ struct ContentMainView: View {
         if accountGroups.isEmpty {
             VStack {
                 Text("Keine Kontogruppen vorhanden")
-                    .foregroundColor(.white)
                     .font(.headline)
                 Text("Tippe auf das Plus-Symbol (+), um eine Kontogruppe hinzuzufügen.")
-                    .foregroundColor(.gray)
+                    .font(.caption)
                     .multilineTextAlignment(.center)
                     .padding()
             }
@@ -876,6 +860,8 @@ struct ContentView: View {
     @State private var groupToEdit: AccountGroup? = nil
     @State private var newGroupName = ""
     @State private var showExportErrorAlert = false
+    @AppStorage("selectedColorScheme") private var selectedColorScheme: String = "system"
+    @AppStorage("accentColor") private var accentColor: String = "orange"
     
     init(context: NSManagedObjectContext) {
         _viewModel = StateObject(wrappedValue: TransactionViewModel(context: context))
@@ -889,7 +875,6 @@ struct ContentView: View {
                 }) {
                     Image(systemName: "line.3.horizontal")
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(.white)
                 }
                 .buttonStyle(PlainButtonStyle())
                 
@@ -905,7 +890,6 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.white)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
@@ -990,12 +974,10 @@ struct ContentView: View {
                                         Button(action: { mainViewState = .accounts }) {
                                             Image(systemName: "chevron.left")
                                                 .font(.system(size: 20, weight: .medium))
-                                                .foregroundColor(.white)
                                                 .padding(.trailing, 4)
                                         }
                                         Text(group.name ?? "Auswertung")
                                             .font(.headline)
-                                            .foregroundColor(.white)
                                         Spacer()
                                     }
                                     .padding(.horizontal)
@@ -1004,7 +986,7 @@ struct ContentView: View {
                                 }
                             } else {
                                 Text("Keine Kontogruppe ausgewählt")
-                                    .foregroundColor(.gray)
+                                    .font(.caption)
                                     .onAppear {
                                         if !viewModel.accountGroups.isEmpty {
                                             showGroupSelectionSheet = true
@@ -1122,7 +1104,9 @@ struct ContentView: View {
                     .zIndex(1)
             }
         }
-        .preferredColorScheme(.dark)
+        // Farbschema und Akzentfarbe global anwenden
+        .preferredColorScheme(selectedColorScheme == "light" ? .light : selectedColorScheme == "dark" ? .dark : nil)
+        .accentColor(colorFromString(accentColor))
         .alert("Export nicht möglich", isPresented: $showExportErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -1180,6 +1164,18 @@ struct ContentView: View {
             print("Fehler bei der Migration von Konten: \(error.localizedDescription)")
         }
     }
+
+    // Hilfsfunktion für Akzentfarbe
+    private func colorFromString(_ name: String) -> Color {
+        switch name.lowercased() {
+        case "orange": return .orange
+        case "blau": return .blue
+        case "grün": return .green
+        case "rot": return .red
+        case "lila": return .purple
+        default: return .accentColor
+        }
+    }
 }
 
 // MARK: - Subviews
@@ -1204,7 +1200,7 @@ struct EditAccountGroupView: View {
                 
                 VStack(spacing: 20) {
                     TextField("Neuer Gruppenname", text: $editedName)
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                         .padding()
                         .background(Color.gray.opacity(0.2))
                         .cornerRadius(8)
@@ -1219,19 +1215,18 @@ struct EditAccountGroupView: View {
                     Button("Abbrechen") { 
                         dismiss() 
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
                         viewModel.updateAccountGroup(group: group, name: editedName)
                         dismiss()
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .disabled(editedName.isEmpty)
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .onAppear {
             // Ensure the name is set when the view appears
             editedName = group.name ?? ""
@@ -1250,7 +1245,7 @@ struct AppLogoView: View {
                 .foregroundColor(.blue)
             Text("EuroBlick")
                 .font(.title)
-                .foregroundColor(.white)
+                .foregroundColor(.primary)
                 .bold()
         }
         .padding()
@@ -1312,27 +1307,27 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section(header: Text("Allgemein").foregroundColor(.white)) {
+                Section(header: Text("Allgemein").foregroundColor(.primary)) {
                     NavigationLink(destination: AboutView()) {
                         Label("Über EuroBlick", systemImage: "info.circle")
-                            .foregroundColor(.white)
+                            .foregroundColor(.primary)
                     }
                 }
                 
-                Section(header: Text("WebDAV-Backup").foregroundColor(.white)) {
+                Section(header: Text("WebDAV-Backup").foregroundColor(.primary)) {
                     TextField("WebDAV-URL", text: $webdavURL)
                         .textContentType(.URL)
                         .keyboardType(.URL)
                         .autocapitalization(.none)
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                     TextField("Benutzername", text: $webdavUser)
                         .autocapitalization(.none)
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                     SecureField("Passwort", text: $webdavPassword)
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                 }
                 
-                Section(header: Text("Sicherheit").foregroundColor(.white)) {
+                Section(header: Text("Sicherheit").foregroundColor(.primary)) {
                     Button(action: {
                         authManager.logout()
                         dismiss()
@@ -1343,7 +1338,7 @@ struct SettingsView: View {
                 }
                 
                 #if DEBUG
-                Section(header: Text("Debug").foregroundColor(.white)) {
+                Section(header: Text("Debug").foregroundColor(.primary)) {
                     Button(action: {
                         PersistenceController.shared.resetCoreData()
                     }) {
@@ -1370,7 +1365,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -1415,7 +1409,6 @@ struct AnalysisView: View {
     let viewModel: TransactionViewModel
     var body: some View {
         Text("Auswertung für \(group.name ?? "Unbekannt")")
-            .foregroundColor(.white)
             .font(.title2)
             .padding()
         // Hier kann später die echte Auswertungs-Logik rein
