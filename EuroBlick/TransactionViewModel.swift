@@ -609,9 +609,71 @@ class TransactionViewModel: ObservableObject {
     // Lösche eine Transaktion
     func deleteTransaction(_ transaction: Transaction, completion: (() -> Void)? = nil) {
         context.perform {
-            // Sicherheitsüberprüfung für transaction.id
-            let transactionId = transaction.id.uuidString
+            // Vorab alle benötigten Properties sichern
+            let transactionId = transaction.id
+            let transactionAmount = transaction.amount
+            let transactionDate = transaction.date
+            let accountName = transaction.account?.name ?? "unknown"
+            let targetName = transaction.targetAccount?.name ?? "unknown"
+            let transactionType = transaction.type ?? "-"
+            
+            // Wenn Umbuchung: Gegenbuchung suchen und mitlöschen
+            if transactionType == "umbuchung",
+               let account = transaction.account,
+               let target = transaction.targetAccount {
+                print("[Umbuchung-Löschen] Suche Gegenbuchung für:")
+                print("  - ID: \(transactionId)")
+                print("  - Betrag: \(transactionAmount)")
+                print("  - Von Konto: \(accountName)")
+                print("  - Nach Konto: \(targetName)")
+                print("  - Datum: \(transactionDate)")
+                
+                let calendar = Calendar.current
+                let startOfDay = calendar.startOfDay(for: transactionDate)
+                let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? transactionDate
+                
+                // Suche alle Umbuchungen am selben Tag mit vertauschten Konten
+                let fetchRequest = NSFetchRequest<Transaction>(entityName: "Transaction")
+                let predicates = [
+                    NSPredicate(format: "type == %@", "umbuchung"),
+                    NSPredicate(format: "date >= %@ AND date < %@", startOfDay as NSDate, endOfDay as NSDate),
+                    NSPredicate(format: "account == %@", target),
+                    NSPredicate(format: "targetAccount == %@", account)
+                ]
+                fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+                
+                do {
+                    let results = try self.context.fetch(fetchRequest)
+                    print("[Umbuchung-Löschen] Gefundene potentielle Gegenbuchungen: \(results.count)")
+                    for result in results {
+                        let resultId = result.id
+                        let resultAmount = result.amount
+                        let resultAccount = result.account?.name ?? "unknown"
+                        let resultTarget = result.targetAccount?.name ?? "unknown"
+                        let resultDate = result.date
+                        print("  - ID: \(resultId)")
+                        print("  - Betrag: \(resultAmount)")
+                        print("  - Von Konto: \(resultAccount)")
+                        print("  - Nach Konto: \(resultTarget)")
+                        print("  - Datum: \(resultDate)")
+                    }
+                    // Suche mit Toleranz beim Betrag
+                    if let other = results.first(where: { abs($0.amount + transactionAmount) < 0.01 }) {
+                        let otherId = other.id
+                        print("[Umbuchung-Löschen] Lösche Gegenbuchung: \(otherId)")
+                        self.context.delete(other)
+                    } else {
+                        print("[Umbuchung-Löschen] Keine passende Gegenbuchung mit passendem Betrag gefunden!")
+                    }
+                } catch {
+                    print("[Umbuchung-Löschen] Fehler beim Suchen der Gegenbuchung: \(error)")
+                }
+            }
+            
+            // Lösche die eigentliche Transaktion
+            print("[Umbuchung-Löschen] Lösche Haupttransaktion: \(transactionId)")
             self.context.delete(transaction)
+            
             self.saveContext(self.context) { error in
                 if let error = error {
                     print("Fehler beim Speichern nach Löschen der Transaktion: \(error)")
@@ -619,7 +681,7 @@ class TransactionViewModel: ObservableObject {
                     return
                 }
                 self.fetchAccountGroups()
-                print("Transaktion gelöscht: id=\(transactionId)")
+                print("Transaktion gelöscht: \(transactionId)")
                 completion?()
             }
         }
@@ -641,54 +703,39 @@ class TransactionViewModel: ObservableObject {
         }
         context.perform {
             if type == "umbuchung", let target = targetAccount {
-                self.context.delete(transaction)
+                // Finde die Gegenbuchung
+                let fetchRequest = NSFetchRequest<Transaction>(entityName: "Transaction")
+                fetchRequest.predicate = NSPredicate(format: "type == %@ AND date == %@ AND amount == %@ AND account == %@ AND targetAccount == %@", "umbuchung", transaction.date as NSDate, NSNumber(value: -transaction.amount), target, account)
+                let results = try? self.context.fetch(fetchRequest)
+                let other = results?.first
+
+                // Aktualisiere beide Transaktionen
+                transaction.amount = amount
+                transaction.date = date
+                transaction.account = account
+                transaction.targetAccount = target
+                transaction.usage = usage
+                self.setCategoryForTransaction(transaction, categoryName: category)
+
+                if let other = other {
+                    other.amount = -amount
+                    other.date = date
+                    other.account = target
+                    other.targetAccount = account
+                    other.usage = usage
+                    self.setCategoryForTransaction(other, categoryName: category)
+                }
+
                 self.saveContext(self.context) { error in
                     if let error = error {
-                        print("Fehler beim Speichern nach Löschen der alten Transaktion: \(error)")
+                        print("Fehler beim Speichern der aktualisierten Umbuchung: \(error)")
                         completion?()
                         return
                     }
-                    
-                    let sourceTransaction = Transaction(context: self.context)
-                    sourceTransaction.id = UUID()
-                    sourceTransaction.type = "umbuchung"
-                    sourceTransaction.amount = -amount
-                    sourceTransaction.date = date
-                    sourceTransaction.account = account
-                    sourceTransaction.targetAccount = target
-                    sourceTransaction.usage = usage
-                    
-                    // Prüfe, ob es sich um eine Bargeld-zu-Giro Umbuchung handelt
-                    let isBarToGiro = account.name?.lowercased().contains("bargeld") ?? false &&
-                                     target.name?.lowercased().contains("giro") ?? false
-                    
-                    // Nur wenn es KEINE Bargeld-zu-Giro Umbuchung ist, erstelle die Zieltransaktion
-                    if !isBarToGiro {
-                        let targetTransaction = Transaction(context: self.context)
-                        targetTransaction.id = UUID()
-                        targetTransaction.type = "umbuchung"
-                        targetTransaction.amount = amount
-                        targetTransaction.date = date
-                        targetTransaction.account = target
-                        targetTransaction.targetAccount = account
-                        targetTransaction.usage = usage
-                        
-                        self.setCategoryForTransaction(targetTransaction, categoryName: category)
-                    }
-                    
-                    self.setCategoryForTransaction(sourceTransaction, categoryName: category)
-                    
-                    self.saveContext(self.context) { error in
-                        if let error = error {
-                            print("Fehler beim Speichern der aktualisierten Umbuchung: \(error)")
-                            completion?()
-                            return
-                        }
-                        self.cleanupInvalidTransactions()
-                        self.fetchAccountGroups()
-                        print("Umbuchung aktualisiert: \(amount) von \(account.name ?? "unknown") zu \(target.name ?? "unknown")")
-                        completion?()
-                    }
+                    self.cleanupInvalidTransactions()
+                    self.fetchAccountGroups()
+                    print("Umbuchung aktualisiert: \(amount) von \(account.name ?? "unknown") zu \(target.name ?? "unknown")")
+                    completion?()
                 }
             } else {
                 transaction.id = transaction.id
@@ -2006,12 +2053,20 @@ class TransactionViewModel: ObservableObject {
     func deleteTransactions(_ transactions: [Transaction], completion: (() -> Void)? = nil) {
         context.perform {
             print("DEBUG: Beginne Löschung von \(transactions.count) Transaktionen")
-            
+            // Zuerst alle Umbuchungen löschen (mit Speziallogik)
             for transaction in transactions {
-                self.context.delete(transaction)
-                print("DEBUG: Lösche Transaktion: \(transaction.id)")
+                if transaction.type == "umbuchung" {
+                    print("DEBUG: Lösche Umbuchung: \(transaction.id) Typ: \(transaction.type ?? "nil")")
+                    self.deleteTransaction(transaction)
+                }
             }
-            
+            // Dann alle anderen Transaktionen löschen
+            for transaction in transactions {
+                if transaction.type != "umbuchung" {
+                    print("DEBUG: Lösche normale Transaktion: \(transaction.id) Typ: \(transaction.type ?? "nil")")
+                    self.context.delete(transaction)
+                }
+            }
             self.saveContext(self.context) { error in
                 if let error = error {
                     print("Fehler beim Löschen der Transaktionen: \(error)")
