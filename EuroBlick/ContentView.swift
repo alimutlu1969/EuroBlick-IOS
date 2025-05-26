@@ -1005,6 +1005,11 @@ struct ContentView: View {
                             } else {
                                 Text("Keine Kontogruppe ausgewählt")
                                     .foregroundColor(.gray)
+                                    .onAppear {
+                                        if !viewModel.accountGroups.isEmpty {
+                                            showGroupSelectionSheet = true
+                                        }
+                                    }
                             }
                         }
                     }
@@ -1084,10 +1089,24 @@ struct ContentView: View {
                     NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowSettings"), object: nil, queue: .main) { _ in
                         showSettingsSheet = true
                     }
+                    NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowAnalysis"), object: nil, queue: .main) { _ in
+                        if viewModel.accountGroups.isEmpty {
+                            mainViewState = .accounts
+                        } else {
+                            mainViewState = .analysis(group: nil)
+                            showGroupSelectionSheet = true
+                        }
+                        showSideMenu = false
+                    }
                 }
                 .sheet(isPresented: $showSettingsSheet) {
                     SettingsView()
                         .environmentObject(authManager)
+                }
+                .sheet(isPresented: $showGroupSelectionSheet) {
+                    GroupSelectionSheet(groups: viewModel.accountGroups) { group in
+                        mainViewState = .analysis(group: group)
+                    }
                 }
             }
             if showSideMenu {
@@ -1118,8 +1137,10 @@ struct ContentView: View {
         
         for group in viewModel.accountGroups {
             let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+            print("Gruppe: \(group.name ?? "-") | Konten: \(accounts.map { $0.name ?? "-" })")
             for account in accounts {
                 let balance = allBalances[account.objectID] ?? viewModel.getBalance(for: account)
+                print("  Konto: \(account.name ?? "-") | Balance: \(balance) | includeInBalance: \(account.value(forKey: "includeInBalance") as? Bool ?? true)")
                 newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
             }
         }
