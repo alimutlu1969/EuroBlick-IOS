@@ -2635,5 +2635,53 @@ class TransactionViewModel: ObservableObject {
             }
         }
     }
+
+    // Bereinige die fehlerhafte Bankgebühren-Kategorie
+    func cleanupBankgebuehrenCategory() {
+        context.performAndWait {
+            // Suche nach der fehlerhaften Kategorie
+            let request: NSFetchRequest<Category> = Category.fetchRequest()
+            request.predicate = NSPredicate(format: "name == %@", "Bankgeb√ºhren")
+            
+            guard let invalidCategory = try? context.fetch(request).first else {
+                print("Fehlerhafte Bankgebühren-Kategorie nicht gefunden")
+                return
+            }
+            
+            // Suche nach der korrekten Kategorie
+            let correctRequest: NSFetchRequest<Category> = Category.fetchRequest()
+            correctRequest.predicate = NSPredicate(format: "name == %@", "Bankgebühren")
+            
+            let correctCategory: Category
+            if let existing = try? context.fetch(correctRequest).first {
+                correctCategory = existing
+            } else {
+                // Erstelle die korrekte Kategorie, falls sie noch nicht existiert
+                correctCategory = Category(context: context)
+                correctCategory.name = "Bankgebühren"
+            }
+            
+            // Hole alle Transaktionen der fehlerhaften Kategorie
+            if let transactions = invalidCategory.transactions?.allObjects as? [Transaction] {
+                print("Verschiebe \(transactions.count) Transaktionen zur korrekten Kategorie")
+                for transaction in transactions {
+                    transaction.categoryRelationship = correctCategory
+                }
+            }
+            
+            // Lösche die fehlerhafte Kategorie
+            context.delete(invalidCategory)
+            
+            // Speichere die Änderungen
+            saveContext(context) { error in
+                if let error = error {
+                    print("Fehler beim Bereinigen der Bankgebühren-Kategorie: \(error)")
+                    return
+                }
+                print("Bankgebühren-Kategorie erfolgreich bereinigt")
+                self.fetchCategories()
+            }
+        }
+    }
 }
 

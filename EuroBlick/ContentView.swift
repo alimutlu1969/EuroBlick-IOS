@@ -1080,6 +1080,8 @@ struct ContentView: View {
                         }
                         showSideMenu = false
                     }
+                    // Bereinige die fehlerhafte Bankgebühren-Kategorie
+                    viewModel.cleanupBankgebuehrenCategory()
                 }
                 .sheet(isPresented: $showSettingsSheet) {
                     SettingsView()
