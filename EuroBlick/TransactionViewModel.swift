@@ -2194,31 +2194,17 @@ class TransactionViewModel: ObservableObject {
             return
         }
         
-        // Füge MeinDrive zum WebDAV-Pfad hinzu
-        var serverURLString = webdavURL
-        if !serverURLString.hasSuffix("/") {
-            serverURLString += "/"
-        }
-        serverURLString += "MeinDrive/EuroBlickBackup.json"
-        
-        guard let serverURL = URL(string: serverURLString) else {
+        guard let serverURL = URL(string: webdavURL) else {
             print("Ungültige WebDAV-URL")
             return
         }
         
         var request = URLRequest(url: serverURL)
         request.httpMethod = "PUT"
-        
-        // Setze die korrekten Header
         let authString = "\(webdavUser):\(webdavPassword)"
         let authData = authString.data(using: .utf8)!
         let base64Auth = authData.base64EncodedString()
         request.setValue("Basic \(base64Auth)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
-        
-        // Setze den If-Match Header auf *, um die Datei zu überschreiben
-        request.setValue("*", forHTTPHeaderField: "If-Match")
         
         do {
             let backupData = try Data(contentsOf: backupURL)
@@ -2231,21 +2217,10 @@ class TransactionViewModel: ObservableObject {
                 }
                 
                 if let httpResponse = response as? HTTPURLResponse {
-                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 || httpResponse.statusCode == 204 {
-                        print("WebDAV Backup erfolgreich in MeinDrive hochgeladen")
-                        
-                        // Lösche die lokale Backup-Datei nach erfolgreichem Upload
-                        do {
-                            try FileManager.default.removeItem(at: backupURL)
-                            print("Lokale Backup-Datei gelöscht")
-                        } catch {
-                            print("Fehler beim Löschen der lokalen Backup-Datei: \(error)")
-                        }
+                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+                        print("WebDAV Backup erfolgreich hochgeladen")
                     } else {
                         print("WebDAV Upload fehlgeschlagen: Status \(httpResponse.statusCode)")
-                        if let responseData = data, let responseString = String(data: responseData, encoding: .utf8) {
-                            print("Server-Antwort: \(responseString)")
-                        }
                     }
                 }
             }
