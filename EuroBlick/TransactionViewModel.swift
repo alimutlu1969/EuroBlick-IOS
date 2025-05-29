@@ -79,7 +79,8 @@ class TransactionViewModel: ObservableObject {
                 "Personal", "EC-Umbuchung", "Kasa", "KV-Beiträge", "Priv. KV",
                 "Strom/Gas", "Verpackung", "Steuerberater", "Werbekosten",
                 "Einnahmen", "Wareneinkauf", "Raumkosten", "Instandhaltung",
-                "Reparatur", "Steuern", "Sonstiges"
+                "Reparatur", "Steuern", "Reservierung", "Internetkosten", 
+                "Versicherungen", "Sonstiges"
             ]
             var addedCategories: Set<String> = []
             for name in defaultCategoryNames {
@@ -247,7 +248,8 @@ class TransactionViewModel: ObservableObject {
         let context = self.context
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
 
-        fetchRequest.predicate = NSPredicate(format: "account == %@", account)
+        // Schließe Reservierungen aus der Kontostand-Berechnung aus
+        fetchRequest.predicate = NSPredicate(format: "account == %@ AND type != %@", account, "reservierung")
         fetchRequest.resultType = .dictionaryResultType
 
         let expressionDesc = NSExpressionDescription()
@@ -278,9 +280,10 @@ class TransactionViewModel: ObservableObject {
                         totalBalance += amount // Umbuchungen werden auch addiert
                         summeUmbuchungen += amount
                     }
+                    // "reservierung" wird ignoriert
                 }
             }
-            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance)")
+            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance) (Reservierungen ausgeschlossen)")
             return totalBalance
         } catch {
             print("Fehler beim Berechnen des Kontostands: \(error.localizedDescription)")
@@ -500,7 +503,7 @@ class TransactionViewModel: ObservableObject {
     
     // Füge eine neue Transaktion hinzu
     func addTransaction(type: String, amount: Double, category: String, account: Account, targetAccount: Account?, usage: String?, date: Date, completion: ((Error?) -> Void)? = nil) {
-        guard !type.isEmpty, ["einnahme", "ausgabe", "umbuchung"].contains(type) else {
+        guard !type.isEmpty, ["einnahme", "ausgabe", "umbuchung", "reservierung"].contains(type) else {
             let error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ungültiger Transaktionstyp"])
             print("Fehler: Ungültiger Transaktionstyp")
             completion?(error)
@@ -550,13 +553,6 @@ class TransactionViewModel: ObservableObject {
                     self.cleanupInvalidTransactions()
                     self.fetchAccountGroups()
                     print("Umbuchung hinzugefügt: \(amount) von \(account.name ?? "unknown") zu \(target.name ?? "unknown")")
-                    // Erstelle ein automatisches Backup nach der Umbuchung
-                    if let backupURL = self.backupData() {
-                        print("Automatisches Backup nach Umbuchung erstellt: \(backupURL)")
-                        self.uploadBackupToWebDAV(backupURL: backupURL)
-                    } else {
-                        print("Fehler beim Erstellen des automatischen Backups nach Umbuchung")
-                    }
                     completion?(nil)
                 }
             } else {
@@ -580,13 +576,6 @@ class TransactionViewModel: ObservableObject {
                     self.cleanupInvalidTransactions()
                     self.fetchAccountGroups()
                     print("Transaktion hinzugefügt: type=\(type), amount=\(amount), Kategorie=\(category), usage=\(usage ?? "nil")")
-                    // Erstelle ein automatisches Backup nach der Transaktion
-                    if let backupURL = self.backupData() {
-                        print("Automatisches Backup nach Transaktion erstellt: \(backupURL)")
-                        self.uploadBackupToWebDAV(backupURL: backupURL)
-                    } else {
-                        print("Fehler beim Erstellen des automatischen Backups nach Transaktion")
-                    }
                     completion?(nil)
                 }
             }
@@ -689,7 +678,7 @@ class TransactionViewModel: ObservableObject {
     
     // Aktualisiere eine bestehende Transaktion
     func updateTransaction(_ transaction: Transaction, type: String, amount: Double, category: String, account: Account, targetAccount: Account?, usage: String?, date: Date, completion: (() -> Void)? = nil) {
-        guard !type.isEmpty, ["einnahme", "ausgabe", "umbuchung"].contains(type) else {
+        guard !type.isEmpty, ["einnahme", "ausgabe", "umbuchung", "reservierung"].contains(type) else {
             print("Fehler: Ungültiger Transaktionstyp")
             return
         }
@@ -767,7 +756,8 @@ class TransactionViewModel: ObservableObject {
     func buildCategoryData(for account: Account) -> [CategoryData] {
         context.performAndWait {
             let transactions = (account.transactions?.allObjects as? [Transaction]) ?? []
-            let filteredTransactions = transactions.filter { $0.type != "umbuchung" }
+            // Filtere Reservierungen und Umbuchungen aus
+            let filteredTransactions = transactions.filter { $0.type != "umbuchung" && $0.type != "reservierung" }
             var categoryTotals: [String: Double] = [:]
             for transaction in filteredTransactions {
                 if transaction.type == "ausgabe", let category = transaction.categoryRelationship?.name {
@@ -785,7 +775,8 @@ class TransactionViewModel: ObservableObject {
     func buildMonthlyData(for account: Account) -> [MonthlyData] {
         context.performAndWait {
             let transactions = (account.transactions?.allObjects as? [Transaction]) ?? []
-            let filteredTransactions = transactions.filter { $0.type != "umbuchung" }
+            // Filtere Reservierungen und Umbuchungen aus
+            let filteredTransactions = transactions.filter { $0.type != "umbuchung" && $0.type != "reservierung" }
             var monthlyEinnahmen: [String: Double] = [:]
             var monthlyAusgaben: [String: Double] = [:]
             let dateFormatter = DateFormatter()
@@ -1146,21 +1137,23 @@ class TransactionViewModel: ObservableObject {
     // Filtere Transaktionen basierend auf Datum, Monat oder benutzerdefiniertem Zeitraum
     func filterTransactions(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [Transaction] {
         let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+        // Filtere Reservierungen aus allen Transaktions-Listen aus
+        let nonReservationTx = allTx.filter { $0.type != "reservierung" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "de_DE")
         formatter.dateFormat = "MMM yyyy"
         
         switch filterType {
         case "Alle Monate":
-            return allTx
+            return nonReservationTx
         case "Benutzerdefinierter Zeitraum":
             guard let range = customDateRange else { return [] }
-            return allTx.filter { transaction in
+            return nonReservationTx.filter { transaction in
                 let date = transaction.date
                 return date >= range.start && date <= range.end
             }
         default:
-            return allTx.filter { transaction in
+            return nonReservationTx.filter { transaction in
                 formatter.string(from: transaction.date) == selectedMonth
             }
         }
@@ -1182,6 +1175,7 @@ class TransactionViewModel: ObservableObject {
             } else if transaction.type == "ausgabe" {
                 monthlyAusgaben[monthKey, default: 0.0] += transaction.amount
             }
+            // Reservierungen werden automatisch ignoriert, da sie bereits herausgefiltert wurden
             monthlyTransactions[monthKey, default: []].append(transaction)
         }
         
@@ -1401,7 +1395,12 @@ class TransactionViewModel: ObservableObject {
     }
 
     // Neue Methode für flexiblen CSV-Import
-    public func importBankCSV(contents: String, context: NSManagedObjectContext) throws -> ImportResult {
+    public func importBankCSV(contents: String, account: Account, context: NSManagedObjectContext) throws -> ImportResult {
+        // Hole das Account-Objekt in den richtigen Kontext
+        guard let accountInContext = try context.existingObject(with: account.objectID) as? Account else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Konto konnte nicht im Import-Kontext gefunden werden"])
+        }
+        
         // Teile den Inhalt in Zeilen auf
         let rows = contents.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         
@@ -1423,7 +1422,6 @@ class TransactionViewModel: ObservableObject {
 
         // Finde die Positionen der relevanten Spalten
         var dateIndex: Int?
-        var accountIndex: Int?
         var amountIndex: Int?
         var categoryIndex: Int?
         var nameIndex: Int?
@@ -1432,48 +1430,75 @@ class TransactionViewModel: ObservableObject {
         for (index, column) in header.enumerated() {
             let trimmedColumn = column.lowercased()
             switch trimmedColumn {
-            case "datum", "buchungsdatum", "valutadatum":
+            case "datum", "buchungsdatum", "valutadatum", "date":
                 dateIndex = index
-            case "konto", "accountname":
-                accountIndex = index
-            case "betrag", "amount_eur":
+            case "betrag", "amount_eur", "amount", "summe":
                 amountIndex = index
-            case "hauptkategorie":
+            case "hauptkategorie", "kategorie", "category":
                 categoryIndex = index
-            case "kategorie" where categoryIndex == nil:
-                categoryIndex = index
-            case "name":
+            case "name", "empfänger", "empfaenger", "auftraggeber":
                 nameIndex = index
-            case "zweck", "verwendungszweck", "verwendung":
+            case "zweck", "verwendungszweck", "verwendung", "purpose", "beschreibung":
                 purposeIndex = index
             default:
                 break
             }
         }
 
-        guard let dateIdx = dateIndex, let accountIdx = accountIndex, let amountIdx = amountIndex else {
-            print("Fehlende benötigte Spalten in der CSV-Datei (Datum, Konto, Betrag sind erforderlich)")
-            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Fehlende benötigte Spalten in der CSV-Datei (Datum, Konto, Betrag sind erforderlich)"])
+        guard let dateIdx = dateIndex, let amountIdx = amountIndex else {
+            print("Fehlende benötigte Spalten in der CSV-Datei (Datum, Betrag sind erforderlich)")
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Fehlende benötigte Spalten in der CSV-Datei (Datum, Betrag sind erforderlich)"])
         }
 
-        // DateFormatter für Parsing und Formatierung
-        let dfLong = DateFormatter()
-        dfLong.locale = Locale(identifier: "de_DE")
-        dfLong.dateFormat = "dd.MM.yyyy"
+        // DateFormatter für verschiedene Datumsformate
+        let dateFormatters: [DateFormatter] = [
+            {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "de_DE")
+                formatter.dateFormat = "dd.MM.yyyy"
+                return formatter
+            }(),
+            {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "de_DE")
+                formatter.dateFormat = "yyyy-MM-dd"
+                return formatter
+            }(),
+            {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "de_DE")
+                formatter.dateFormat = "dd.MM.yy"
+                return formatter
+            }()
+        ]
 
-        // NumberFormatter für korrekte Betragsumrechnung
-        let numberFormatter = NumberFormatter()
-        numberFormatter.locale = Locale(identifier: "de_DE")
-        numberFormatter.numberStyle = .decimal
-        numberFormatter.decimalSeparator = ","
-        numberFormatter.groupingSeparator = "."
+        // NumberFormatter für verschiedene Betragsformate
+        let numberFormatters: [NumberFormatter] = [
+            {
+                let formatter = NumberFormatter()
+                formatter.locale = Locale(identifier: "de_DE")
+                formatter.numberStyle = .decimal
+                formatter.decimalSeparator = ","
+                formatter.groupingSeparator = "."
+                return formatter
+            }(),
+            {
+                let formatter = NumberFormatter()
+                formatter.locale = Locale(identifier: "en_US")
+                formatter.numberStyle = .decimal
+                formatter.decimalSeparator = "."
+                formatter.groupingSeparator = ","
+                return formatter
+            }()
+        ]
 
         // Kalender für Jahresvalidierung und Datumsnormalisierung
         let calendar = Calendar.current
 
         // Arrays für Import-Ergebnisse
         var importedTransactions: [ImportResult.TransactionInfo] = []
-        var skippedTransactions: [ImportResult.TransactionInfo] = []
+        let skippedTransactions: [ImportResult.TransactionInfo] = []
+        var suspiciousTransactions: [ImportResult.TransactionInfo] = []
 
         for (lineNumber, row) in rows.dropFirst().enumerated() {
             // Manuelles Parsen der Zeile unter Berücksichtigung von Anführungszeichen
@@ -1497,261 +1522,247 @@ class TransactionViewModel: ObservableObject {
             let cleanedColumns = columns.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")).trimmingCharacters(in: .whitespacesAndNewlines) }
 
             // Stelle sicher, dass die Zeile genug Spalten hat
-            let requiredMaxIndex = max(dateIdx, accountIdx, amountIdx, categoryIndex ?? 0, nameIndex ?? 0, purposeIndex ?? 0)
+            let requiredMaxIndex = max(dateIdx, amountIdx, categoryIndex ?? 0, nameIndex ?? 0, purposeIndex ?? 0)
             if cleanedColumns.count <= requiredMaxIndex {
                 print("Zeile \(lineNumber + 2): Ungültige Zeile (zu wenige Spalten: \(cleanedColumns.count), benötigt: \(requiredMaxIndex + 1)): \(row)")
                 continue
             }
 
-            // Extrahiere die relevanten Werte
+            // Extrahiere die relevanten Werte und repariere Unicode-Umlaute
             let raw = cleanedColumns[dateIdx]
-            var accountName = cleanedColumns[accountIdx]
             let amountString = cleanedColumns[amountIdx]
-            _ = categoryIndex != nil ? cleanedColumns[categoryIndex!] : ""
-            let name = nameIndex != nil ? cleanedColumns[nameIndex!] : ""
-            let purpose = purposeIndex != nil ? cleanedColumns[purposeIndex!] : ""
+            let category = categoryIndex != nil ? fixUmlauts(cleanedColumns[categoryIndex!]) ?? cleanedColumns[categoryIndex!] : ""
+            let nameFromCSV = nameIndex != nil ? fixUmlauts(cleanedColumns[nameIndex!]) ?? cleanedColumns[nameIndex!] : ""
+            let purpose = purposeIndex != nil ? fixUmlauts(cleanedColumns[purposeIndex!]) ?? cleanedColumns[purposeIndex!] : ""
 
-            // Mappe die IBAN auf den Kontonamen "Giro"
-            if accountName == "DE61100500000190696397" {
-                accountName = "Giro"
-            }
+            // Verarbeite Lohn-Transaktionen und extrahiere Namen
+            let payrollResult = processPayrollTransaction(purpose: purpose, nameFromCSV: nameFromCSV)
+            let finalPurpose = payrollResult.usage.isEmpty ? purpose : payrollResult.usage
+            let payrollCategory = payrollResult.category
 
-            // Normalisiere das Datum
-            let parts = raw.split(separator: ".")
-            let normalized: String
-            if parts.count == 3 && parts[2].count == 2 {
-                normalized = "\(parts[0]).\(parts[1]).20\(parts[2])"
-            } else {
-                normalized = raw
-            }
+            // Verarbeitet Reservierungs-Transaktionen und extrahiert den Namen
+            let reservationResult = processReservationTransaction(purpose: finalPurpose, nameFromCSV: nameFromCSV)
+            let finalUsage = reservationResult.isReservation ? reservationResult.usage : finalPurpose
+            let reservationCategory = reservationResult.category
+            let isReservation = reservationResult.isReservation
 
-            // Parse das normalisierte Datum
-            guard let date = dfLong.date(from: normalized) else {
-                print("Zeile \(lineNumber + 2): Ungültiges Datum: \(raw) → \(normalized)")
-                continue
-            }
-
-            // Validierung des Jahres
-            let year = calendar.component(.year, from: date)
-            guard year >= 1970 else {
-                print("Zeile \(lineNumber + 2): Jahr \(year) < 1970 – übersprungen")
-                continue
-            }
-
-            // Normalisiere das Datum auf den Tag
-            let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
-            guard let normalizedDate = calendar.date(from: dateComponents) else {
-                print("Zeile \(lineNumber + 2): Konnte Datum nicht normalisieren: \(date)")
-                continue
-            }
-
-            // Validierung und Konvertierung des Betrags
-            guard let amountNumber = numberFormatter.number(from: amountString) else {
-                print("Zeile \(lineNumber + 2): Ungültiger Betrag: \(amountString)")
-                continue
-            }
-            let amount = amountNumber.doubleValue
-            print("Zeile \(lineNumber + 2): Betrag erfolgreich umgewandelt: \(amountString) -> \(amount)")
-
-            // Bereinige und kombiniere "Name" und "Zweck" für "usage"
-            let cleanedName = cleanCompanyName(name)
-            let cleanedPurpose = cleanCompanyName(purpose)
-            var usageComponents: [String] = []
-            if !cleanedName.isEmpty {
-                usageComponents.append(cleanedName)
-            }
-            if !cleanedPurpose.isEmpty && cleanedPurpose != cleanedName {
-                usageComponents.append(cleanedPurpose)
-            }
-            let usage = usageComponents.joined(separator: " ")
-            let finalUsage = fixUmlauts(usage.isEmpty ? nil : usage)
-
-            // KATEGORISIERUNG DER TRANSAKTION
-            var transactionType = "ausgabe"
-            var finalCategory = ""
+            // Verarbeitet Firmen-Transaktionen mit intelligenter Kategorisierung
+            let companyResult = processCompanyTransaction(purpose: finalUsage, nameFromCSV: nameFromCSV)
+            let companyUsage = companyResult.isSpecialCompany ? companyResult.usage : finalUsage
+            let companyCategory = companyResult.category
+            let isSpecialCompany = companyResult.isSpecialCompany
             
-            // Hole den bereinigten Verwendungszweck
-            let cleanedUsage = finalUsage?.lowercased() ?? ""
-            print("Zeile \(lineNumber + 2): Bereinigter Verwendungszweck: \(cleanedUsage)")
-            
-            // 1. ERSTE PRIORITÄT: CategoryMatcher verwenden
-            var categoryFound = false
-            let (matchedCategory, _) = CategoryMatcher.shared.findBestCategory(for: cleanedUsage, amount: amount)
-            if let category = matchedCategory {
-                finalCategory = category
-                categoryFound = true
-                print("Zeile \(lineNumber + 2): ✓ Kategorie vom CategoryMatcher: '\(cleanedUsage)' → '\(category)' (Typ: \(transactionType))")
-            }
-            
-            // 2. ZWEITE PRIORITÄT: Standard-Kategorisierung
-            if !categoryFound {
-                if amount >= 0 {
-                    transactionType = "einnahme"
-                    finalCategory = "Einnahmen"
-                    print("Zeile \(lineNumber + 2): ✓ Als Einnahme kategorisiert")
-                } else {
-                    transactionType = "ausgabe"
-                    finalCategory = "Sonstiges"
-                    print("Zeile \(lineNumber + 2): ✓ Als Sonstige Ausgabe kategorisiert")
+            // Bestimme den finalen Verwendungszweck (Priorität: Firma > Reservierung > Lohn > Original)
+            let finalFinalUsage = isSpecialCompany ? companyUsage : finalUsage
+
+            // Konvertiere den Betrag
+            var amount: Double?
+            for formatter in numberFormatters {
+                if let number = formatter.number(from: amountString) {
+                    amount = number.doubleValue
+                    break
                 }
             }
             
-            print("Zeile \(lineNumber + 2): Finale Kategorie: '\(finalCategory)' (Typ: \(transactionType))")
+            guard let finalAmount = amount else {
+                print("Zeile \(lineNumber + 2): Ungültiger Betrag: \(amountString)")
+                continue
+            }
 
-            // Erstelle TransactionInfo für Protokollierung
-            let transactionInfo = ImportResult.TransactionInfo(
-                date: normalized,
-                amount: amount,
-                account: accountName,
-                usage: finalUsage,
-                category: finalCategory
-            )
+            // Normalisiere das Datum
+            var normalizedDate: Date?
+            for formatter in dateFormatters {
+                if let date = formatter.date(from: raw) {
+                    normalizedDate = date
+                    break
+                }
+            }
+            
+            guard var finalDate = normalizedDate else {
+                print("Zeile \(lineNumber + 2): Ungültiges Datum: \(raw)")
+                continue
+            }
+            
+            // Korrigiere das Jahr, falls es falsch geparst wurde (z.B. 0025 statt 2025)
+            let components = calendar.dateComponents([.year, .month, .day], from: finalDate)
+            if let year = components.year, year < 100 {
+                var correctedComponents = components
+                correctedComponents.year = year + 2000
+                if let correctedDate = calendar.date(from: correctedComponents) {
+                    finalDate = correctedDate
+                    print("Zeile \(lineNumber + 2): Jahr korrigiert von \(year) zu \(correctedComponents.year ?? year)")
+                }
+            }
 
-            // Suche oder erstelle die Kategorie
+            // Bestimme den finalen Verwendungszweck und Kategorie
+            let finalUsageForTransaction: String
+            let categoryName: String
+            
+            if !reservationCategory.isEmpty {
+                // Reservierungs-Transaktion: verwende die automatisch bestimmte Kategorie
+                categoryName = reservationCategory
+                finalUsageForTransaction = finalFinalUsage
+                print("Zeile \(lineNumber + 2): Reservierungs-Transaktion erkannt, Kategorie automatisch gesetzt: \(categoryName)")
+            } else if !payrollCategory.isEmpty {
+                // Lohn-Transaktion: verwende die automatisch bestimmte Kategorie
+                categoryName = payrollCategory
+                finalUsageForTransaction = finalFinalUsage
+                print("Zeile \(lineNumber + 2): Lohn-Transaktion erkannt, Kategorie automatisch gesetzt: \(categoryName)")
+            } else if !companyCategory.isEmpty {
+                // Firma: verwende die automatisch bestimmte Kategorie
+                categoryName = companyCategory
+                finalUsageForTransaction = finalFinalUsage
+                print("Zeile \(lineNumber + 2): Firma erkannt, Kategorie automatisch gesetzt: \(categoryName)")
+            } else if let suggestedCategory = suggestCategory(for: finalFinalUsage, amount: finalAmount) {
+                // Lernvorschlag verfügbar
+                categoryName = suggestedCategory
+                finalUsageForTransaction = finalFinalUsage
+                print("Zeile \(lineNumber + 2): Kategorie vorgeschlagen: \(categoryName)")
+            } else {
+                // Unbekannte Transaktion: Verwende Namen aus CSV und CSV-Kategorie als Fallback
+                let nameFromCSVCleaned = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                if !nameFromCSVCleaned.isEmpty {
+                    finalUsageForTransaction = nameFromCSVCleaned
+                    print("Zeile \(lineNumber + 2): Unbekannte Transaktion - verwende Namen aus CSV: '\(nameFromCSVCleaned)'")
+                } else {
+                    finalUsageForTransaction = finalFinalUsage
+                    print("Zeile \(lineNumber + 2): Unbekannte Transaktion - kein Name in CSV, verwende Original-Zweck")
+                }
+                
+                // Verwende CSV-Kategorie als Fallback, sonst Sonstiges
+                categoryName = !category.isEmpty ? category : "Sonstiges"
+                print("Zeile \(lineNumber + 2): Kategorie aus CSV verwendet: '\(categoryName)'")
+            }
+
             let fetchRequest: NSFetchRequest<Category> = Category.fetchRequest()
-            fetchRequest.predicate = NSPredicate(format: "name == %@", finalCategory)
+            fetchRequest.predicate = NSPredicate(format: "name == %@", categoryName)
             let categories = try context.fetch(fetchRequest)
             let categoryObject: Category
             if let existingCategory = categories.first {
                 categoryObject = existingCategory
-            } else if !finalCategory.isEmpty {
-                categoryObject = Category(context: context)
-                categoryObject.name = finalCategory
             } else {
-                // Standardkategorie, falls keine Kategorie angegeben ist
-                let defaultFetchRequest: NSFetchRequest<Category> = Category.fetchRequest()
-                defaultFetchRequest.predicate = NSPredicate(format: "name == %@", "Sonstiges")
-                let defaultCategories = try context.fetch(defaultFetchRequest)
-                if let defaultCategory = defaultCategories.first {
-                    categoryObject = defaultCategory
-                } else {
-                    categoryObject = Category(context: context)
-                    categoryObject.name = "Sonstiges"
+                categoryObject = Category(context: context)
+                categoryObject.name = categoryName
+            }
+
+            // Prüfe auf verdächtige Transaktionen (nicht für Reservierungen)
+            let isSuspiciousTransaction = !isReservation && (categoryName == "SB-Einzahlung" || 
+                                        categoryName == "Geldautomat" ||
+                                        (finalUsageForTransaction.lowercased().contains("sb-einzahlung")) ||
+                                        (finalUsageForTransaction.lowercased().contains("einzahlung")) || 
+                                        (finalUsageForTransaction.lowercased().contains("bargeld")))
+            
+            print("Zeile \(lineNumber + 2): Prüfe verdächtige Transaktion - Kategorie: '\(categoryName)', Zweck: '\(finalUsageForTransaction)', Reservierung: \(isReservation), verdächtig: \(isSuspiciousTransaction)")
+            
+            if isSuspiciousTransaction {
+                print("Zeile \(lineNumber + 2): Verdächtige Transaktion erkannt - starte Duplikatsuche")
+                
+                // Suche nach ähnlichen Transaktionen
+                let transactionFetchRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+                var predicates: [NSPredicate] = [
+                    NSPredicate(format: "abs(amount - %f) < 0.01", finalAmount),
+                    NSPredicate(format: "account == %@", accountInContext)
+                ]
+                
+                // Erweiterte Suche nach ähnlichen Zwecken
+                let usagePredicates = [
+                    NSPredicate(format: "usage CONTAINS[cd] %@", "sb-einzahlung"),
+                    NSPredicate(format: "usage CONTAINS[cd] %@", "einzahlung"),
+                    NSPredicate(format: "usage CONTAINS[cd] %@", "bargeld"),
+                    NSPredicate(format: "categoryRelationship.name == %@", "Geldautomat"),
+                    NSPredicate(format: "categoryRelationship.name == %@", "SB-Einzahlung")
+                ]
+                predicates.append(NSCompoundPredicate(orPredicateWithSubpredicates: usagePredicates))
+                
+                transactionFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+                let existingTransactions = try context.fetch(transactionFetchRequest)
+                
+                print("Zeile \(lineNumber + 2): Gefundene ähnliche Transaktionen: \(existingTransactions.count)")
+                for existing in existingTransactions {
+                    print("  - Datum: \(existing.date), Betrag: \(existing.amount), Zweck: \(existing.usage ?? "nil"), Kategorie: \(existing.categoryRelationship?.name ?? "nil")")
                 }
-            }
-
-            // Suche das Konto
-            let accountFetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
-            accountFetchRequest.predicate = NSPredicate(format: "name == %@", accountName)
-            let accounts = try context.fetch(accountFetchRequest)
-            guard let account = accounts.first else {
-                print("Zeile \(lineNumber + 2): Konto \(accountName) nicht gefunden")
-                continue
-            }
-
-            // Bei Umbuchungen (z.B. SB-Einzahlung) beide Konten prüfen
-            if transactionType == "umbuchung" && finalCategory == "EC-Umbuchung" {
-                let targetAccountRequest: NSFetchRequest<Account> = Account.fetchRequest()
-                targetAccountRequest.predicate = NSPredicate(format: "name == %@", "Bargeld")
-                if let targetAccount = try context.fetch(targetAccountRequest).first {
-                    // Erstelle die Umbuchungstransaktion
-                    let transaction = Transaction(context: context)
-                    transaction.id = UUID()
-                    transaction.type = transactionType
-                    transaction.amount = amount
-                    transaction.date = normalizedDate
-                    transaction.account = account
-                    transaction.targetAccount = targetAccount
-                    transaction.categoryRelationship = categoryObject
-                    transaction.usage = finalUsage
-                    
-                    print("Zeile \(lineNumber + 2): Umbuchung erstellt: \(amount) von \(accountName) nach Bargeld")
-                    
-                    // Erstelle die Gegenbuchung
-                    let counterTransaction = Transaction(context: context)
-                    counterTransaction.id = UUID()
-                    counterTransaction.type = transactionType
-                    counterTransaction.amount = -amount
-                    counterTransaction.date = normalizedDate
-                    counterTransaction.account = targetAccount
-                    counterTransaction.targetAccount = account
-                    counterTransaction.categoryRelationship = categoryObject
-                    counterTransaction.usage = finalUsage
-                    
-                    importedTransactions.append(transactionInfo)
+                
+                if !existingTransactions.isEmpty {
+                    print("Zeile \(lineNumber + 2): Transaktion als verdächtig markiert - wird zur manuellen Überprüfung hinzugefügt")
+                    // Füge zur Liste der verdächtigen Transaktionen hinzu
+                    suspiciousTransactions.append(ImportResult.TransactionInfo(
+                        date: raw,
+                        amount: finalAmount,
+                        account: accountInContext.name ?? "",
+                        usage: finalUsageForTransaction,
+                        category: categoryName,
+                        isSuspicious: true,
+                        existingTransaction: existingTransactions.first
+                    ))
                     continue
                 }
-            }
-
-            // Prüfe auf Duplikate
-            let transactionFetchRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
-            let startOfDay = normalizedDate
-            guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else {
-                print("Zeile \(lineNumber + 2): Konnte Enddatum nicht berechnen")
-                continue
-            }
-            
-            var predicates: [NSPredicate] = [
-                NSPredicate(format: "date >= %@ AND date < %@", startOfDay as NSDate, endOfDay as NSDate),
-                NSPredicate(format: "abs(amount - %f) < 0.01", amount),
-                NSPredicate(format: "account == %@", account)
-            ]
-            
-            if let usageValue = finalUsage {
-                predicates.append(NSPredicate(format: "usage == %@", usageValue))
-            } else {
-                predicates.append(NSPredicate(format: "usage == nil"))
-            }
-            
-            transactionFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-            let existingTransactions = try context.fetch(transactionFetchRequest)
-
-            if !existingTransactions.isEmpty {
-                print("Zeile \(lineNumber + 2): Transaktion existiert bereits")
-                skippedTransactions.append(transactionInfo)
-                continue
             }
 
             // Erstelle die Transaktion
             let transaction = Transaction(context: context)
             transaction.id = UUID()
-            transaction.date = normalizedDate
-            transaction.type = transactionType
-            transaction.amount = amount
-            transaction.categoryRelationship = categoryObject
-            transaction.account = account
-            transaction.usage = finalUsage
-
-            print("Zeile \(lineNumber + 2): Neue Transaktion erstellt: id=\(transaction.id.uuidString), Datum=\(normalized), Betrag=\(amount), Konto=\(accountName), Kategorie=\(finalCategory), Usage=\(finalUsage ?? "nil")")
-            if let usageVal = finalUsage {
-                let (suggestedCategory, _) = CategoryMatcher.shared.findBestCategory(for: usageVal, amount: amount)
-                if let category = suggestedCategory, category != finalCategory {
-                    print("Zeile \(lineNumber + 2): Kategorie basierend auf usage zugewiesen: \(usageVal) → \(finalCategory)")
-                }
+            transaction.date = finalDate
+            
+            // Bestimme den Transaktionstyp
+            if isReservation {
+                transaction.type = "reservierung"
+                print("Zeile \(lineNumber + 2): Reservierungs-Transaktion erstellt")
+            } else {
+                transaction.type = finalAmount > 0 ? "einnahme" : "ausgabe"
             }
             
-            importedTransactions.append(transactionInfo)
+            transaction.amount = finalAmount
+            transaction.categoryRelationship = categoryObject
+            transaction.usage = finalUsageForTransaction
+            transaction.account = accountInContext
+
+            // Lerne aus der Kategorisierung (nicht für Reservierungen)
+            if !isReservation {
+                learnCategory(for: transaction)
+            }
+
+            print("Zeile \(lineNumber + 2): Neue Transaktion erstellt: id=\(transaction.id.uuidString), Datum=\(finalDate), Betrag=\(finalAmount), Typ=\(transaction.type ?? "nil"), Kategorie=\(categoryName), Usage=\(finalUsageForTransaction)")
+            
+            importedTransactions.append(ImportResult.TransactionInfo(
+                date: raw,
+                amount: finalAmount,
+                account: accountInContext.name ?? "",
+                usage: finalUsageForTransaction,
+                category: categoryName,
+                isSuspicious: false,
+                existingTransaction: nil
+            ))
         }
 
         // Speichere den Kontext
         try context.save()
         print("Bank CSV-Import erfolgreich abgeschlossen")
-        
-        // Erstelle ein automatisches Backup nach dem Import
-        if let backupURL = self.backupData() {
-            print("Automatisches Backup nach Import erstellt: \(backupURL)")
-            self.uploadBackupToWebDAV(backupURL: backupURL)
-        } else {
-            print("Fehler beim Erstellen des automatischen Backups nach Import")
-        }
 
-        return ImportResult(imported: importedTransactions, skipped: skippedTransactions)
+        return ImportResult(imported: importedTransactions, skipped: skippedTransactions, suspicious: suspiciousTransactions)
     }
 
     // Hilfsfunktionen für den CSV-Import
 
     // Bereinigt Firmennamen und entfernt Adressen
     private func cleanCompanyName(_ input: String) -> String {
-        var cleaned = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Repariere zuerst Unicode-Umlaute
+        let fixedInput = fixUmlauts(input) ?? input
+        var cleaned = fixedInput.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Bekannte Firmennamen-Muster
+        // Bekannte Firmennamen-Muster (einschließlich Krankenkassen)
         let companyPatterns: [(pattern: String, replacement: String)] = [
             ("STRATO\\s+GmbH[^,]*?(?:,\\s*[^,]+)?", "STRATO GmbH"),
             ("Vodafone\\s+GmbH[^,]*?(?:,\\s*[^,]+)?", "Vodafone GmbH"),
             ("Wolt\\s+License\\s+Services\\s+Oy[^,]*", "Wolt"),
             ("Uber\\s+Payments\\s+B\\.V\\.[^,]*", "Uber"),
             ("SIGNAL\\s+IDUNA[^,]*", "SIGNAL IDUNA"),
+            ("EK\\s+TECHNIKER\\s+KRANKENKASSE[^,]*", "EK Techniker Krankenkasse"),
+            ("TECHNIKER\\s+KRANKENKASSE[^,]*", "Techniker Krankenkasse"),
+            ("AOK\\s+NORDOST[^,]*", "AOK Nordost"),
             ("AOK[^,]*", "AOK Nordost"),
+            ("BARMER[^,]*", "Barmer"),
+            ("DAK\\s+GESUNDHEIT[^,]*", "DAK Gesundheit"),
             ("Finanzamt\\s+[A-Za-zäöüÄÖÜß\\s-]+", "Finanzamt"),
             ("ALBA\\s+Berlin[^,]*", "ALBA Berlin"),
             ("SGB\\s+Energie[^,]*", "SGB Energie"),
@@ -1813,15 +1824,37 @@ class TransactionViewModel: ObservableObject {
         
         var fixed = text
         
-        // Unicode-Ersetzungstabelle
+        // Erweiterte Unicode-Ersetzungstabelle
         let umlautReplacements: [String: String] = [
+            // Standard-Replacements
             "√ú": "Ü", "√ü": "ß", "√∂": "ö", "√§": "ä",
             "√Ñ": "Ä", "√Ö": "Ö", "√ñ": "Ö", "√º": "ü",
             "√©": "é", "√®": "è", "√†": "à", "√¢": "â",
             "√ª": "û", "√•": "å", "√´": "ë", "√¨": "ï",
             "√Æ": "î", "√≤": "ò", "√≥": "ó", "√¥": "ô",
             "√µ": "õ", "√∏": "ø", "√π": "ù", "√æ": "þ",
-            "√ø": "ÿ", "√±": "ñ", "√ß": "ç"
+            "√ø": "ÿ", "√±": "ñ", "√ß": "ç",
+            
+            // Zusätzliche problematische Zeichen (spezifischere Ersetzungen)
+            "√ºhren": "ühren",    // Für "Bankgeb√ºhren" → "Bankgebühren"
+            "√úm√ºt": "Ümüt",     // Für "Mutlu √úm√ºt" → "Mutlu Ümüt"
+            
+            // Weitere problematische Kombinationen
+            "geb√ºhren": "gebühren",
+            "b√ºhren": "bühren",
+            "f√ºr": "für",
+            "Fr√ºh": "Früh",
+            "M√ºnchen": "München",
+            "D√ºsseldorf": "Düsseldorf",
+            "K√∂ln": "Köln",
+            "Sch√∂n": "Schön",
+            "Gr√ºn": "Grün",
+            
+            // Problematische Ä, Ö Kombinationen
+            "√Ñrger": "Ärger",
+            "√Ñnderung": "Änderung",
+            "√Ör": "Ör",
+            "L√∂sung": "Lösung"
         ]
         
         // Wende alle Ersetzungen an
@@ -1840,19 +1873,25 @@ class TransactionViewModel: ObservableObject {
             let account: String
             let usage: String?
             let category: String
+            let isSuspicious: Bool
+            let existingTransaction: Transaction?
         }
         
         let imported: [TransactionInfo]
         let skipped: [TransactionInfo]
+        let suspicious: [TransactionInfo]  // Neue Liste für verdächtige Transaktionen
         
         var summary: String {
-            return "\(imported.count) Transaktionen importiert, \(skipped.count) übersprungene Duplikate"
+            return "\(imported.count) Transaktionen importiert, \(skipped.count) übersprungene Duplikate, \(suspicious.count) verdächtige Transaktionen"
         }
     }
 
     func calculateAllBalances() -> [NSManagedObjectID: Double] {
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
         fetchRequest.resultType = .dictionaryResultType
+        
+        // Schließe Reservierungen aus allen Bilanz-Berechnungen aus
+        fetchRequest.predicate = NSPredicate(format: "type != %@", "reservierung")
 
         let sumExpression = NSExpressionDescription()
         sumExpression.name = "totalAmount"
@@ -1880,7 +1919,7 @@ class TransactionViewModel: ObservableObject {
                 }
             }
             
-            // Berechne die Bilanzen
+            // Berechne die Bilanzen (ohne Reservierungen)
             for result in results {
                 if let account = result["account"] as? NSManagedObjectID,
                    let balance = result["totalAmount"] as? Double,
@@ -1896,9 +1935,10 @@ class TransactionViewModel: ObservableObject {
                         balanceDict[account] = currentBalance + balance // Umbuchungen werden auch addiert
                         umbuchungenDict[account] = (umbuchungenDict[account] ?? 0.0) + balance
                     }
+                    // "reservierung" wird automatisch ignoriert durch das Predicate
                 }
             }
-            print("Berechnete Kontostände:")
+            print("Berechnete Kontostände (ohne Reservierungen):")
             for (accountID, balance) in balanceDict {
                 var name = "-"
                 let einnahmen = einnahmenDict[accountID] ?? 0.0
@@ -1913,22 +1953,6 @@ class TransactionViewModel: ObservableObject {
         } catch {
             print("Fehler beim Berechnen aller Kontostände: \(error.localizedDescription)")
             return [:]
-        }
-    }
-
-    func importCSV(from fileURL: URL) throws {
-        do {
-            let contents = try String(contentsOf: fileURL, encoding: .utf8)
-            print("CSV-Datei erfolgreich geladen: \(fileURL.path)")
-            let firstLine = contents.components(separatedBy: "\n").first ?? ""
-            print("Kopfzeile der CSV-Datei: \(firstLine)")
-            
-            // Verwende die neue flexible Import-Methode und überprüfe das Ergebnis
-            let result = try importBankCSV(contents: contents, context: context)
-            print("Import abgeschlossen: \(result.summary)")
-        } catch {
-            print("Fehler beim Laden der CSV-Datei \(fileURL.lastPathComponent): \(error.localizedDescription)")
-            throw error
         }
     }
 
@@ -2170,17 +2194,31 @@ class TransactionViewModel: ObservableObject {
             return
         }
         
-        guard let serverURL = URL(string: webdavURL) else {
+        // Füge MeinDrive zum WebDAV-Pfad hinzu
+        var serverURLString = webdavURL
+        if !serverURLString.hasSuffix("/") {
+            serverURLString += "/"
+        }
+        serverURLString += "MeinDrive/EuroBlickBackup.json"
+        
+        guard let serverURL = URL(string: serverURLString) else {
             print("Ungültige WebDAV-URL")
             return
         }
         
         var request = URLRequest(url: serverURL)
         request.httpMethod = "PUT"
+        
+        // Setze die korrekten Header
         let authString = "\(webdavUser):\(webdavPassword)"
         let authData = authString.data(using: .utf8)!
         let base64Auth = authData.base64EncodedString()
         request.setValue("Basic \(base64Auth)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        
+        // Setze den If-Match Header auf *, um die Datei zu überschreiben
+        request.setValue("*", forHTTPHeaderField: "If-Match")
         
         do {
             let backupData = try Data(contentsOf: backupURL)
@@ -2193,16 +2231,433 @@ class TransactionViewModel: ObservableObject {
                 }
                 
                 if let httpResponse = response as? HTTPURLResponse {
-                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
-                        print("WebDAV Backup erfolgreich hochgeladen")
+                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 || httpResponse.statusCode == 204 {
+                        print("WebDAV Backup erfolgreich in MeinDrive hochgeladen")
+                        
+                        // Lösche die lokale Backup-Datei nach erfolgreichem Upload
+                        do {
+                            try FileManager.default.removeItem(at: backupURL)
+                            print("Lokale Backup-Datei gelöscht")
+                        } catch {
+                            print("Fehler beim Löschen der lokalen Backup-Datei: \(error)")
+                        }
                     } else {
                         print("WebDAV Upload fehlgeschlagen: Status \(httpResponse.statusCode)")
+                        if let responseData = data, let responseString = String(data: responseData, encoding: .utf8) {
+                            print("Server-Antwort: \(responseString)")
+                        }
                     }
                 }
             }
             task.resume()
         } catch {
             print("Fehler beim Lesen der Backup-Datei: \(error)")
+        }
+    }
+
+    func getAllAccounts() -> [Account] {
+        let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
+        fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Account.name, ascending: true)]
+        
+        do {
+            return try context.fetch(fetchRequest)
+        } catch {
+            print("Fehler beim Laden der Konten: \(error)")
+            return []
+        }
+    }
+
+    // Struktur für die Lernfunktion der Kategorien
+    struct CategoryLearningRule {
+        let pattern: String
+        let category: String
+        let usage: String?
+        var count: Int  // Mache count mutable
+        
+        static func saveRules(_ rules: [CategoryLearningRule]) {
+            let rulesData = rules.map { rule -> [String: Any] in
+                return [
+                    "pattern": rule.pattern,
+                    "category": rule.category,
+                    "usage": rule.usage ?? "",
+                    "count": rule.count
+                ]
+            }
+            UserDefaults.standard.set(rulesData, forKey: "categoryLearningRules")
+        }
+        
+        static func loadRules() -> [CategoryLearningRule] {
+            guard let rulesData = UserDefaults.standard.array(forKey: "categoryLearningRules") as? [[String: Any]] else {
+                return []
+            }
+            
+            return rulesData.compactMap { data in
+                guard let pattern = data["pattern"] as? String,
+                      let category = data["category"] as? String,
+                      let count = data["count"] as? Int else {
+                    return nil
+                }
+                let usage = data["usage"] as? String
+                return CategoryLearningRule(pattern: pattern, category: category, usage: usage, count: count)
+            }
+        }
+    }
+
+    // Hilfsfunktionen für die Kategorisierung
+    private func learnCategory(for transaction: Transaction) {
+        var rules = CategoryLearningRule.loadRules()
+        
+        // Erstelle einen Schlüssel basierend auf dem bereinigten Zweck
+        guard let usage = transaction.usage, !usage.isEmpty else { return }
+        
+        // Bereinige den Zweck für bessere Kategorisierung
+        let cleanedUsage = cleanUsageForLearning(usage)
+        let pattern = cleanedUsage
+        
+        // Suche nach existierender Regel
+        if let index = rules.firstIndex(where: { $0.pattern == pattern }) {
+            // Erhöhe den Zähler der existierenden Regel
+            rules[index].count += 1
+            print("Lernregel aktualisiert: '\(pattern)' -> '\(rules[index].category)' (Anzahl: \(rules[index].count))")
+        } else {
+            // Erstelle neue Regel
+            let newRule = CategoryLearningRule(
+                pattern: pattern,
+                category: transaction.categoryRelationship?.name ?? "Sonstiges",
+                usage: usage,
+                count: 1
+            )
+            rules.append(newRule)
+            print("Neue Lernregel erstellt: '\(pattern)' -> '\(newRule.category)'")
+        }
+        
+        // Speichere die aktualisierten Regeln
+        CategoryLearningRule.saveRules(rules)
+    }
+
+    private func suggestCategory(for usage: String?, amount: Double) -> String? {
+        guard let usage = usage, !usage.isEmpty else { return nil }
+        
+        let rules = CategoryLearningRule.loadRules()
+        let cleanedUsage = cleanUsageForLearning(usage)
+        
+        // Suche nach exakter Übereinstimmung
+        if let rule = rules.first(where: { $0.pattern == cleanedUsage }) {
+            print("Kategorie-Vorschlag gefunden (exakt): '\(cleanedUsage)' -> '\(rule.category)' (Anzahl: \(rule.count))")
+            return rule.category
+        }
+        
+        // Suche nach ähnlichen Zwecken
+        let similarRules = rules.filter { rule in
+            let ruleUsage = rule.usage?.lowercased() ?? ""
+            let searchUsage = usage.lowercased()
+            return ruleUsage.contains(searchUsage) || searchUsage.contains(ruleUsage)
+        }
+        
+        if let bestMatch = similarRules.max(by: { $0.count < $1.count }) {
+            print("Kategorie-Vorschlag gefunden (ähnlich): '\(usage)' -> '\(bestMatch.category)' (Anzahl: \(bestMatch.count))")
+            return bestMatch.category
+        }
+        
+        return nil
+    }
+
+    // Bereinigt den Zweck für das Lernen von Kategorien
+    private func cleanUsageForLearning(_ usage: String) -> String {
+        var cleaned = usage.lowercased()
+        
+        // Entferne Datumsangaben
+        let datePatterns = [
+            "\\d{2}\\.\\d{2}\\.\\d{4}",
+            "\\d{8}",
+            "\\d{1,2}:\\d{2}",
+            "datum.*?uhr"
+        ]
+        for pattern in datePatterns {
+            cleaned = cleaned.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        
+        // Entferne Nummern und Codes
+        let numberPatterns = [
+            "\\d{6,}",
+            "rg\\.?\\s*\\d+",
+            "inv\\s*\\d+",
+            "nr\\.?\\s*\\d+",
+            "betriebsnummer\\s*\\d+"
+        ]
+        for pattern in numberPatterns {
+            cleaned = cleaned.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        
+        // Bereinige Satzzeichen und mehrfache Leerzeichen
+        cleaned = cleaned.replacingOccurrences(of: "[^a-zäöüß\\s]", with: " ", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return cleaned
+    }
+
+    // Verarbeitet Lohn-Transaktionen und extrahiert den Namen
+    private func processPayrollTransaction(purpose: String, nameFromCSV: String) -> (usage: String, category: String) {
+        let purposeLower = purpose.lowercased()
+        
+        // Erkenne Lohn-Transaktionen
+        let salaryKeywords = ["lohn", "löhne", "gehalt", "vergütung", "entgelt", "arbeitsentgelt"]
+        let isSalaryTransaction = salaryKeywords.contains { keyword in
+            purposeLower.contains(keyword)
+        }
+        
+        if isSalaryTransaction {
+            // Extrahiere den Namen - zuerst aus CSV, dann aus Verwendungszweck
+            var personName: String?
+            
+            // 1. Versuche Namen aus CSV-Spalte zu extrahieren
+            if !nameFromCSV.isEmpty {
+                personName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            
+            // 2. Falls kein Name in CSV, versuche aus Verwendungszweck zu extrahieren
+            if personName == nil || personName!.isEmpty {
+                // Muster für Namen im Verwendungszweck
+                let namePatterns = [
+                    // "LOHN FÜR HANS MÜLLER" oder ähnlich
+                    "(?i)lohn\\s+(?:für|von|an)?\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)*)",
+                    // "GEHALT MARIA SCHMIDT" oder ähnlich
+                    "(?i)gehalt\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)*)",
+                    // "VERGÜTUNG FÜR PETER WAGNER"
+                    "(?i)vergütung\\s+(?:für|von|an)?\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)*)"
+                ]
+                
+                for pattern in namePatterns {
+                    if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+                       let match = regex.firstMatch(in: purpose, options: [], range: NSRange(location: 0, length: purpose.utf16.count)),
+                       let nameRange = Range(match.range(at: 1), in: purpose) {
+                        personName = String(purpose[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        break
+                    }
+                }
+            }
+            
+            // Formatiere den finalen Verwendungszweck
+            let finalUsage: String
+            if let name = personName, !name.isEmpty {
+                finalUsage = "Lohn \(name)"
+            } else {
+                finalUsage = "Lohn"
+            }
+            
+            print("Lohn-Transaktion erkannt: Original='\(purpose)', Name aus CSV='\(nameFromCSV)', Extrahierter Name='\(personName ?? "nil")', Final='\(finalUsage)'")
+            
+            return (usage: finalUsage, category: "Personal")
+        }
+        
+        // Nicht-Lohn-Transaktion, gib Original zurück
+        return (usage: purpose, category: "")
+    }
+
+    // Verarbeitet Reservierungs-Transaktionen und extrahiert den Namen
+    private func processReservationTransaction(purpose: String, nameFromCSV: String) -> (usage: String, category: String, isReservation: Bool) {
+        let purposeLower = purpose.lowercased()
+        
+        // Erkenne Reservierungs-Transaktionen
+        let reservationKeywords = ["reservierung", "anzahlung", "kaution", "deposit", "vorauszahlung", "buchung", "reservation"]
+        let isReservationTransaction = reservationKeywords.contains { keyword in
+            purposeLower.contains(keyword)
+        }
+        
+        if isReservationTransaction {
+            // Extrahiere den Namen - zuerst aus CSV, dann aus Verwendungszweck
+            var personName: String?
+            
+            // 1. Versuche Namen aus CSV-Spalte zu extrahieren
+            if !nameFromCSV.isEmpty {
+                personName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            
+            // 2. Falls kein Name in CSV, versuche aus Verwendungszweck zu extrahieren
+            if personName == nil || personName!.isEmpty {
+                // Muster für Namen im Verwendungszweck
+                let namePatterns = [
+                    // "RESERVIERUNG FÜR HANS MÜLLER" oder ähnlich
+                    "(?i)reservierung\\s+(?:für|von|an)?\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)*)",
+                    // "ANZAHLUNG MARIA SCHMIDT" oder ähnlich
+                    "(?i)anzahlung\\s+(?:für|von)?\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)*)",
+                    // "KAUTION FÜR PETER WAGNER"
+                    "(?i)kaution\\s+(?:für|von|an)?\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)*)",
+                    // "BUCHUNG FAMILY NAME"
+                    "(?i)buchung\\s+(?:für|von)?\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)*)",
+                    // Allgemeineres Muster: Namen nach bestimmten Wörtern
+                    "(?i)(?:herr|frau|familie|family|mr|mrs|ms)\\s+([A-ZÄÖÜ][a-zäöüß]+(?:\\s+[A-ZÄÖÜ][a-zäöüß]+)*)"
+                ]
+                
+                for pattern in namePatterns {
+                    if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+                       let match = regex.firstMatch(in: purpose, options: [], range: NSRange(location: 0, length: purpose.utf16.count)),
+                       let nameRange = Range(match.range(at: 1), in: purpose) {
+                        personName = String(purpose[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        break
+                    }
+                }
+            }
+            
+            // Formatiere den finalen Verwendungszweck
+            let finalUsage: String
+            if let name = personName, !name.isEmpty {
+                finalUsage = "Reservierung \(name)"
+            } else {
+                finalUsage = "Reservierung"
+            }
+            
+            print("Reservierungs-Transaktion erkannt: Original='\(purpose)', Name aus CSV='\(nameFromCSV)', Extrahierter Name='\(personName ?? "nil")', Final='\(finalUsage)'")
+            
+            return (usage: finalUsage, category: "Reservierung", isReservation: true)
+        }
+        
+        // Nicht-Reservierungs-Transaktion, gib Original zurück
+        return (usage: purpose, category: "", isReservation: false)
+    }
+
+    // Verarbeitet Firmen-Transaktionen mit intelligenter Kategorisierung
+    private func processCompanyTransaction(purpose: String, nameFromCSV: String) -> (usage: String, category: String, isSpecialCompany: Bool) {
+        let purposeLower = purpose.lowercased()
+        let nameLower = nameFromCSV.lowercased()
+        
+        // 🏥 KRANKENKASSEN-ERKENNUNG (höchste Priorität)
+        // Jede Betriebsnummer = KV-Beitrag, Name aus CSV-Spalte
+        if purposeLower.contains("betriebsnummer") {
+            let krankenkasseName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if !krankenkasseName.isEmpty {
+                let finalUsage = "KV-Beitrag \(krankenkasseName)"
+                print("🏥 KV-Beitrag erkannt über Betriebsnummer: Name aus CSV='\(krankenkasseName)' -> '\(finalUsage)'")
+                return (usage: finalUsage, category: "KV-Beiträge", isSpecialCompany: true)
+            } else {
+                print("🏥 KV-Beitrag erkannt über Betriebsnummer: Kein Name in CSV -> 'KV-Beitrag'")
+                return (usage: "KV-Beitrag", category: "KV-Beiträge", isSpecialCompany: true)
+            }
+        }
+        
+        // 🏧 SB-EINZAHLUNG (spezielle Behandlung)
+        if purposeLower.contains("sb-einzahlung") || purposeLower.contains("sb einzahlung") {
+            // Extrahiere Datum aus dem Verwendungszweck
+            let datePattern = "\\d{2}\\.\\d{2}\\.\\d{2,4}"
+            if let regex = try? NSRegularExpression(pattern: datePattern, options: []),
+               let match = regex.firstMatch(in: purpose, options: [], range: NSRange(location: 0, length: purpose.utf16.count)),
+               let dateRange = Range(match.range, in: purpose) {
+                let datum = String(purpose[dateRange])
+                let cleanUsage = "SB-Einzahlung - \(datum)"
+                print("🏧 SB-Einzahlung erkannt: Datum='\(datum)' -> '\(cleanUsage)'")
+                return (usage: cleanUsage, category: "Geldautomat", isSpecialCompany: true)
+            } else {
+                print("🏧 SB-Einzahlung erkannt: Kein Datum gefunden -> 'SB-Einzahlung'")
+                return (usage: "SB-Einzahlung", category: "Geldautomat", isSpecialCompany: true)
+            }
+        }
+        
+        // 🌐 INTERNETKOSTEN (suche sowohl in purpose als auch in nameFromCSV)
+        if purposeLower.contains("strato") || nameLower.contains("strato") {
+            let cleanedName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalUsage = !cleanedName.isEmpty ? "\(cleanedName) - Internetkosten" : "STRATO - Internetkosten"
+            print("🌐 STRATO erkannt: Name='\(cleanedName)' -> '\(finalUsage)'")
+            return (usage: finalUsage, category: "Internetkosten", isSpecialCompany: true)
+        }
+        
+        // 🛡️ VERSICHERUNGEN (nur nicht-Krankenversicherungen)
+        if purposeLower.contains("signal iduna") || purposeLower.contains("signal-iduna") || 
+           nameLower.contains("signal iduna") || nameLower.contains("signal-iduna") {
+            let cleanedName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalUsage = !cleanedName.isEmpty ? "\(cleanedName) - Versicherung" : "Signal Iduna - Versicherung"
+            print("🛡️ Signal Iduna erkannt: Name='\(cleanedName)' -> '\(finalUsage)'")
+            return (usage: finalUsage, category: "Versicherungen", isSpecialCompany: true)
+        }
+        
+        // 🛒 WARENEINKAUF
+        if purposeLower.contains("acai") || nameLower.contains("acai") {
+            let cleanedName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalUsage = !cleanedName.isEmpty ? "\(cleanedName) - Wareneinkauf" : "Acai - Wareneinkauf"
+            print("🛒 Acai erkannt: Name='\(cleanedName)' -> '\(finalUsage)'")
+            return (usage: finalUsage, category: "Wareneinkauf", isSpecialCompany: true)
+        }
+        
+        // 💰 EINNAHMEN (Lieferdienste)
+        if purposeLower.contains("uber") || purposeLower.contains("wolt") ||
+           nameLower.contains("uber") || nameLower.contains("wolt") {
+            let service = purposeLower.contains("uber") || nameLower.contains("uber") ? "Uber" : "Wolt"
+            let cleanedName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalUsage = !cleanedName.isEmpty ? "\(cleanedName) - Einnahme" : "\(service) - Einnahme"
+            print("💰 \(service) erkannt: Name='\(cleanedName)' -> '\(finalUsage)'")
+            return (usage: finalUsage, category: "Einnahmen", isSpecialCompany: true)
+        }
+        
+        // 🏢 RAUMKOSTEN
+        if purposeLower.contains("miete") || purposeLower.contains("nebenkosten") ||
+           nameLower.contains("miete") || nameLower.contains("nebenkosten") {
+            let cleanedName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalUsage = !cleanedName.isEmpty ? "\(cleanedName) - Miete" : "Miete"
+            print("🏢 Miete erkannt: Name='\(cleanedName)' -> '\(finalUsage)'")
+            return (usage: finalUsage, category: "Raumkosten", isSpecialCompany: true)
+        }
+        
+        // 🏛️ STEUERN
+        if purposeLower.contains("finanzamt") || nameLower.contains("finanzamt") {
+            let cleanedName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalUsage = !cleanedName.isEmpty ? "\(cleanedName) - Steuer" : "Finanzamt - Steuer"
+            print("🏛️ Finanzamt erkannt: Name='\(cleanedName)' -> '\(finalUsage)'")
+            return (usage: finalUsage, category: "Steuern", isSpecialCompany: true)
+        }
+        
+        // 📞 HANDY & INTERNET
+        if purposeLower.contains("vodafone") || nameLower.contains("vodafone") {
+            let cleanedName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalUsage = !cleanedName.isEmpty ? "\(cleanedName) - Handy" : "Vodafone - Handy"
+            print("📞 Vodafone erkannt: Name='\(cleanedName)' -> '\(finalUsage)'")
+            return (usage: finalUsage, category: "Handy & Internet", isSpecialCompany: true)
+        }
+        
+        // ⚡ STROM/GAS
+        if purposeLower.contains("strom") || purposeLower.contains("gas") || purposeLower.contains("energie") ||
+           nameLower.contains("strom") || nameLower.contains("gas") || nameLower.contains("energie") {
+            let cleanedName = nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalUsage = !cleanedName.isEmpty ? "\(cleanedName) - Strom/Gas" : "Strom/Gas"
+            print("⚡ Strom/Gas erkannt: Name='\(cleanedName)' -> '\(finalUsage)'")
+            return (usage: finalUsage, category: "Strom/Gas", isSpecialCompany: true)
+        }
+        
+        return (usage: purpose, category: "", isSpecialCompany: false)
+    }
+
+    // Bereinige alle Kategorienamen von Unicode-Problemen
+    func fixAllCategoryNames() {
+        context.perform {
+            let request: NSFetchRequest<Category> = Category.fetchRequest()
+            guard let allCategories = try? self.context.fetch(request) else {
+                print("Fehler beim Laden der Kategorien für Unicode-Bereinigung")
+                return
+            }
+            
+            var fixedCount = 0
+            for category in allCategories {
+                if let originalName = category.name {
+                    if let fixedName = self.fixUmlauts(originalName), fixedName != originalName {
+                        category.name = fixedName
+                        fixedCount += 1
+                        print("Kategorie bereinigt: '\(originalName)' -> '\(fixedName)'")
+                    }
+                }
+            }
+            
+            if fixedCount > 0 {
+                self.saveContext(self.context) { error in
+                    if let error = error {
+                        print("Fehler beim Speichern der bereinigten Kategorien: \(error)")
+                        return
+                    }
+                    print("Unicode-Bereinigung abgeschlossen: \(fixedCount) Kategorien bereinigt")
+                    self.fetchCategories()
+                }
+            } else {
+                print("Keine Kategorien mit Unicode-Problemen gefunden")
+            }
         }
     }
 }
