@@ -3,6 +3,46 @@ import UIKit
 import CoreData
 import Foundation
 import Dispatch
+import UniformTypeIdentifiers
+
+struct DocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+    
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // Definiere die erlaubten Dateitypen
+        let supportedTypes: [UTType] = [.commaSeparatedText, .text, .plainText]
+        
+        // Erstelle den Document Picker
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes, asCopy: true)
+        picker.delegate = context.coordinator
+        
+        // Setze das Startverzeichnis auf iCloud Drive
+        if let iCloudURL = FileManager.default.url(forUbiquityContainerIdentifier: nil)?.deletingLastPathComponent() {
+            picker.directoryURL = iCloudURL
+        }
+        
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+    
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        
+        init(onPick: @escaping (URL) -> Void) {
+            self.onPick = onPick
+        }
+        
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            onPick(url)
+        }
+    }
+}
 
 struct TransactionView: View {
     let account: Account
@@ -34,6 +74,11 @@ struct TransactionView: View {
     @State private var isLoadingTransaction = false
     @State private var loadingError: String? = nil
     @State private var transactionCache: [UUID: Transaction] = [:]
+    @State private var showAccountSelectionSheet = false
+    @State private var selectedImportAccount: Account?
+    @State private var pendingCSVImport: URL?
+    @State private var showSuspiciousTransactionSheet = false
+    @State private var suspiciousTransaction: TransactionViewModel.ImportResult.TransactionInfo?
 
     private var isCSVImportEnabled: Bool {
         return account.value(forKey: "type") as? String == "bankkonto"
@@ -341,26 +386,43 @@ struct TransactionView: View {
             .sheet(isPresented: $showCategoryManagementSheet) {
                 CategoryManagementView(viewModel: viewModel)
             }
-            .fileImporter(
-                isPresented: $showDocumentPicker,
-                allowedContentTypes: [.commaSeparatedText],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    if let url = urls.first {
-                        print("Ausgewählte Datei: \(url.path)")
-                        importFromCSV(url: url)
-                    } else {
-                        print("Keine Datei ausgewählt")
-                        importMessage = "Keine Datei ausgewählt"
-                        showImportAlert = true
+            .sheet(isPresented: $showAccountSelectionSheet) {
+                NavigationView {
+                    List {
+                        ForEach(viewModel.getAllAccounts(), id: \.id) { account in
+                            Button(action: {
+                                selectedImportAccount = account
+                                showAccountSelectionSheet = false
+                                if let url = pendingCSVImport {
+                                    handleCSVImport(url: url)
+                                }
+                            }) {
+                                HStack {
+                                    Text(account.name ?? "Unbekanntes Konto")
+                                    Spacer()
+                                    if selectedImportAccount?.id == account.id {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                            }
+                        }
                     }
-                case .failure(let error):
-                    print("Fehler beim Datei-Picker: \(error.localizedDescription)")
-                    importMessage = "Fehler beim Öffnen der Datei: \(error.localizedDescription)"
-                    showImportAlert = true
+                    .navigationTitle("Konto auswählen")
+                    .navigationBarItems(trailing: Button("Abbrechen") {
+                        showAccountSelectionSheet = false
+                        pendingCSVImport = nil
+                    })
                 }
+            }
+            .sheet(isPresented: $showSuspiciousTransactionSheet) {
+                suspiciousTransactionSheet
+            }
+            .onAppear {
+                fetchTransactions()
+            }
+            .onChange(of: viewModel.transactionsUpdated) { oldValue, newValue in
+                fetchTransactions()
             }
             .alert("Import abgeschlossen", isPresented: $showImportAlert) {
                 Button("OK") {
@@ -374,11 +436,11 @@ struct TransactionView: View {
             } message: {
                 Text(importMessage)
             }
-            .onAppear {
-                fetchTransactions()
-            }
-            .onChange(of: viewModel.transactionsUpdated) { oldValue, newValue in
-                fetchTransactions()
+            .sheet(isPresented: $showDocumentPicker) {
+                DocumentPicker { url in
+                    print("CSV-Datei ausgewählt: \(url.path)")
+                    handleCSVImport(url: url)
+                }
             }
         }
     }
@@ -521,7 +583,7 @@ struct TransactionView: View {
         }
     }
 
-    private func importFromCSV(url: URL) {
+    private func handleCSVImport(url: URL) {
         let didStartAccessing = url.startAccessingSecurityScopedResource()
         defer {
             if didStartAccessing {
@@ -533,7 +595,7 @@ struct TransactionView: View {
             let content = try String(contentsOf: url, encoding: .utf8)
             print("CSV-Datei erfolgreich geladen: \(url.path)")
 
-            let importResult = try viewModel.importBankCSV(contents: content, context: viewModel.getBackgroundContext())
+            let importResult = try viewModel.importBankCSV(contents: content, account: account, context: viewModel.getBackgroundContext())
             
             viewModel.saveContext(viewModel.getBackgroundContext()) { error in
                 if let error = error {
@@ -544,6 +606,7 @@ struct TransactionView: View {
                     }
                     return
                 }
+                
                 viewModel.saveContext(viewModel.getContext()) { error in
                     if let error = error {
                         DispatchQueue.main.async {
@@ -553,10 +616,19 @@ struct TransactionView: View {
                         }
                         return
                     }
+                    
                     DispatchQueue.main.async {
                         self.importResult = importResult
                         self.importMessage = importResult.summary
-                        self.showImportAlert = true
+                        
+                        // Prüfe auf verdächtige Transaktionen
+                        if !importResult.suspicious.isEmpty {
+                            self.suspiciousTransaction = importResult.suspicious.first
+                            self.showSuspiciousTransactionSheet = true
+                        } else {
+                            self.showImportAlert = true
+                        }
+                        
                         self.fetchTransactions()
                         self.applyFilter()
                         self.refreshID = UUID()
@@ -605,6 +677,100 @@ struct TransactionView: View {
         let number = NSNumber(value: abs(amount))
         let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
         return amount >= 0 ? "\(formattedAmount) €" : "-\(formattedAmount) €"
+    }
+
+    // Sheet für verdächtige Transaktionen
+    private var suspiciousTransactionSheet: some View {
+        NavigationView {
+            VStack {
+                if let transaction = suspiciousTransaction {
+                    List {
+                        Section(header: Text("Verdächtige Transaktion")) {
+                            HStack {
+                                Text("Datum")
+                                Spacer()
+                                Text(transaction.date)
+                            }
+                            HStack {
+                                Text("Betrag")
+                                Spacer()
+                                Text(String(format: "%.2f €", transaction.amount))
+                            }
+                            if let usage = transaction.usage {
+                                HStack {
+                                    Text("Zweck")
+                                    Spacer()
+                                    Text(usage)
+                                }
+                            }
+                            HStack {
+                                Text("Kategorie")
+                                Spacer()
+                                Text(transaction.category)
+                            }
+                        }
+                        
+                        if let existing = transaction.existingTransaction {
+                            Section(header: Text("Bereits existierende Transaktion")) {
+                                HStack {
+                                    Text("Datum")
+                                    Spacer()
+                                    Text(dateFormatter.string(from: existing.date))
+                                }
+                                HStack {
+                                    Text("Betrag")
+                                    Spacer()
+                                    Text(String(format: "%.2f €", existing.amount))
+                                }
+                                if let usage = existing.usage {
+                                    HStack {
+                                        Text("Zweck")
+                                        Spacer()
+                                        Text(usage)
+                                    }
+                                }
+                                if let category = existing.categoryRelationship?.name {
+                                    HStack {
+                                        Text("Kategorie")
+                                        Spacer()
+                                        Text(category)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    HStack {
+                        Button("Überspringen") {
+                            showSuspiciousTransactionSheet = false
+                            if let nextSuspicious = importResult?.suspicious.dropFirst().first {
+                                suspiciousTransaction = nextSuspicious
+                            } else {
+                                showImportAlert = true
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        Button("Importieren") {
+                            // Hier die Transaktion importieren
+                            showSuspiciousTransactionSheet = false
+                            if let nextSuspicious = importResult?.suspicious.dropFirst().first {
+                                suspiciousTransaction = nextSuspicious
+                            } else {
+                                showImportAlert = true
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Verdächtige Transaktion")
+            .navigationBarItems(trailing: Button("Abbrechen") {
+                showSuspiciousTransactionSheet = false
+                showImportAlert = true
+            })
+        }
     }
 }
 

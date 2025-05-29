@@ -49,5 +49,13 @@
     <!-- Neuer Eintrag für Face ID -->
     <key>NSFaceIDUsageDescription</key>
     <string>Wir verwenden Face ID, um Ihre Anmeldung sicher und bequem zu gestalten.</string>
+
+    <!-- Dateizugriffsberechtigungen -->
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>UISupportsDocumentBrowser</key>
+    <true/>
 </dict>
 </plist>

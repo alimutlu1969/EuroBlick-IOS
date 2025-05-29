@@ -1061,9 +1061,9 @@ struct ContentView: View {
                 .onChange(of: viewModel.transactionsUpdated) { _, _ in
                     refreshBalances()
                     print("Kontostände aktualisiert bei Transaktionsänderung: \(accountBalances.count) Konten")
-                    // Automatischer WebDAV-Backup nach jeder Buchung
+                    // Automatisches Backup aktivieren
                     if let backupURL = viewModel.backupData() {
-                        print("Automatisches Backup erstellt: \(backupURL)")
+                        print("Automatisches Backup wird erstellt...")
                         viewModel.uploadBackupToWebDAV(backupURL: backupURL)
                     }
                 }
