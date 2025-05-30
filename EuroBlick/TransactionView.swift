@@ -796,7 +796,7 @@ struct TransactionRow: View {
         HStack {
             if isSelectionMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(isSelected ? .blue : .gray)
+                    .foregroundStyle(isSelected ? .blue : .gray)
                     .imageScale(.large)
                     .padding(.leading, 8)
                     .animation(.easeInOut, value: isSelected)
@@ -806,16 +806,16 @@ struct TransactionRow: View {
                 HStack {
                     Text(transaction.categoryRelationship?.name ?? "Unbekannt")
                         .font(.caption)
-                        .foregroundColor(.blue)
+                        .foregroundStyle(.blue)
                     Spacer()
                     Text(formatAmount(transaction.amount))
                         .font(.caption)
-                        .foregroundColor(transaction.amount >= 0 ? .green : .red)
+                        .foregroundStyle(transaction.amount >= 0 ? .green : .red)
                 }
                 if let usage = transaction.usage, !usage.isEmpty {
                     Text(usage)
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                         .padding(.leading, 8)
                 }
             }

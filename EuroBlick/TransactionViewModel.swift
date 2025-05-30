@@ -2191,11 +2191,21 @@ class TransactionViewModel: ObservableObject {
         
         guard !webdavURL.isEmpty, !webdavUser.isEmpty, !webdavPassword.isEmpty else {
             print("WebDAV-Zugangsdaten fehlen")
+            NotificationCenter.default.post(
+                name: Notification.Name("WebDAVError"),
+                object: nil,
+                userInfo: ["message": "WebDAV-Zugangsdaten fehlen. Bitte überprüfen Sie die Einstellungen."]
+            )
             return
         }
         
         guard let serverURL = URL(string: webdavURL) else {
             print("Ungültige WebDAV-URL")
+            NotificationCenter.default.post(
+                name: Notification.Name("WebDAVError"),
+                object: nil,
+                userInfo: ["message": "Ungültige WebDAV-URL. Bitte überprüfen Sie die URL in den Einstellungen."]
+            )
             return
         }
         
@@ -2205,6 +2215,7 @@ class TransactionViewModel: ObservableObject {
         let authData = authString.data(using: .utf8)!
         let base64Auth = authData.base64EncodedString()
         request.setValue("Basic \(base64Auth)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         do {
             let backupData = try Data(contentsOf: backupURL)
@@ -2213,20 +2224,62 @@ class TransactionViewModel: ObservableObject {
             let task = URLSession.shared.dataTask(with: request) { data, response, error in
                 if let error = error {
                     print("WebDAV Upload Fehler: \(error)")
+                    NotificationCenter.default.post(
+                        name: Notification.Name("WebDAVError"),
+                        object: nil,
+                        userInfo: ["message": "Fehler beim Upload: \(error.localizedDescription)"]
+                    )
                     return
                 }
                 
                 if let httpResponse = response as? HTTPURLResponse {
-                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
-                        print("WebDAV Backup erfolgreich hochgeladen")
-                    } else {
+                    switch httpResponse.statusCode {
+                    case 200, 201, 204: // 204 ist ein erfolgreicher Status (No Content)
+                        print("WebDAV Backup erfolgreich hochgeladen (Status: \(httpResponse.statusCode))")
+                        NotificationCenter.default.post(
+                            name: Notification.Name("WebDAVSuccess"),
+                            object: nil,
+                            userInfo: ["message": "Backup erfolgreich gespeichert"]
+                        )
+                    case 401:
+                        print("WebDAV Upload: Authentifizierung fehlgeschlagen")
+                        NotificationCenter.default.post(
+                            name: Notification.Name("WebDAVError"),
+                            object: nil,
+                            userInfo: ["message": "Authentifizierung fehlgeschlagen. Bitte überprüfen Sie Benutzername und Passwort."]
+                        )
+                    case 403:
+                        print("WebDAV Upload: Zugriff verweigert")
+                        NotificationCenter.default.post(
+                            name: Notification.Name("WebDAVError"),
+                            object: nil,
+                            userInfo: ["message": "Zugriff verweigert. Bitte überprüfen Sie die Berechtigungen."]
+                        )
+                    case 404:
+                        print("WebDAV Upload: Pfad nicht gefunden")
+                        NotificationCenter.default.post(
+                            name: Notification.Name("WebDAVError"),
+                            object: nil,
+                            userInfo: ["message": "Der angegebene Pfad wurde nicht gefunden. Bitte überprüfen Sie die WebDAV-URL."]
+                        )
+                    default:
                         print("WebDAV Upload fehlgeschlagen: Status \(httpResponse.statusCode)")
+                        NotificationCenter.default.post(
+                            name: Notification.Name("WebDAVError"),
+                            object: nil,
+                            userInfo: ["message": "Backup fehlgeschlagen (Status \(httpResponse.statusCode)). Bitte überprüfen Sie die Einstellungen."]
+                        )
                     }
                 }
             }
             task.resume()
         } catch {
             print("Fehler beim Lesen der Backup-Datei: \(error)")
+            NotificationCenter.default.post(
+                name: Notification.Name("WebDAVError"),
+                object: nil,
+                userInfo: ["message": "Fehler beim Lesen der Backup-Datei: \(error.localizedDescription)"]
+            )
         }
     }
 

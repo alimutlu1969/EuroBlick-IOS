@@ -49,7 +49,7 @@ struct TransactionTypeButton: View {
             }
             .frame(width: 100, height: 40)
             .background(isSelected ? color : Color.clear)
-            .foregroundColor(isSelected ? .white : .gray)
+            .foregroundStyle(isSelected ? .white : .gray)
             .cornerRadius(8)
         }
         .buttonStyle(PlainButtonStyle())

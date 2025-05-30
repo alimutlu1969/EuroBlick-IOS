@@ -862,6 +862,9 @@ struct ContentView: View {
     @State private var showExportErrorAlert = false
     @AppStorage("selectedColorScheme") private var selectedColorScheme: String = "system"
     @AppStorage("accentColor") private var accentColor: String = "orange"
+    @State private var showWebDAVAlert = false
+    @State private var webDAVAlertMessage = ""
+    @State private var webDAVAlertIsError = true
     
     init(context: NSManagedObjectContext) {
         _viewModel = StateObject(wrappedValue: TransactionViewModel(context: context))
@@ -875,6 +878,7 @@ struct ContentView: View {
                 }) {
                     Image(systemName: "line.3.horizontal")
                         .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.primary)
                 }
                 .buttonStyle(PlainButtonStyle())
                 
@@ -890,6 +894,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.primary)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
@@ -901,10 +906,11 @@ struct ContentView: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: 40, height: 40)
-                        .foregroundColor(.blue)
+                        .foregroundStyle(.blue)
                     Text("EuroBlick")
                         .font(.title3)
                         .bold()
+                        .foregroundStyle(.primary)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -985,13 +991,30 @@ struct ContentView: View {
                                     EvaluationView(accounts: (group.accounts?.allObjects as? [Account]) ?? [], viewModel: viewModel)
                                 }
                             } else {
-                                Text("Keine Kontogruppe ausgewählt")
-                                    .font(.caption)
-                                    .onAppear {
-                                        if !viewModel.accountGroups.isEmpty {
-                                            showGroupSelectionSheet = true
+                                VStack {
+                                    HStack {
+                                        Button(action: { mainViewState = .accounts }) {
+                                            Image(systemName: "chevron.left")
+                                                .font(.system(size: 20, weight: .medium))
+                                                .padding(.trailing, 4)
                                         }
+                                        Text("Auswertung")
+                                            .font(.headline)
+                                        Spacer()
                                     }
+                                    .padding(.horizontal)
+                                    .padding(.top, 12)
+                                    
+                                    Spacer()
+                                    Text("Keine Kontogruppe ausgewählt")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                    Button(action: { showGroupSelectionSheet = true }) {
+                                        Text("Kontogruppe auswählen")
+                                            .foregroundColor(.blue)
+                                    }
+                                    Spacer()
+                                }
                             }
                         }
                     }
@@ -1082,6 +1105,23 @@ struct ContentView: View {
                     }
                     // Bereinige die fehlerhafte Bankgebühren-Kategorie
                     viewModel.cleanupBankgebuehrenCategory()
+                    
+                    // WebDAV Benachrichtigungen
+                    NotificationCenter.default.addObserver(forName: Notification.Name("WebDAVError"), object: nil, queue: .main) { notification in
+                        if let message = notification.userInfo?["message"] as? String {
+                            webDAVAlertMessage = message
+                            webDAVAlertIsError = true
+                            showWebDAVAlert = true
+                        }
+                    }
+                    
+                    NotificationCenter.default.addObserver(forName: Notification.Name("WebDAVSuccess"), object: nil, queue: .main) { notification in
+                        if let message = notification.userInfo?["message"] as? String {
+                            webDAVAlertMessage = message
+                            webDAVAlertIsError = false
+                            showWebDAVAlert = true
+                        }
+                    }
                 }
                 .sheet(isPresented: $showSettingsSheet) {
                     SettingsView()
@@ -1106,6 +1146,7 @@ struct ContentView: View {
                     .zIndex(1)
             }
         }
+        .fixKeyboardAssistant()
         // Farbschema und Akzentfarbe global anwenden
         .preferredColorScheme(selectedColorScheme == "light" ? .light : selectedColorScheme == "dark" ? .dark : nil)
         .accentColor(colorFromString(accentColor))
@@ -1114,7 +1155,13 @@ struct ContentView: View {
         } message: {
             Text("Das Backup konnte nicht erstellt werden.")
         }
-        // ... onAppear, onChange, etc. wie gehabt ...
+        .alert(isPresented: $showWebDAVAlert) {
+            Alert(
+                title: Text(webDAVAlertIsError ? "WebDAV Fehler" : "WebDAV Backup"),
+                message: Text(webDAVAlertMessage),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     private func refreshBalances() {
@@ -1482,5 +1529,43 @@ struct AccountSortSheet: View {
                 print("Fehler beim Speichern der Kontenreihenfolge: \(error)")
             }
         }
+    }
+}
+
+extension UIApplication {
+    var keyWindow: UIWindow? {
+        return UIApplication.shared.connectedScenes
+            .filter { $0.activationState == .foregroundActive }
+            .first(where: { $0 is UIWindowScene })
+            .flatMap({ $0 as? UIWindowScene })?.windows
+            .first(where: \.isKeyWindow)
+    }
+}
+
+extension View {
+    func fixKeyboardAssistant() -> some View {
+        self.onAppear {
+            // Finde und konfiguriere die SystemInputAssistantView
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                guard let keyWindow = UIApplication.shared.keyWindow else { return }
+                
+                keyWindow.subviews.forEach { view in
+                    view.recursiveSubviews.forEach { subview in
+                        if String(describing: type(of: subview)).contains("SystemInputAssistantView") {
+                            // Setze die Höhe auf einen flexiblen Wert
+                            subview.removeConstraints(subview.constraints.filter {
+                                String(describing: $0).contains("assistantHeight")
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension UIView {
+    var recursiveSubviews: [UIView] {
+        return subviews + subviews.flatMap { $0.recursiveSubviews }
     }
 }
