@@ -172,18 +172,24 @@ class TransactionViewModel: ObservableObject {
     // Hole alle Kontogruppen aus Core Data mit Beziehungen
     func fetchAccountGroups() {
         context.perform {
+            print("DEBUG: fetchAccountGroups gestartet")
             let request: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
             request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
             request.returnsObjectsAsFaults = false
             request.relationshipKeyPathsForPrefetching = ["accounts", "accounts.transactions"]
             do {
                 let fetchedGroups = try self.context.fetch(request)
+                print("DEBUG: Core Data hat \(fetchedGroups.count) Kontogruppen zurückgegeben")
+                for group in fetchedGroups {
+                    print("DEBUG: - Gruppe: \(group.name ?? "nil") mit \(group.accounts?.count ?? 0) Konten")
+                }
                 DispatchQueue.main.async {
                     self.accountGroups = fetchedGroups
                     self.objectWillChange.send()
                     print("Fetched \(self.accountGroups.count) account groups: \(self.accountGroups.map { $0.name ?? "Unnamed" })")
                 }
             } catch {
+                print("FEHLER beim Abrufen der Kontogruppen: \(error)")
                 print("Fetch account groups error: \(error)")
             }
         }
@@ -400,15 +406,21 @@ class TransactionViewModel: ObservableObject {
     
     // Füge eine neue Kontogruppe hinzu
     func addAccountGroup(name: String, completion: (() -> Void)? = nil) {
+        print("DEBUG: addAccountGroup aufgerufen mit Name: '\(name)'")
         context.perform {
+            print("DEBUG: Erstelle neue AccountGroup im Kontext")
             let newGroup = AccountGroup(context: self.context)
             newGroup.name = name
+            print("DEBUG: AccountGroup erstellt mit Name: \(newGroup.name ?? "nil")")
+            
             self.saveContext(self.context) { error in
                 if let error = error {
-                    print("Fehler beim Speichern der neuen Kontogruppe: \(error)")
+                    print("FEHLER beim Speichern der neuen Kontogruppe: \(error.localizedDescription)")
+                    print("FEHLER Details: \(error)")
                     completion?()
                     return
                 }
+                print("DEBUG: Kontogruppe erfolgreich gespeichert")
                 self.fetchAccountGroups()
                 print("Kontogruppe \(name) hinzugefügt")
                 completion?()

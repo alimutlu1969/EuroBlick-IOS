@@ -52,6 +52,20 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		845631452DECB56400DB570F /* Exceptions for "EuroBlickTests" folder in "EuroBlickTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Info-Tests.plist",
+			);
+			target = 845153972DA999B300DDF24B /* EuroBlickTests */;
+		};
+		845631462DECB56400DB570F /* Exceptions for "EuroBlickUITests" folder in "EuroBlickUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Info-UITests.plist",
+			);
+			target = 845153A12DA999B300DDF24B /* EuroBlickUITests */;
+		};
 		84B057B62DCBC43400FB63EE /* Exceptions for "EuroBlick" folder in "EuroBlick" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -76,6 +90,9 @@
 		};
 		8451539B2DA999B300DDF24B /* EuroBlickTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				845631452DECB56400DB570F /* Exceptions for "EuroBlickTests" folder in "EuroBlickTests" target */,
+			);
 			explicitFileTypes = {
 				"Info-Tests.plist" = text.plist;
 			};
@@ -84,6 +101,9 @@
 		};
 		845153A52DA999B300DDF24B /* EuroBlickUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				845631462DECB56400DB570F /* Exceptions for "EuroBlickUITests" folder in "EuroBlickUITests" target */,
+			);
 			explicitFileTypes = {
 				"Info-UITests.plist" = text.plist;
 			};
@@ -236,7 +256,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1630;
-				LastUpgradeCheck = 1630;
+				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					8451538A2DA999B000DDF24B = {
 						CreatedOnToolsVersion = 16.3;

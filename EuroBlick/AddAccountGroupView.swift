@@ -26,6 +26,9 @@ struct AddAccountGroupView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Hinzufügen") {
+                        print("DEBUG: Hinzufügen-Button gedrückt")
+                        print("DEBUG: Gruppenname: '\(groupName)'")
+                        print("DEBUG: Gruppenname ist leer: \(groupName.isEmpty)")
                         viewModel.addAccountGroup(name: groupName)
                         dismiss()
                     }

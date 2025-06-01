@@ -1132,6 +1132,29 @@ struct ContentView: View {
                         mainViewState = .analysis(group: group)
                     }
                 }
+                // Sheet für das Hinzufügen einer neuen Kontogruppe
+                .sheet(isPresented: $showAddAccountGroupSheet) {
+                    AddAccountGroupView(viewModel: viewModel)
+                }
+                // Sheet für sheetState (Kontoauswahl und Hinzufügen)
+                .sheet(item: Binding<SheetPresentationState?>(
+                    get: { sheetState == .none ? nil : sheetState },
+                    set: { sheetState = $0 ?? .none }
+                )) { state in
+                    switch state {
+                    case .selectGroup:
+                        SelectGroupForAccountView(
+                            groups: viewModel.accountGroups,
+                            onSelect: { group in
+                                sheetState = .addAccount(group: group)
+                            }
+                        )
+                    case .addAccount(let group):
+                        AddAccountView(viewModel: viewModel, group: group)
+                    case .none:
+                        EmptyView()
+                    }
+                }
             }
             if showSideMenu {
                 Color.black.opacity(0.4)
@@ -1442,6 +1465,41 @@ struct GroupSelectionSheet: View {
                 }
             }
             .navigationTitle("Kontogruppe wählen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// View für die Gruppenauswahl beim Hinzufügen eines Kontos
+struct SelectGroupForAccountView: View {
+    let groups: [AccountGroup]
+    let onSelect: (AccountGroup) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(groups, id: \.objectID) { group in
+                Button(action: {
+                    onSelect(group)
+                }) {
+                    HStack {
+                        Image(systemName: "folder.fill")
+                            .foregroundColor(.blue)
+                        Text(group.name ?? "Unbekannte Gruppe")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Text("\((group.accounts?.count ?? 0)) Konten")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Gruppe für neues Konto wählen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
