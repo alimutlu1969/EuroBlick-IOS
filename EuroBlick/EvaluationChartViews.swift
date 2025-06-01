@@ -1,0 +1,868 @@
+import SwiftUI
+import Charts
+
+// MARK: - Bar Chart View for Income/Expenses
+
+struct BarChartView: View {
+    let data: MonthlyData
+    let showTransactions: ([Transaction], String) -> Void
+    
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Einnahmen / Ausgaben / Überschuss")
+                .font(.caption)
+                .foregroundColor(.white)
+                .padding(.horizontal)
+            
+            let maxValue = max(abs(data.income), abs(data.expenses), abs(data.surplus))
+            let maxHeight: CGFloat = 100
+            let scaleFactor = maxValue > 0 ? (maxHeight / maxValue) * 0.7 : 1.0
+            
+            HStack {
+                // Einnahmen (links, grün)
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(Color.green)
+                        .frame(width: 80, height: max(CGFloat(abs(data.income)) * scaleFactor, 20))
+                        .onTapGesture {
+                            showTransactions(data.incomeTransactions, "Einnahmen")
+                        }
+                    Text("Einnahmen")
+                        .foregroundColor(.white)
+                        .font(.caption2)
+                        .padding(.top, 8)
+                    Text(formatAmount(data.income))
+                        .foregroundColor(.green)
+                        .font(.caption2)
+                        .padding(.top, 4)
+                }
+                Spacer()
+                
+                // Ausgaben (mitte, rot)
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(Color.red)
+                        .frame(width: 80, height: max(CGFloat(abs(data.expenses)) * scaleFactor, 20))
+                        .onTapGesture {
+                            showTransactions(data.expenseTransactions, "Ausgaben")
+                        }
+                    Text("Ausgaben")
+                        .foregroundColor(.white)
+                        .font(.caption2)
+                        .padding(.top, 8)
+                    Text(formatAmount(data.expenses))
+                        .foregroundColor(.red)
+                        .font(.caption2)
+                        .padding(.top, 4)
+                }
+                Spacer()
+                
+                // Überschuss (rechts, dynamische Farbe)
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(data.surplus >= 0 ? Color.green : Color.red)
+                        .frame(width: 80, height: max(CGFloat(abs(data.surplus)) * scaleFactor, 20))
+                        .onTapGesture {
+                            showTransactions(data.incomeTransactions + data.expenseTransactions, "Alle Transaktionen")
+                        }
+                    Text("Überschuss")
+                        .foregroundColor(.white)
+                        .font(.caption2)
+                        .padding(.top, 8)
+                    Text(formatAmount(data.surplus))
+                        .foregroundColor(data.surplus >= 0 ? .green : .red)
+                        .font(.caption2)
+                        .padding(.top, 4)
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
+// MARK: - Category Chart View for Expenses
+
+struct CategoryChartView: View {
+    let categoryData: [CategoryData]
+    let totalExpenses: Double
+    let showTransactions: ([Transaction], String) -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Ausgaben nach Kategorie")
+                .font(.subheadline)
+                .foregroundColor(.white)
+                .padding(.bottom, 5)
+            
+            GeometryReader { geometry in
+                ZStack {
+                    // Tortendiagramm
+                    ForEach(computeSegments()) { segment in
+                        Path { path in
+                            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                            let radius = min(geometry.size.width, geometry.size.height) / 3.2
+                            path.move(to: center)
+                            path.addArc(center: center,
+                                      radius: radius,
+                                      startAngle: .radians(segment.startAngle),
+                                      endAngle: .radians(segment.endAngle),
+                                      clockwise: false)
+                            path.closeSubpath()
+                        }
+                        .fill(categoryColor(for: segment.name))
+                        .onTapGesture {
+                            if let categoryData = categoryData.first(where: { $0.name == segment.name }) {
+                                showTransactions(categoryData.transactions, "Ausgaben: \(segment.name)")
+                            }
+                        }
+                    }
+                    
+                    // Beschriftungen
+                    OverlayAnnotationsView(
+                        segments: computeSegments(),
+                        geometry: geometry,
+                        style: .angled
+                    )
+                }
+            }
+            .frame(height: 250)
+            
+            ExpenseCategoryTableView(
+                categoryData: categoryData,
+                totalExpenses: totalExpenses,
+                showTransactions: showTransactions
+            )
+        }
+        .padding()
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
+    }
+    
+    private func computeSegments() -> [SegmentData] {
+        var startAngle: Double = 0
+        return categoryData.map { category in
+            let percentage = abs(category.value) / totalExpenses
+            let angle = 2 * .pi * percentage
+            let segment = SegmentData(
+                id: UUID(),
+                name: category.name,
+                value: abs(category.value),
+                startAngle: startAngle,
+                endAngle: startAngle + angle
+            )
+            startAngle += angle
+            return segment
+        }.sorted { $0.percentage > $1.percentage }
+    }
+
+    private func categoryColor(for name: String) -> Color {
+        categoryData.first(where: { $0.name == name })?.color ?? .gray
+    }
+}
+
+// MARK: - Table Views
+
+struct ExpenseCategoryTableView: View {
+    let categoryData: [CategoryData]
+    let totalExpenses: Double
+    let showTransactions: ([Transaction], String) -> Void
+
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Tabellenkopf
+            HStack(spacing: 0) {
+                Text("Kategorie")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Anteil")
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Text("Betrag")
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(Color.gray.opacity(0.3))
+            .foregroundColor(.white)
+            .font(.caption)
+            
+            // Tabellenzeilen
+            ForEach(categoryData) { category in
+                HStack(spacing: 0) {
+                    // Kategorie mit Farbindikator
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(category.color)
+                            .frame(width: 12, height: 12)
+                        Text(category.name)
+                            .foregroundColor(.white)
+                            .font(.caption2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Prozentanteil
+                    Text(String(format: "%.1f%%", (category.value / totalExpenses) * 100))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .foregroundColor(.white)
+                        .font(.caption2)
+                    
+                    // Betrag in Rot für Ausgaben
+                    Text(formatAmount(category.value))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .foregroundColor(.red)
+                        .font(.caption2)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color.clear)
+                .font(.callout)
+                .onTapGesture {
+                    showTransactions(category.transactions, "Ausgaben: \(category.name)")
+                }
+                
+                Divider()
+                    .background(Color.gray.opacity(0.3))
+            }
+        }
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
+    }
+}
+
+// MARK: - Overlay Annotations
+
+struct OverlayAnnotationsView: View {
+    let segments: [SegmentData]
+    let geometry: GeometryProxy
+    let style: LabelStyle
+    
+    enum LabelStyle {
+        case straight
+        case angled
+        case distributed
+    }
+
+    var body: some View {
+        // Filtere Segmente, die größer als 7% sind
+        let significantSegments = segments.filter { segment in
+            let percentage = (segment.endAngle - segment.startAngle) / (2 * .pi) * 100
+            return percentage >= 7
+        }
+        
+        ForEach(significantSegments) { segment in
+            let (startPoint, endPoint, labelPosition) = computeLinePositions(segment: segment, geometry: geometry)
+            
+            ZStack {
+                // Bezugslinie
+                Path { path in
+                    path.move(to: startPoint)
+                    if style == .angled {
+                        let midPoint = CGPoint(
+                            x: endPoint.x,
+                            y: startPoint.y
+                        )
+                        path.addLine(to: midPoint)
+                        path.addLine(to: endPoint)
+                    } else {
+                        path.addLine(to: endPoint)
+                    }
+                }
+                .stroke(Color.white, lineWidth: 1)
+                
+                // Beschriftung mit Hintergrund und Prozentangabe
+                let percentage = Int((segment.endAngle - segment.startAngle) / (2 * .pi) * 100)
+                Text("\(segment.name) (\(percentage)%)")
+                    .foregroundColor(.white)
+                    .font(.caption)
+                    .padding(.horizontal, 4)
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(4)
+                    .offset(x: labelPosition.x - geometry.size.width/2,
+                           y: labelPosition.y - geometry.size.height/2)
+            }
+        }
+    }
+    
+    private func computeLinePositions(segment: SegmentData, geometry: GeometryProxy) -> (start: CGPoint, end: CGPoint, label: CGPoint) {
+        let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+        let radius = min(geometry.size.width, geometry.size.height) / 3.2
+        let labelPadding: CGFloat = 30
+        
+        let midAngle = segment.startAngle + (segment.endAngle - segment.startAngle) / 2
+        
+        // Startpunkt am Rand des Segments
+        let startPoint = CGPoint(
+            x: center.x + CGFloat(cos(midAngle)) * (radius * 0.8),
+            y: center.y + CGFloat(sin(midAngle)) * (radius * 0.8)
+        )
+        
+        let isRightSide = cos(midAngle) > 0
+        let lineLength = radius * 0.6
+        
+        // Berechne vertikale Verschiebung basierend auf dem Winkel
+        let verticalOffset = radius * 0.8 * sin(midAngle)
+        
+        // Endpunkt mit vertikaler Verschiebung
+        let endPoint = CGPoint(
+            x: center.x + CGFloat(cos(midAngle)) * radius + (isRightSide ? lineLength : -lineLength),
+            y: center.y + verticalOffset
+        )
+        
+        // Label-Position mit zusätzlichem vertikalen Abstand
+        let labelPosition = CGPoint(
+            x: endPoint.x + (isRightSide ? labelPadding : -labelPadding),
+            y: endPoint.y + (verticalOffset * 0.2)
+        )
+        
+        return (startPoint, endPoint, labelPosition)
+    }
+}
+
+// MARK: - Forecast View
+
+struct ForecastView: View {
+    let transactions: [Transaction]
+    let colorForValue: (Double) -> Color
+
+    private func calculateDailyAverages() -> (income: Double, expenses: Double, surplus: Double)? {
+        let calendar = Calendar.current
+        
+        // Gruppiere Transaktionen nach Typ
+        let incomeTransactions = transactions.filter { $0.type == "einnahme" }
+        let expenseTransactions = transactions.filter { $0.type == "ausgabe" }
+        
+        // Berechne Summen
+        let totalIncome = incomeTransactions.reduce(0.0) { $0 + $1.amount }
+        let totalExpenses = expenseTransactions.reduce(0.0) { $0 + abs($1.amount) }
+        
+        // Berechne die Anzahl der Tage zwischen der ersten und letzten Transaktion
+        if let firstIncomeDate = incomeTransactions.map({ $0.date }).min(),
+           let lastIncomeDate = incomeTransactions.map({ $0.date }).max() {
+            let daysIncome = max(1.0, Double(calendar.dateComponents([.day], from: firstIncomeDate, to: lastIncomeDate).day ?? 0) + 1)
+            let dailyIncome = totalIncome / daysIncome
+            
+            let daysExpenses = if let firstExpenseDate = expenseTransactions.map({ $0.date }).min(),
+                                 let lastExpenseDate = expenseTransactions.map({ $0.date }).max() {
+                max(1.0, Double(calendar.dateComponents([.day], from: firstExpenseDate, to: lastExpenseDate).day ?? 0) + 1)
+            } else {
+                1.0
+            }
+            let dailyExpenses = totalExpenses / daysExpenses
+            let dailySurplus = dailyIncome - dailyExpenses
+            
+            return (dailyIncome, dailyExpenses, dailySurplus)
+        }
+        
+        return nil
+    }
+
+    private func calculateMonthEndProjection() -> (income: Double, expenses: Double, surplus: Double)? {
+        guard let averages = calculateDailyAverages() else { return nil }
+        
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // Berechne die verbleibenden Tage im Monat
+        guard let range = calendar.range(of: .day, in: .month, for: today) else { return nil }
+        let daysInMonth = range.count
+        let currentDay = calendar.component(.day, from: today)
+        let remainingDays = daysInMonth - currentDay
+        
+        // Berechne die projizierten Werte für die verbleibenden Tage
+        let projectedIncome = averages.income * Double(remainingDays)
+        let projectedExpenses = averages.expenses * Double(remainingDays)
+        let projectedSurplus = projectedIncome - projectedExpenses
+        
+        return (projectedIncome, projectedExpenses, projectedSurplus)
+    }
+
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return amount >= 0 ? "+\(formattedAmount) €" : "-\(formattedAmount) €"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Prognostizierter Kontostand am Monatsende")
+                .foregroundColor(.white)
+                .font(.subheadline)
+                .padding(.horizontal)
+            
+            if let averages = calculateDailyAverages() {
+                // Tägliche Durchschnittswerte
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Tägliche Durchschnittswerte:")
+                        .foregroundColor(.white)
+                        .font(.caption)
+                    
+                    VStack(alignment: .leading) {
+                        Text("Einnahmen: \(formatAmount(averages.income))")
+                            .foregroundColor(.green)
+                        Text("Ausgaben: \(formatAmount(-averages.expenses))")
+                            .foregroundColor(.red)
+                        Text("Überschuss: \(formatAmount(averages.surplus))")
+                            .foregroundColor(colorForValue(averages.surplus))
+                    }
+                    .font(.caption2)
+                }
+                .padding()
+                .background(Color.black.opacity(0.3))
+                .cornerRadius(10)
+                .padding(.horizontal)
+
+                // Prognose
+                if let projection = calculateMonthEndProjection() {
+                    HStack(spacing: 20) {
+                        // Prognostizierte Einnahmen
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(Color.green)
+                                .frame(width: 80, height: barHeight(for: projection.income))
+                            Text("Einnahmen")
+                                .foregroundColor(.white)
+                                .font(.caption2)
+                                .padding(.top, 8)
+                            Text(formatAmount(projection.income))
+                                .foregroundColor(.green)
+                                .font(.caption2)
+                                .padding(.top, 4)
+                        }
+                        
+                        // Prognostizierte Ausgaben
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(Color.red)
+                                .frame(width: 80, height: barHeight(for: projection.expenses))
+                            Text("Ausgaben")
+                                .foregroundColor(.white)
+                                .font(.caption2)
+                                .padding(.top, 8)
+                            Text(formatAmount(-projection.expenses))
+                                .foregroundColor(.red)
+                                .font(.caption2)
+                                .padding(.top, 4)
+                        }
+                        
+                        // Prognostizierter Überschuss
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(colorForValue(projection.surplus))
+                                .frame(width: 80, height: barHeight(for: projection.surplus))
+                            Text("Überschuss")
+                                .foregroundColor(.white)
+                                .font(.caption2)
+                                .padding(.top, 8)
+                            Text(formatAmount(projection.surplus))
+                                .foregroundColor(colorForValue(projection.surplus))
+                                .font(.caption2)
+                                .padding(.top, 4)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .padding(.vertical)
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
+    }
+
+    private func barHeight(for value: Double) -> CGFloat {
+        let maxHeight: CGFloat = 80
+        let minHeight: CGFloat = 20
+        let scaleFactor: CGFloat = 0.2
+        let normalizedHeight = CGFloat(abs(value)) / 2000 * maxHeight * scaleFactor
+        return max(normalizedHeight, minHeight)
+    }
+}
+
+// MARK: - Account Balance History View
+
+struct AccountBalanceHistoryView: View {
+    let accounts: [Account]
+    @ObservedObject var viewModel: TransactionViewModel
+    let selectedMonth: String
+    let customDateRange: (start: Date, end: Date)?
+    
+    @State private var selectedAccount: Account?
+    @State private var showAccountPicker = false
+    
+    struct BalanceDataPoint: Identifiable {
+        let id = UUID()
+        let date: Date
+        let balance: Double
+        let accountName: String
+    }
+    
+    private func calculateBalanceHistory() -> [BalanceDataPoint] {
+        var dataPoints: [BalanceDataPoint] = []
+        let calendar = Calendar.current
+        
+        // Verwende nur das ausgewählte Konto oder das erste Konto als Standard
+        let accountsToShow = selectedAccount != nil ? [selectedAccount!] : (accounts.isEmpty ? [] : [accounts[0]])
+        
+        // Bestimme den Zeitraum basierend auf selectedMonth
+        let dateRange: (start: Date, end: Date)
+        if selectedMonth == "Benutzerdefinierter Zeitraum", let range = customDateRange {
+            dateRange = range
+        } else if selectedMonth == "Alle Monate" {
+            // Finde die früheste und späteste Transaktion
+            let allTransactions = accountsToShow.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+            let dates = allTransactions.map { $0.date }
+            guard let minDate = dates.min(), let maxDate = dates.max() else {
+                return []
+            }
+            dateRange = (minDate, maxDate)
+        } else {
+            // Spezifischer Monat
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "de_DE")
+            formatter.dateFormat = "MMM yyyy"
+            guard let monthDate = formatter.date(from: selectedMonth) else {
+                return []
+            }
+            let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate)) ?? monthDate
+            let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: startOfMonth) ?? monthDate
+            dateRange = (startOfMonth, endOfMonth)
+        }
+        
+        // Berechne tägliche Salden für das ausgewählte Konto
+        for account in accountsToShow {
+            var currentDate = dateRange.start
+            var cumulativeBalance = 0.0
+            
+            // Hole alle Transaktionen bis zum Startdatum für den Anfangssaldo
+            let allTransactions = account.transactions?.allObjects as? [Transaction] ?? []
+            let transactionsBeforeStart = allTransactions.filter { $0.date < dateRange.start && $0.type != "reservierung" }
+            cumulativeBalance = transactionsBeforeStart.reduce(0.0) { $0 + $1.amount }
+            
+            // Iteriere über jeden Tag im Zeitraum
+            while currentDate <= dateRange.end {
+                // Finde alle Transaktionen für diesen Tag
+                let dayStart = calendar.startOfDay(for: currentDate)
+                let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? currentDate
+                
+                let dayTransactions = allTransactions.filter { 
+                    $0.date >= dayStart && $0.date < dayEnd && $0.type != "reservierung"
+                }
+                
+                // Addiere die Transaktionen des Tages zum Saldo
+                let dayTotal = dayTransactions.reduce(0.0) { $0 + $1.amount }
+                cumulativeBalance += dayTotal
+                
+                // Füge Datenpunkt hinzu
+                dataPoints.append(BalanceDataPoint(
+                    date: currentDate,
+                    balance: cumulativeBalance,
+                    accountName: account.name ?? "Unbekannt"
+                ))
+                
+                // Gehe zum nächsten Tag
+                currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+            }
+        }
+        
+        return dataPoints.sorted { $0.date < $1.date }
+    }
+    
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header mit Kontoauswahl
+            HStack {
+                Text("Kontosaldenverlauf")
+                    .font(.subheadline)
+                    .foregroundColor(.white)
+                
+                Spacer()
+                
+                Button(action: {
+                    showAccountPicker = true
+                }) {
+                    HStack(spacing: 4) {
+                        Text(selectedAccount?.name ?? (accounts.first?.name ?? "Konto wählen"))
+                            .font(.caption)
+                            .foregroundColor(.white)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.3))
+                    .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal)
+            
+            let dataPoints = calculateBalanceHistory()
+            
+            if !dataPoints.isEmpty {
+                // Vereinfachte Darstellung - nur die wichtigsten Informationen
+                VStack(spacing: 16) {
+                    // Überschrift
+                    Text("Saldenverlauf")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    
+                    // Erste und letzte Datenpunkte
+                    if let firstPoint = dataPoints.first, let lastPoint = dataPoints.last {
+                        HStack(spacing: 20) {
+                            VStack(alignment: .leading) {
+                                Text("Startsaldo")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                Text(formatAmount(firstPoint.balance))
+                                    .font(.caption)
+                                    .foregroundColor(firstPoint.balance >= 0 ? .green : .red)
+                                Text(firstPoint.date, style: .date)
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                            }
+                            
+                            Spacer()
+                            
+                            // Pfeil
+                            Image(systemName: "arrow.right")
+                                .foregroundColor(.gray)
+                            
+                            Spacer()
+                            
+                            VStack(alignment: .trailing) {
+                                Text("Endsaldo")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                Text(formatAmount(lastPoint.balance))
+                                    .font(.caption)
+                                    .foregroundColor(lastPoint.balance >= 0 ? .green : .red)
+                                Text(lastPoint.date, style: .date)
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        .padding()
+                        .background(Color.black.opacity(0.1))
+                        .cornerRadius(10)
+                    }
+                    
+                    // Veränderung
+                    if let firstPoint = dataPoints.first, let lastPoint = dataPoints.last {
+                        let change = lastPoint.balance - firstPoint.balance
+                        HStack {
+                            Text("Veränderung:")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Text(formatAmount(change))
+                                .font(.caption)
+                                .foregroundColor(change >= 0 ? .green : .red)
+                        }
+                    }
+                }
+                .padding()
+                
+                // Aktueller Saldo
+                if let account = selectedAccount ?? accounts.first {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Aktueller Saldo")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            let currentBalance = viewModel.getBalance(for: account)
+                            Text(formatAmount(currentBalance))
+                                .font(.headline)
+                                .foregroundColor(currentBalance >= 0 ? .green : .red)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom)
+                }
+            } else {
+                Text("Keine Daten für den ausgewählten Zeitraum")
+                    .foregroundColor(.gray)
+                    .font(.caption)
+                    .padding()
+            }
+        }
+        .padding(.vertical)
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
+        .onAppear {
+            if selectedAccount == nil && !accounts.isEmpty {
+                selectedAccount = accounts[0]
+            }
+        }
+        .sheet(isPresented: $showAccountPicker) {
+            AccountPickerSheet(
+                accounts: accounts,
+                selectedAccount: $selectedAccount,
+                isPresented: $showAccountPicker
+            )
+        }
+    }
+}
+
+// MARK: - Account Picker Sheet
+
+struct AccountPickerSheet: View {
+    let accounts: [Account]
+    @Binding var selectedAccount: Account?
+    @Binding var isPresented: Bool
+    
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 0) {
+                    // Gruppiere Konten nach Kontogruppe
+                    let groupedAccounts = Dictionary(grouping: accounts, by: { $0.group })
+                    
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            ForEach(Array(groupedAccounts.keys.compactMap { $0 }), id: \.self) { group in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    // Gruppenname
+                                    Text(group.name ?? "Unbenannte Gruppe")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                        .padding(.horizontal)
+                                    
+                                    // Konten in dieser Gruppe
+                                    ForEach(groupedAccounts[group] ?? [], id: \.self) { account in
+                                        Button(action: {
+                                            selectedAccount = account
+                                            dismiss()
+                                        }) {
+                                            HStack {
+                                                // Konto-Icon
+                                                Image(systemName: account.value(forKey: "icon") as? String ?? "banknote.fill")
+                                                    .foregroundColor(Color(hex: account.value(forKey: "iconColor") as? String ?? "#007AFF") ?? .blue)
+                                                    .frame(width: 30)
+                                                
+                                                Text(account.name ?? "Unbekannt")
+                                                    .foregroundColor(.white)
+                                                
+                                                Spacer()
+                                                
+                                                if selectedAccount == account {
+                                                    Image(systemName: "checkmark")
+                                                        .foregroundColor(.blue)
+                                                }
+                                            }
+                                            .padding()
+                                            .background(selectedAccount == account ? Color.blue.opacity(0.3) : Color.gray.opacity(0.2))
+                                            .cornerRadius(10)
+                                            .contentShape(Rectangle())
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+                            }
+                            
+                            // Konten ohne Gruppe
+                            let ungroupedAccounts = accounts.filter { $0.group == nil }
+                            if !ungroupedAccounts.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Ohne Gruppe")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                        .padding(.horizontal)
+                                    
+                                    ForEach(ungroupedAccounts, id: \.self) { account in
+                                        Button(action: {
+                                            selectedAccount = account
+                                            dismiss()
+                                        }) {
+                                            HStack {
+                                                // Konto-Icon
+                                                Image(systemName: account.value(forKey: "icon") as? String ?? "banknote.fill")
+                                                    .foregroundColor(Color(hex: account.value(forKey: "iconColor") as? String ?? "#007AFF") ?? .blue)
+                                                    .frame(width: 30)
+                                                
+                                                Text(account.name ?? "Unbekannt")
+                                                    .foregroundColor(.white)
+                                                
+                                                Spacer()
+                                                
+                                                if selectedAccount == account {
+                                                    Image(systemName: "checkmark")
+                                                        .foregroundColor(.blue)
+                                                }
+                                            }
+                                            .padding()
+                                            .background(selectedAccount == account ? Color.blue.opacity(0.3) : Color.gray.opacity(0.2))
+                                            .cornerRadius(10)
+                                            .contentShape(Rectangle())
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical)
+                    }
+                }
+            }
+            .navigationTitle("Konto auswählen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Fertig") {
+                        dismiss()
+                    }
+                    .foregroundColor(.blue)
+                }
+            }
+        }
+    }
+} 

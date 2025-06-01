@@ -988,7 +988,7 @@ struct ContentView: View {
                                     }
                                     .padding(.horizontal)
                                     .padding(.top, 12)
-                                    EvaluationView(accounts: (group.accounts?.allObjects as? [Account]) ?? [], viewModel: viewModel)
+                                    EvaluationMenuView(accounts: (group.accounts?.allObjects as? [Account]) ?? [], viewModel: viewModel)
                                 }
                             } else {
                                 VStack {
