@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct EuroBlickApp: App {
     let persistenceController = PersistenceController.shared
+    @State private var isDataLoaded = false
 
     init() {
         // Set global appearance for UIKit components
@@ -28,9 +29,26 @@ struct EuroBlickApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LoginView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
-                .preferredColorScheme(.dark)
+            Group {
+                if isDataLoaded {
+                    LoginView()
+                        .environment(\.managedObjectContext, persistenceController.container.viewContext)
+                        .preferredColorScheme(.dark)
+                } else {
+                    ZStack {
+                        Color.black.ignoresSafeArea()
+                        ProgressView("Lade Daten...")
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .foregroundColor(.white)
+                    }
+                }
+            }
+            .onAppear {
+                // Stelle sicher, dass Core Data vollständig geladen ist
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isDataLoaded = true
+                }
+            }
         }
     }
 }

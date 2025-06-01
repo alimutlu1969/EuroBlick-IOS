@@ -36,6 +36,12 @@ struct IncomeCategoryChartView: View {
     
     private var incomeCategoryData: [CategoryData] {
         let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.incomeTransactions })
+            .filter { transaction in
+                // Filtere SB-Zahlungen und andere neutrale Transaktionen heraus
+                !((transaction.usage?.lowercased().contains("sb-zahlung") ?? false) ||
+                  (transaction.usage?.lowercased().contains("bargeldauszahlung") ?? false) ||
+                  (transaction.usage?.lowercased().contains("auszahlung") ?? false))
+            }
         let grouped = Dictionary(grouping: filteredTransactions, by: { $0.categoryRelationship?.name ?? "Unbekannt" })
         
         return grouped.map { (category, transactions) in
@@ -184,7 +190,12 @@ struct IncomeCategoryChartView: View {
         let grouped = Dictionary(grouping: filtered, by: { fmt.string(from: $0.date) })
         monthlyData = grouped.keys.sorted().map { month in
             let txs = grouped[month] ?? []
-            let ins = txs.filter { $0.type == "einnahme" }
+            let ins = txs.filter { 
+                $0.type == "einnahme" && 
+                !($0.usage?.lowercased().contains("sb-zahlung") ?? false) &&
+                !($0.usage?.lowercased().contains("bargeldauszahlung") ?? false) &&
+                !($0.usage?.lowercased().contains("auszahlung") ?? false)
+            }
             let outs = txs.filter { $0.type == "ausgabe" }
             let income = ins.reduce(0) { $0 + $1.amount }
             let expenses = outs.reduce(0) { $0 + abs($1.amount) }

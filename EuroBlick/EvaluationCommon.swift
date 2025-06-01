@@ -289,46 +289,66 @@ struct TransactionSheet: View {
     }
 
     var body: some View {
-        VStack {
-            // Header
-            HStack {
-                Text(transactionsTitle)
-                    .font(.headline)
-                    .foregroundColor(.white)
-                Spacer()
-                Button("Schließen") {
-                    isPresented = false
-                }
-                .foregroundColor(.blue)
-            }
-            .padding()
-            
-            // Transactions List
-            List {
-                ForEach(transactions, id: \.self) { transaction in
-                    VStack(alignment: .leading) {
-                        Text(transaction.date, style: .date)
+        NavigationView {
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 0) {
+                    // Header
+                    HStack {
+                        Text(transactionsTitle)
+                            .font(.headline)
                             .foregroundColor(.white)
-                        Text("Betrag: \(formatAmount(transaction.amount))")
-                            .foregroundColor(transaction.amount >= 0 ? .green : .red)
-                        Text("Kategorie: \(transaction.categoryRelationship?.name ?? "Unbekannt")")
-                            .foregroundColor(.white)
-                        if let usage = transaction.usage {
-                            Text("Verwendungszweck: \(usage)")
-                                .foregroundColor(.white)
+                        Spacer()
+                        Button("Schließen") {
+                            isPresented = false
                         }
+                        .foregroundColor(.blue)
                     }
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        editingTransaction = transaction
+                    .padding()
+                    .background(Color.black.opacity(0.3))
+                    
+                    // Transactions List
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(transactions, id: \.self) { transaction in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text(transaction.date, style: .date)
+                                            .foregroundColor(.white)
+                                            .font(.caption)
+                                        Spacer()
+                                        Text(formatAmount(transaction.amount))
+                                            .foregroundColor(transaction.amount >= 0 ? .green : .red)
+                                            .font(.headline)
+                                    }
+                                    
+                                    Text("Kategorie: \(transaction.categoryRelationship?.name ?? "Unbekannt")")
+                                        .foregroundColor(.gray)
+                                        .font(.caption)
+                                    
+                                    if let usage = transaction.usage, !usage.isEmpty {
+                                        Text(usage)
+                                            .foregroundColor(.white.opacity(0.8))
+                                            .font(.caption2)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                .padding()
+                                .background(Color.gray.opacity(0.2))
+                                .cornerRadius(10)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    editingTransaction = transaction
+                                }
+                            }
+                        }
+                        .padding()
                     }
                 }
-                .listRowBackground(Color.black)
             }
-            .listStyle(PlainListStyle())
+            .navigationBarHidden(true)
         }
-        .background(Color.black.edgesIgnoringSafeArea(.all))
         .sheet(item: $editingTransaction) { transaction in
             EditView(
                 transaction: transaction,

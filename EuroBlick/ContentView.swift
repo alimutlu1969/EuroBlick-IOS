@@ -867,7 +867,17 @@ struct ContentView: View {
     @State private var webDAVAlertIsError = true
     
     init(context: NSManagedObjectContext) {
-        _viewModel = StateObject(wrappedValue: TransactionViewModel(context: context))
+        // Stelle sicher, dass der Context gültig ist
+        do {
+            // Teste ob der Context funktioniert
+            _ = try context.count(for: NSFetchRequest<Account>(entityName: "Account"))
+            _viewModel = StateObject(wrappedValue: TransactionViewModel(context: context))
+        } catch {
+            print("Core Data Context nicht bereit: \(error)")
+            // Erstelle einen temporären Context als Fallback
+            let tempContext = PersistenceController.shared.container.viewContext
+            _viewModel = StateObject(wrappedValue: TransactionViewModel(context: tempContext))
+        }
     }
     
     private var headerView: some View {

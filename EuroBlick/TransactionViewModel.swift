@@ -17,7 +17,11 @@ class TransactionViewModel: ObservableObject {
         self.context = context
         self.backgroundContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
         self.backgroundContext.parent = context
-        initializeData()
+        
+        // Verzögere die Initialisierung um sicherzustellen, dass Core Data bereit ist
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.initializeData()
+        }
     }
     
     // Öffentliche Methode, um den Kontext bereitzustellen

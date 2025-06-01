@@ -511,6 +511,76 @@ struct ForecastView: View {
     }
 }
 
+// MARK: - Balance History Chart Component
+
+struct BalanceHistoryChart: View {
+    let dataPoints: [AccountBalanceHistoryView.BalanceDataPoint]
+    let formatShortAmount: (Double) -> String
+    
+    var body: some View {
+        Chart {
+            // Nulllinie
+            RuleMark(y: .value("Null", 0))
+                .foregroundStyle(Color.gray.opacity(0.5))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
+            
+            // Balken für jeden Datenpunkt
+            ForEach(dataPoints) { dataPoint in
+                BarMark(
+                    x: .value("Datum", dataPoint.date),
+                    y: .value("Saldo", dataPoint.balance)
+                )
+                .foregroundStyle(dataPoint.balance >= 0 ? Color.green.opacity(0.3) : Color.red.opacity(0.3))
+            }
+            
+            // Linie über den Balken
+            ForEach(dataPoints) { dataPoint in
+                LineMark(
+                    x: .value("Datum", dataPoint.date),
+                    y: .value("Saldo", dataPoint.balance)
+                )
+            }
+            .foregroundStyle(Color.blue)
+            .lineStyle(StrokeStyle(lineWidth: 2))
+            .interpolationMethod(.catmullRom)
+        }
+        .chartYScale(domain: .automatic(includesZero: true))
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisValueLabel {
+                    if let amount = value.as(Double.self) {
+                        Text(formatShortAmount(amount))
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                }
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(Color.gray.opacity(0.2))
+            }
+        }
+        .chartXAxis {
+            AxisMarks { value in
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(date, format: .dateTime.day().month(.abbreviated))
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                }
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(Color.gray.opacity(0.2))
+            }
+        }
+        .chartPlotStyle { plotArea in
+            plotArea
+                .background(Color.black.opacity(0.05))
+                .border(Color.gray.opacity(0.2), width: 0.5)
+        }
+        .frame(height: 250)
+        .padding()
+    }
+}
+
 // MARK: - Account Balance History View
 
 struct AccountBalanceHistoryView: View {
@@ -612,6 +682,15 @@ struct AccountBalanceHistoryView: View {
         return "\(formattedAmount) €"
     }
     
+    private func formatShortAmount(_ amount: Double) -> String {
+        let absAmount = abs(amount)
+        if absAmount >= 1000 {
+            return String(format: "%.0fk", absAmount / 1000)
+        } else {
+            return String(format: "%.0f", absAmount)
+        }
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header mit Kontoauswahl
@@ -644,85 +723,64 @@ struct AccountBalanceHistoryView: View {
             let dataPoints = calculateBalanceHistory()
             
             if !dataPoints.isEmpty {
-                // Vereinfachte Darstellung - nur die wichtigsten Informationen
-                VStack(spacing: 16) {
-                    // Überschrift
-                    Text("Saldenverlauf")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    
-                    // Erste und letzte Datenpunkte
-                    if let firstPoint = dataPoints.first, let lastPoint = dataPoints.last {
-                        HStack(spacing: 20) {
-                            VStack(alignment: .leading) {
+                BalanceHistoryChart(
+                    dataPoints: dataPoints,
+                    formatShortAmount: formatShortAmount
+                )
+                
+                // Zusammenfassung
+                if let firstPoint = dataPoints.first, let lastPoint = dataPoints.last {
+                    VStack(spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text("Startsaldo")
-                                    .font(.caption2)
+                                    .font(.caption)
                                     .foregroundColor(.gray)
                                 Text(formatAmount(firstPoint.balance))
-                                    .font(.caption)
+                                    .font(.system(size: 14, weight: .medium))
                                     .foregroundColor(firstPoint.balance >= 0 ? .green : .red)
-                                Text(firstPoint.date, style: .date)
-                                    .font(.caption2)
-                                    .foregroundColor(.gray)
                             }
                             
                             Spacer()
                             
-                            // Pfeil
-                            Image(systemName: "arrow.right")
-                                .foregroundColor(.gray)
-                            
-                            Spacer()
-                            
-                            VStack(alignment: .trailing) {
+                            VStack(alignment: .trailing, spacing: 4) {
                                 Text("Endsaldo")
-                                    .font(.caption2)
+                                    .font(.caption)
                                     .foregroundColor(.gray)
                                 Text(formatAmount(lastPoint.balance))
-                                    .font(.caption)
+                                    .font(.system(size: 14, weight: .medium))
                                     .foregroundColor(lastPoint.balance >= 0 ? .green : .red)
-                                Text(lastPoint.date, style: .date)
-                                    .font(.caption2)
-                                    .foregroundColor(.gray)
                             }
                         }
-                        .padding()
-                        .background(Color.black.opacity(0.1))
-                        .cornerRadius(10)
-                    }
-                    
-                    // Veränderung
-                    if let firstPoint = dataPoints.first, let lastPoint = dataPoints.last {
-                        let change = lastPoint.balance - firstPoint.balance
-                        HStack {
-                            Text("Veränderung:")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            Text(formatAmount(change))
-                                .font(.caption)
-                                .foregroundColor(change >= 0 ? .green : .red)
-                        }
-                    }
-                }
-                .padding()
-                
-                // Aktueller Saldo
-                if let account = selectedAccount ?? accounts.first {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Aktueller Saldo")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            let currentBalance = viewModel.getBalance(for: account)
-                            Text(formatAmount(currentBalance))
-                                .font(.headline)
-                                .foregroundColor(currentBalance >= 0 ? .green : .red)
-                        }
                         
-                        Spacer()
+                        Divider()
+                            .background(Color.gray.opacity(0.3))
+                        
+                        let change = lastPoint.balance - firstPoint.balance
+                        let changePercent = firstPoint.balance != 0 ? (change / abs(firstPoint.balance)) * 100 : 0
+                        
+                        HStack {
+                            Text("Veränderung")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            
+                            Spacer()
+                            
+                            HStack(spacing: 8) {
+                                Text(formatAmount(change))
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(change >= 0 ? .green : .red)
+                                
+                                Text("(\(String(format: "%.1f", changePercent))%)")
+                                    .font(.caption)
+                                    .foregroundColor(change >= 0 ? .green : .red)
+                            }
+                        }
                     }
+                    .padding()
+                    .background(Color.black.opacity(0.1))
+                    .cornerRadius(10)
                     .padding(.horizontal)
-                    .padding(.bottom)
                 }
             } else {
                 Text("Keine Daten für den ausgewählten Zeitraum")
