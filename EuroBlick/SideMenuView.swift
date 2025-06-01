@@ -6,9 +6,29 @@ struct SideMenuView: View {
     @State private var showColorSchemeSheet = false
     @State private var showFeedbackSheet = false
     @State private var showInfoLegalSheet = false
-    // Dummy-Daten für Profil
-    let userName: String = "Ali Mutlu"
-    let userEmail: String = "ali.mutlu@me.com"
+    @EnvironmentObject var authManager: AuthenticationManager
+    
+    // Dynamische Benutzerdaten
+    private var userName: String {
+        authManager.getLastAuthenticatedUser() ?? "Benutzer"
+    }
+    
+    private var userInitials: String {
+        let name = userName
+        let components = name.components(separatedBy: " ")
+        
+        if components.count >= 2 {
+            // Erste Buchstaben von Vor- und Nachnamen
+            let firstInitial = components[0].prefix(1).uppercased()
+            let lastInitial = components[1].prefix(1).uppercased()
+            return "\(firstInitial)\(lastInitial)"
+        } else if !name.isEmpty {
+            // Erste zwei Buchstaben des Namens
+            let firstTwo = name.prefix(2).uppercased()
+            return String(firstTwo)
+        }
+        return "?"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -16,12 +36,12 @@ struct SideMenuView: View {
             HStack(spacing: 16) {
                 Button(action: { showLogoutAlert = true }) {
                     Circle()
-                        .fill(Color.red)
+                        .fill(Color.orange.opacity(0.2))
                         .frame(width: 54, height: 54)
                         .overlay(
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .foregroundColor(.white)
-                                .font(.system(size: 24, weight: .bold))
+                            Text(userInitials)
+                                .foregroundColor(.orange)
+                                .font(.system(size: 20, weight: .bold))
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -37,9 +57,9 @@ struct SideMenuView: View {
                     Text(userName)
                         .font(.headline)
                         .foregroundColor(Color.primary)
-                    Text(userEmail)
+                    Text("EuroBlick Benutzer")
                         .font(.subheadline)
-                        .foregroundColor(Color.primary)
+                        .foregroundColor(Color.secondary)
                 }
             }
             .padding(.bottom, 32)

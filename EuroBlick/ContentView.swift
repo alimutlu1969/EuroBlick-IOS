@@ -1165,6 +1165,7 @@ struct ContentView: View {
             }
             if showSideMenu {
                 SideMenuView(showSideMenu: $showSideMenu)
+                    .environmentObject(authManager)
                     .transition(.move(edge: .leading))
                     .zIndex(1)
             }
