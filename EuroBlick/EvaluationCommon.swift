@@ -308,43 +308,43 @@ struct TransactionSheet: View {
                     .padding()
                     .background(Color.black.opacity(0.3))
                     
-                    // Transactions List
-                    ScrollView {
-                        VStack(spacing: 8) {
-                            ForEach(transactions, id: \.self) { transaction in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        Text(transaction.date, style: .date)
-                                            .foregroundColor(.white)
-                                            .font(.caption)
-                                        Spacer()
-                                        Text(formatAmount(transaction.amount))
-                                            .foregroundColor(transaction.amount >= 0 ? .green : .red)
-                                            .font(.headline)
-                                    }
-                                    
-                                    Text("Kategorie: \(transaction.categoryRelationship?.name ?? "Unbekannt")")
-                                        .foregroundColor(.gray)
+                    // Transactions List - Changed from ScrollView to List
+                    List {
+                        ForEach(transactions, id: \.self) { transaction in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(transaction.date, style: .date)
+                                        .foregroundColor(.white)
                                         .font(.caption)
-                                    
-                                    if let usage = transaction.usage, !usage.isEmpty {
-                                        Text(usage)
-                                            .foregroundColor(.white.opacity(0.8))
-                                            .font(.caption2)
-                                            .lineLimit(2)
-                                    }
+                                    Spacer()
+                                    Text(formatAmount(transaction.amount))
+                                        .foregroundColor(transaction.amount >= 0 ? .green : .red)
+                                        .font(.headline)
                                 }
-                                .padding()
-                                .background(Color.gray.opacity(0.2))
-                                .cornerRadius(10)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    editingTransaction = transaction
+                                
+                                Text("Kategorie: \(transaction.categoryRelationship?.name ?? "Unbekannt")")
+                                    .foregroundColor(.gray)
+                                    .font(.caption)
+                                
+                                if let usage = transaction.usage, !usage.isEmpty {
+                                    Text(usage)
+                                        .foregroundColor(.white.opacity(0.8))
+                                        .font(.caption2)
+                                        .lineLimit(2)
                                 }
                             }
+                            .padding(.vertical, 8)
+                            .listRowBackground(Color.black)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                editingTransaction = transaction
+                            }
                         }
-                        .padding()
+                        .listRowBackground(Color.black)
                     }
+                    .listStyle(PlainListStyle())
+                    .scrollContentBackground(.hidden)
+                    .background(Color.black)
                 }
             }
             .navigationBarHidden(true)

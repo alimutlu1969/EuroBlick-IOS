@@ -519,7 +519,11 @@ class TransactionViewModel: ObservableObject {
     
     // Füge eine neue Transaktion hinzu
     func addTransaction(type: String, amount: Double, category: String, account: Account, targetAccount: Account?, usage: String?, date: Date, completion: ((Error?) -> Void)? = nil) {
-        guard !type.isEmpty, ["einnahme", "ausgabe", "umbuchung", "reservierung"].contains(type) else {
+        // Automatische Erkennung des Transaktionstyps basierend auf dem Verwendungszweck
+        let detectedType = detectTransactionType(usage: usage, amount: amount, sourceAccount: account, targetAccount: targetAccount)
+        let finalType = (type == "einnahme" || type == "ausgabe") && detectedType == "umbuchung" ? detectedType : type
+        
+        guard !finalType.isEmpty, ["einnahme", "ausgabe", "umbuchung", "reservierung"].contains(finalType) else {
             let error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ungültiger Transaktionstyp"])
             print("Fehler: Ungültiger Transaktionstyp")
             completion?(error)
@@ -538,7 +542,7 @@ class TransactionViewModel: ObservableObject {
             return
         }
         context.perform {
-            if type == "umbuchung", let target = targetAccount {
+            if finalType == "umbuchung", let target = targetAccount {
                 let sourceTransaction = Transaction(context: self.context)
                 sourceTransaction.id = UUID()
                 sourceTransaction.type = "umbuchung"
@@ -574,7 +578,7 @@ class TransactionViewModel: ObservableObject {
             } else {
                 let newTransaction = Transaction(context: self.context)
                 newTransaction.id = UUID()
-                newTransaction.type = type
+                newTransaction.type = finalType
                 newTransaction.amount = amount.isNaN ? 0.0 : amount
                 newTransaction.date = date
                 newTransaction.account = account
@@ -591,7 +595,7 @@ class TransactionViewModel: ObservableObject {
                     }
                     self.cleanupInvalidTransactions()
                     self.fetchAccountGroups()
-                    print("Transaktion hinzugefügt: type=\(type), amount=\(amount), Kategorie=\(category), usage=\(usage ?? "nil")")
+                    print("Transaktion hinzugefügt: type=\(finalType), amount=\(amount), Kategorie=\(category), usage=\(usage ?? "nil")")
                     completion?(nil)
                 }
             }
@@ -2751,6 +2755,88 @@ class TransactionViewModel: ObservableObject {
                 self.fetchCategories()
             }
         }
+    }
+    
+    // Bereinige SB-Zahlungen und markiere sie als Umbuchungen
+    func cleanupSBZahlungen() {
+        context.perform {
+            let request: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+            
+            // Suche nach Transaktionen, die eigentlich Umbuchungen sind
+            let predicates = [
+                NSPredicate(format: "type == %@", "einnahme"),
+                NSPredicate(format: "usage CONTAINS[cd] %@", "sb-zahlung")
+            ]
+            let orPredicates = [
+                NSPredicate(format: "usage CONTAINS[cd] %@", "sb-zahlung"),
+                NSPredicate(format: "usage CONTAINS[cd] %@", "bargeldauszahlung"),
+                NSPredicate(format: "usage CONTAINS[cd] %@", "auszahlung geldautomat"),
+                NSPredicate(format: "usage CONTAINS[cd] %@ AND usage CONTAINS[cd] %@", "übertrag", "konto"),
+                NSPredicate(format: "usage CONTAINS[cd] %@ AND usage CONTAINS[cd] %@", "umbuchung", "konto")
+            ]
+            
+            request.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: orPredicates)
+            
+            do {
+                let transactions = try self.context.fetch(request)
+                var updated = 0
+                
+                for transaction in transactions {
+                    if transaction.type != "umbuchung" {
+                        print("Ändere Transaktion von '\(transaction.type ?? "nil")' zu 'umbuchung': \(transaction.usage ?? "")")
+                        transaction.type = "umbuchung"
+                        updated += 1
+                    }
+                }
+                
+                if updated > 0 {
+                    try self.context.save()
+                    print("✅ \(updated) Transaktionen als Umbuchungen markiert")
+                    
+                    // UI aktualisieren
+                    DispatchQueue.main.async {
+                        self.objectWillChange.send()
+                        self.fetchAccountGroups()
+                        self.transactionsUpdated.toggle()
+                    }
+                }
+            } catch {
+                print("Fehler beim Bereinigen der SB-Zahlungen: \(error)")
+            }
+        }
+    }
+    
+    // Automatische Erkennung von Umbuchungen beim Import
+    func detectTransactionType(usage: String?, amount: Double, sourceAccount: Account?, targetAccount: Account?) -> String {
+        guard let usage = usage?.lowercased() else {
+            return amount >= 0 ? "einnahme" : "ausgabe"
+        }
+        
+        // Muster für Umbuchungen
+        let transferPatterns = [
+            "sb-zahlung",
+            "bargeldauszahlung",
+            "auszahlung geldautomat",
+            "übertrag",
+            "umbuchung",
+            "cash withdrawal",
+            "atm"
+        ]
+        
+        // Prüfe ob es eine Umbuchung ist
+        for pattern in transferPatterns {
+            if usage.contains(pattern) {
+                return "umbuchung"
+            }
+        }
+        
+        // Wenn ein Zielkonto angegeben ist, ist es eine Umbuchung
+        if targetAccount != nil && targetAccount != sourceAccount {
+            return "umbuchung"
+        }
+        
+        // Sonst basierend auf Betrag
+        return amount >= 0 ? "einnahme" : "ausgabe"
     }
 }
 

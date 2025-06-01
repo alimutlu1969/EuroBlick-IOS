@@ -1116,6 +1116,9 @@ struct ContentView: View {
                     // Bereinige die fehlerhafte Bankgebühren-Kategorie
                     viewModel.cleanupBankgebuehrenCategory()
                     
+                    // Bereinige SB-Zahlungen und markiere sie als Umbuchungen
+                    viewModel.cleanupSBZahlungen()
+                    
                     // WebDAV Benachrichtigungen
                     NotificationCenter.default.addObserver(forName: Notification.Name("WebDAVError"), object: nil, queue: .main) { notification in
                         if let message = notification.userInfo?["message"] as? String {
