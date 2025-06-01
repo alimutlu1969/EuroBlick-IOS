@@ -241,6 +241,7 @@ struct ExpenseCategoryTableView: View {
                 .padding(.vertical, 8)
                 .background(Color.clear)
                 .font(.callout)
+                .contentShape(Rectangle())
                 .onTapGesture {
                     showTransactions(category.transactions, "Ausgaben: \(category.name)")
                 }
