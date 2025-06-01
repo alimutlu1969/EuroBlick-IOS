@@ -356,6 +356,15 @@ struct EvaluationView: View {
                                     transactions: data.incomeTransactions + data.expenseTransactions,
                                     colorForValue: colorForValue
                                 )
+                                
+                                // Kontosaldenverlauf
+                                AccountBalanceHistoryView(
+                                    accounts: accounts,
+                                    viewModel: viewModel,
+                                    selectedMonth: selectedMonth,
+                                    customDateRange: customDateRange
+                                )
+                                .padding()
                             }
 
                             if let pdfURL = pdfURL {
@@ -1979,6 +1988,332 @@ struct BarChartView: View {
                 }
             }
             .padding(.horizontal)
+        }
+    }
+}
+
+// Neue View für Kontosaldenverlauf
+struct AccountBalanceHistoryView: View {
+    let accounts: [Account]
+    @ObservedObject var viewModel: TransactionViewModel
+    let selectedMonth: String
+    let customDateRange: (start: Date, end: Date)?
+    
+    @State private var selectedAccount: Account?
+    @State private var showAccountPicker = false
+    
+    struct BalanceDataPoint: Identifiable {
+        let id = UUID()
+        let date: Date
+        let balance: Double
+        let accountName: String
+    }
+    
+    private func calculateBalanceHistory() -> [BalanceDataPoint] {
+        var dataPoints: [BalanceDataPoint] = []
+        let calendar = Calendar.current
+        
+        // Verwende nur das ausgewählte Konto oder das erste Konto als Standard
+        let accountsToShow = selectedAccount != nil ? [selectedAccount!] : (accounts.isEmpty ? [] : [accounts[0]])
+        
+        // Bestimme den Zeitraum basierend auf selectedMonth
+        let dateRange: (start: Date, end: Date)
+        if selectedMonth == "Benutzerdefinierter Zeitraum", let range = customDateRange {
+            dateRange = range
+        } else if selectedMonth == "Alle Monate" {
+            // Finde die früheste und späteste Transaktion
+            let allTransactions = accountsToShow.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+            let dates = allTransactions.map { $0.date }
+            guard let minDate = dates.min(), let maxDate = dates.max() else {
+                return []
+            }
+            dateRange = (minDate, maxDate)
+        } else {
+            // Spezifischer Monat
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "de_DE")
+            formatter.dateFormat = "MMM yyyy"
+            guard let monthDate = formatter.date(from: selectedMonth) else {
+                return []
+            }
+            let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate)) ?? monthDate
+            let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: startOfMonth) ?? monthDate
+            dateRange = (startOfMonth, endOfMonth)
+        }
+        
+        // Berechne tägliche Salden für das ausgewählte Konto
+        for account in accountsToShow {
+            var currentDate = dateRange.start
+            var cumulativeBalance = 0.0
+            
+            // Hole alle Transaktionen bis zum Startdatum für den Anfangssaldo
+            let allTransactions = account.transactions?.allObjects as? [Transaction] ?? []
+            let transactionsBeforeStart = allTransactions.filter { $0.date < dateRange.start && $0.type != "reservierung" }
+            cumulativeBalance = transactionsBeforeStart.reduce(0.0) { $0 + $1.amount }
+            
+            // Iteriere über jeden Tag im Zeitraum
+            while currentDate <= dateRange.end {
+                // Finde alle Transaktionen für diesen Tag
+                let dayStart = calendar.startOfDay(for: currentDate)
+                let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? currentDate
+                
+                let dayTransactions = allTransactions.filter { 
+                    $0.date >= dayStart && $0.date < dayEnd && $0.type != "reservierung"
+                }
+                
+                // Addiere die Transaktionen des Tages zum Saldo
+                let dayTotal = dayTransactions.reduce(0.0) { $0 + $1.amount }
+                cumulativeBalance += dayTotal
+                
+                // Füge Datenpunkt hinzu
+                dataPoints.append(BalanceDataPoint(
+                    date: currentDate,
+                    balance: cumulativeBalance,
+                    accountName: account.name ?? "Unbekannt"
+                ))
+                
+                // Gehe zum nächsten Tag
+                currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+            }
+        }
+        
+        return dataPoints.sorted { $0.date < $1.date }
+    }
+    
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        
+        let number = NSNumber(value: abs(amount))
+        let formattedAmount = formatter.string(from: number) ?? String(format: "%.2f", abs(amount))
+        return "\(formattedAmount) €"
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header mit Kontoauswahl
+            HStack {
+                Text("Kontosaldenverlauf")
+                    .font(.subheadline)
+                    .foregroundColor(.white)
+                
+                Spacer()
+                
+                Button(action: {
+                    showAccountPicker = true
+                }) {
+                    HStack(spacing: 4) {
+                        Text(selectedAccount?.name ?? (accounts.first?.name ?? "Konto wählen"))
+                            .font(.caption)
+                            .foregroundColor(.white)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.3))
+                    .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal)
+            
+            let dataPoints = calculateBalanceHistory()
+            
+            if !dataPoints.isEmpty {
+                // Berechne min und max für die Y-Achse
+                let minBalance = dataPoints.map { $0.balance }.min() ?? 0
+                let maxBalance = dataPoints.map { $0.balance }.max() ?? 0
+                let yRange = max(abs(minBalance), abs(maxBalance)) * 1.2 // 20% Puffer
+                
+                Chart(dataPoints) { point in
+                    LineMark(
+                        x: .value("Datum", point.date),
+                        y: .value("Saldo", point.balance)
+                    )
+                    .foregroundStyle(point.balance >= 0 ? Color.green : Color.red)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    
+                    AreaMark(
+                        x: .value("Datum", point.date),
+                        y: .value("Saldo", point.balance)
+                    )
+                    .foregroundStyle(point.balance >= 0 ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
+                }
+                .frame(height: 250)
+                .chartYScale(domain: -yRange...yRange)
+                .padding()
+                
+                // Aktueller Saldo
+                if let account = selectedAccount ?? accounts.first {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Aktueller Saldo")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            let currentBalance = viewModel.getBalance(for: account)
+                            Text(formatAmount(currentBalance))
+                                .font(.headline)
+                                .foregroundColor(currentBalance >= 0 ? .green : .red)
+                        }
+                        
+                        Spacer()
+                        
+                        if let lastDataPoint = dataPoints.last {
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text("Endsaldo im Zeitraum")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                Text(formatAmount(lastDataPoint.balance))
+                                    .font(.headline)
+                                    .foregroundColor(lastDataPoint.balance >= 0 ? .green : .red)
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom)
+                }
+            } else {
+                Text("Keine Daten für den ausgewählten Zeitraum")
+                    .foregroundColor(.gray)
+                    .font(.caption)
+                    .padding()
+            }
+        }
+        .padding(.vertical)
+        .background(Color.black.opacity(0.2))
+        .cornerRadius(10)
+        .onAppear {
+            if selectedAccount == nil && !accounts.isEmpty {
+                selectedAccount = accounts[0]
+            }
+        }
+        .sheet(isPresented: $showAccountPicker) {
+            AccountPickerSheet(
+                accounts: accounts,
+                selectedAccount: $selectedAccount,
+                isPresented: $showAccountPicker
+            )
+        }
+    }
+}
+
+// Neue View für die Kontoauswahl
+struct AccountPickerSheet: View {
+    let accounts: [Account]
+    @Binding var selectedAccount: Account?
+    @Binding var isPresented: Bool
+    
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 0) {
+                    // Gruppiere Konten nach Kontogruppe
+                    let groupedAccounts = Dictionary(grouping: accounts, by: { $0.group })
+                    
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            ForEach(Array(groupedAccounts.keys.compactMap { $0 }), id: \.self) { group in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    // Gruppenname
+                                    Text(group.name ?? "Unbenannte Gruppe")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                        .padding(.horizontal)
+                                    
+                                    // Konten in dieser Gruppe
+                                    ForEach(groupedAccounts[group] ?? [], id: \.self) { account in
+                                        Button(action: {
+                                            selectedAccount = account
+                                            dismiss()
+                                        }) {
+                                            HStack {
+                                                // Konto-Icon
+                                                Image(systemName: account.icon ?? "banknote.fill")
+                                                    .foregroundColor(Color(hex: account.iconColor ?? "#007AFF") ?? .blue)
+                                                    .frame(width: 30)
+                                                
+                                                Text(account.name ?? "Unbekannt")
+                                                    .foregroundColor(.white)
+                                                
+                                                Spacer()
+                                                
+                                                if selectedAccount == account {
+                                                    Image(systemName: "checkmark")
+                                                        .foregroundColor(.blue)
+                                                }
+                                            }
+                                            .padding()
+                                            .background(selectedAccount == account ? Color.blue.opacity(0.3) : Color.gray.opacity(0.2))
+                                            .cornerRadius(10)
+                                            .contentShape(Rectangle())
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+                            }
+                            
+                            // Konten ohne Gruppe
+                            let ungroupedAccounts = accounts.filter { $0.group == nil }
+                            if !ungroupedAccounts.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Ohne Gruppe")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                        .padding(.horizontal)
+                                    
+                                    ForEach(ungroupedAccounts, id: \.self) { account in
+                                        Button(action: {
+                                            selectedAccount = account
+                                            dismiss()
+                                        }) {
+                                            HStack {
+                                                // Konto-Icon
+                                                Image(systemName: account.icon ?? "banknote.fill")
+                                                    .foregroundColor(Color(hex: account.iconColor ?? "#007AFF") ?? .blue)
+                                                    .frame(width: 30)
+                                                
+                                                Text(account.name ?? "Unbekannt")
+                                                    .foregroundColor(.white)
+                                                
+                                                Spacer()
+                                                
+                                                if selectedAccount == account {
+                                                    Image(systemName: "checkmark")
+                                                        .foregroundColor(.blue)
+                                                }
+                                            }
+                                            .padding()
+                                            .background(selectedAccount == account ? Color.blue.opacity(0.3) : Color.gray.opacity(0.2))
+                                            .cornerRadius(10)
+                                            .contentShape(Rectangle())
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical)
+                    }
+                }
+            }
+            .navigationTitle("Konto auswählen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Fertig") {
+                        dismiss()
+                    }
+                    .foregroundColor(.blue)
+                }
+            }
         }
     }
 }

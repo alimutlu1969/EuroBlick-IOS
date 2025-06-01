@@ -7,6 +7,19 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Kontosaldenverlauf in den Auswertungen
+  - Visualisierung des Saldenverlaufs über Zeit als Liniendiagramm
+  - Farbliche Unterscheidung zwischen positiven (grün) und negativen (rot) Salden
+  - Kontoauswahl mit Gruppierung nach Kontogruppen
+  - Anzeige des aktuellen Saldos und Endsaldos im ausgewählten Zeitraum
+  - Anpassung an verschiedene Zeiträume (Alle Monate, spezifische Monate, benutzerdefinierter Zeitraum)
+
+### Verbessert
+- Performance-Optimierungen für Chart-Darstellungen
+  - Vereinfachte Chart-Konfiguration für bessere Compiler-Performance
+  - Optimierte Datenberechnung für Saldenverlauf
+
 ## [1.0.2] - 2024-03-26
 
 ### Performance
