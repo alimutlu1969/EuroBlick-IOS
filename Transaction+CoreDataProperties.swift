@@ -17,6 +17,7 @@ extension Transaction {
 
     @NSManaged public var amount: Double
     @NSManaged public var date: Date
+    @NSManaged public var excludeFromBalance: Bool
     @NSManaged public var id: UUID
     @NSManaged public var type: String?
     @NSManaged public var usage: String?

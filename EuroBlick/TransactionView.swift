@@ -123,7 +123,9 @@ struct TransactionView: View {
     }
 
     private var categorySum: Double {
-        filteredTransactions.filter { $0.categoryRelationship?.name == selectedCategory }.reduce(0.0) { $0 + $1.amount }
+        filteredTransactions
+            .filter { $0.categoryRelationship?.name == selectedCategory && !$0.excludeFromBalance }
+            .reduce(0.0) { $0 + $1.amount }
     }
 
     private var customDateRangeDisplay: String {
@@ -135,7 +137,9 @@ struct TransactionView: View {
     }
 
     private var searchTotalAmount: Double {
-        let total = filteredTransactions.reduce(0.0) { $0 + $1.amount }
+        let total = filteredTransactions
+            .filter { !$0.excludeFromBalance }
+            .reduce(0.0) { $0 + $1.amount }
         return total.isNaN ? 0.0 : total
     }
 
@@ -161,7 +165,10 @@ struct TransactionView: View {
         let sortedGroups = grouped.sorted { $0.key < $1.key }
         var result: [TransactionGroup] = []
         for (date, transactions) in sortedGroups {
-            let dailyBalance = transactions.reduce(0.0) { $0 + $1.amount }
+            // Berechne die tägliche Bilanz nur mit Transaktionen, die nicht ausgeschlossen sind
+            let dailyBalance = transactions
+                .filter { !$0.excludeFromBalance }
+                .reduce(0.0) { $0 + $1.amount }
             cumulativeBalance += dailyBalance
             let group = TransactionGroup(
                 date: date,
@@ -291,7 +298,8 @@ struct TransactionView: View {
                         onDelete: deleteTransactions,
                         onEdit: { transaction in
                             loadTransactionForEditing(transaction)
-                        }
+                        },
+                        onToggleExcludeFromBalance: toggleExcludeFromBalance
                     )
                     .id(refreshID)
                     
@@ -772,6 +780,28 @@ struct TransactionView: View {
             })
         }
     }
+
+    private func toggleExcludeFromBalance(_ transactions: [Transaction]) {
+        let context = PersistenceController.shared.container.viewContext
+        
+        // Überprüfe, ob alle ausgewählten Transaktionen bereits ausgeschlossen sind
+        let allExcluded = transactions.allSatisfy { $0.excludeFromBalance }
+        
+        // Setze den neuen Wert (wenn alle ausgeschlossen sind, schließe sie ein, sonst schließe sie aus)
+        let newValue = !allExcluded
+        
+        for transaction in transactions {
+            transaction.excludeFromBalance = newValue
+        }
+        
+        do {
+            try context.save()
+            // Aktualisiere die Ansicht
+            fetchTransactions()
+        } catch {
+            print("❌ Fehler beim Speichern der excludeFromBalance-Änderungen: \(error)")
+        }
+    }
 }
 
 struct TransactionRow: View {
@@ -807,6 +837,14 @@ struct TransactionRow: View {
                     Text(transaction.categoryRelationship?.name ?? "Unbekannt")
                         .font(.caption)
                         .foregroundStyle(.blue)
+                    
+                    // Zeige Icon für ausgeschlossene Transaktionen
+                    if transaction.excludeFromBalance {
+                        Image(systemName: "eye.slash.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption2)
+                    }
+                    
                     Spacer()
                     Text(formatAmount(transaction.amount))
                         .font(.caption)
@@ -821,6 +859,7 @@ struct TransactionRow: View {
             }
             .padding(.vertical, 6)
         }
+        .opacity(transaction.excludeFromBalance ? 0.6 : 1.0)
         .contentShape(Rectangle())
         .onTapGesture {
             if isSelectionMode {
@@ -906,6 +945,7 @@ struct TransactionListView: View {
     let isLoading: Bool
     let onDelete: (IndexSet) -> Void
     let onEdit: (Transaction) -> Void
+    let onToggleExcludeFromBalance: ([Transaction]) -> Void
     @State private var selectedTransactions: Set<UUID> = []
     @State private var isSelectionMode: Bool = false
     @State private var longPressTransaction: Transaction? = nil
@@ -928,8 +968,21 @@ struct TransactionListView: View {
                         Text("Abbrechen")
                             .foregroundColor(.red)
                     }
+                    
                     Spacer()
+                    
                     if !selectedTransactions.isEmpty {
+                        Button(action: {
+                            let selectedTrans = filteredTransactions.filter { selectedTransactions.contains($0.id) }
+                            onToggleExcludeFromBalance(selectedTrans)
+                            selectedTransactions.removeAll()
+                            isSelectionMode = false
+                        }) {
+                            let hasExcluded = filteredTransactions.filter { selectedTransactions.contains($0.id) }.contains { $0.excludeFromBalance }
+                            Text(hasExcluded ? "Einschließen" : "Ausschließen")
+                                .foregroundColor(.orange)
+                        }
+                        
                         Button(action: {
                             let indexSet = IndexSet(filteredTransactions.enumerated()
                                 .filter { selectedTransactions.contains($0.element.id) }
