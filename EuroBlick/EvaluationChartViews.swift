@@ -37,9 +37,6 @@ struct BarChartView: View {
                     Rectangle()
                         .fill(Color.green)
                         .frame(width: 80, height: max(CGFloat(abs(data.income)) * scaleFactor, 20))
-                        .onTapGesture {
-                            showTransactions(data.incomeTransactions, "Einnahmen")
-                        }
                     Text("Einnahmen")
                         .foregroundColor(.white)
                         .font(.caption2)
@@ -49,6 +46,15 @@ struct BarChartView: View {
                         .font(.caption2)
                         .padding(.top, 4)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    print("🔍 BarChartView: Einnahmen-Balken wurde angetippt")
+                    print("🔍 BarChartView: \(data.incomeTransactions.count) Einnahme-Transaktionen gefunden")
+                    DispatchQueue.main.async {
+                        showTransactions(data.incomeTransactions, "Einnahmen")
+                    }
+                    print("🔍 BarChartView: showTransactions für Einnahmen aufgerufen")
+                }
                 Spacer()
                 
                 // Ausgaben (mitte, rot)
@@ -57,9 +63,6 @@ struct BarChartView: View {
                     Rectangle()
                         .fill(Color.red)
                         .frame(width: 80, height: max(CGFloat(abs(data.expenses)) * scaleFactor, 20))
-                        .onTapGesture {
-                            showTransactions(data.expenseTransactions, "Ausgaben")
-                        }
                     Text("Ausgaben")
                         .foregroundColor(.white)
                         .font(.caption2)
@@ -69,7 +72,15 @@ struct BarChartView: View {
                         .font(.caption2)
                         .padding(.top, 4)
                 }
-                Spacer()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    print("🔍 BarChartView: Ausgaben-Balken wurde angetippt")
+                    print("🔍 BarChartView: \(data.expenseTransactions.count) Ausgaben-Transaktionen gefunden")
+                    DispatchQueue.main.async {
+                        showTransactions(data.expenseTransactions, "Ausgaben")
+                    }
+                    print("🔍 BarChartView: showTransactions für Ausgaben aufgerufen")
+                }
                 
                 // Überschuss (rechts, dynamische Farbe)
                 VStack {
@@ -77,9 +88,6 @@ struct BarChartView: View {
                     Rectangle()
                         .fill(data.surplus >= 0 ? Color.green : Color.red)
                         .frame(width: 80, height: max(CGFloat(abs(data.surplus)) * scaleFactor, 20))
-                        .onTapGesture {
-                            showTransactions(data.incomeTransactions + data.expenseTransactions, "Alle Transaktionen")
-                        }
                     Text("Überschuss")
                         .foregroundColor(.white)
                         .font(.caption2)
@@ -88,6 +96,16 @@ struct BarChartView: View {
                         .foregroundColor(data.surplus >= 0 ? .green : .red)
                         .font(.caption2)
                         .padding(.top, 4)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    print("🔍 BarChartView: Überschuss-Balken wurde angetippt")
+                    let allTransactions = data.incomeTransactions + data.expenseTransactions
+                    print("🔍 BarChartView: \(allTransactions.count) Gesamte Transaktionen gefunden")
+                    DispatchQueue.main.async {
+                        showTransactions(allTransactions, "Alle Transaktionen")
+                    }
+                    print("🔍 BarChartView: showTransactions für Alle Transaktionen aufgerufen")
                 }
             }
             .padding(.horizontal)
@@ -126,8 +144,11 @@ struct CategoryChartView: View {
                         }
                         .fill(categoryColor(for: segment.name))
                         .onTapGesture {
+                            print("🔍 CategoryChart: Segment '\(segment.name)' wurde angetippt")
                             if let categoryData = categoryData.first(where: { $0.name == segment.name }) {
+                                print("🔍 CategoryChart: \(categoryData.transactions.count) Transaktionen gefunden für '\(segment.name)'")
                                 showTransactions(categoryData.transactions, "Ausgaben: \(segment.name)")
+                                print("🔍 CategoryChart: showTransactions aufgerufen")
                             }
                         }
                     }
@@ -243,7 +264,9 @@ struct ExpenseCategoryTableView: View {
                 .font(.callout)
                 .contentShape(Rectangle())
                 .onTapGesture {
+                    print("🔍 ExpenseCategoryTableView: Zeile für '\(category.name)' angetippt")
                     showTransactions(category.transactions, "Ausgaben: \(category.name)")
+                    print("🔍 ExpenseCategoryTableView: showTransactions aufgerufen")
                 }
                 
                 Divider()
@@ -415,7 +438,7 @@ struct ForecastView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 15) {
             Text("Prognostizierter Kontostand am Monatsende")
                 .foregroundColor(.white)
                 .font(.subheadline)
@@ -423,12 +446,12 @@ struct ForecastView: View {
             
             if let averages = calculateDailyAverages() {
                 // Tägliche Durchschnittswerte
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Tägliche Durchschnittswerte:")
                         .foregroundColor(.white)
                         .font(.caption)
                     
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Einnahmen: \(formatAmount(averages.income))")
                             .foregroundColor(.green)
                         Text("Ausgaben: \(formatAmount(-averages.expenses))")
@@ -438,77 +461,82 @@ struct ForecastView: View {
                     }
                     .font(.caption2)
                 }
-                .padding()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(Color.black.opacity(0.3))
-                .cornerRadius(10)
+                .cornerRadius(8)
                 .padding(.horizontal)
 
                 // Prognose
                 if let projection = calculateMonthEndProjection() {
-                    HStack(spacing: 20) {
+                    HStack(spacing: 15) {
                         // Prognostizierte Einnahmen
-                        VStack {
+                        VStack(spacing: 4) {
                             Spacer()
                             Rectangle()
                                 .fill(Color.green)
-                                .frame(width: 80, height: barHeight(for: projection.income))
+                                .frame(width: 70, height: barHeight(for: projection.income))
                             Text("Einnahmen")
                                 .foregroundColor(.white)
                                 .font(.caption2)
-                                .padding(.top, 8)
+                                .padding(.top, 4)
                             Text(formatAmount(projection.income))
                                 .foregroundColor(.green)
                                 .font(.caption2)
-                                .padding(.top, 4)
+                                .padding(.top, 2)
                         }
                         
                         // Prognostizierte Ausgaben
-                        VStack {
+                        VStack(spacing: 4) {
                             Spacer()
                             Rectangle()
                                 .fill(Color.red)
-                                .frame(width: 80, height: barHeight(for: projection.expenses))
+                                .frame(width: 70, height: barHeight(for: projection.expenses))
                             Text("Ausgaben")
                                 .foregroundColor(.white)
                                 .font(.caption2)
-                                .padding(.top, 8)
+                                .padding(.top, 4)
                             Text(formatAmount(-projection.expenses))
                                 .foregroundColor(.red)
                                 .font(.caption2)
-                                .padding(.top, 4)
+                                .padding(.top, 2)
                         }
                         
                         // Prognostizierter Überschuss
-                        VStack {
+                        VStack(spacing: 4) {
                             Spacer()
                             Rectangle()
                                 .fill(colorForValue(projection.surplus))
-                                .frame(width: 80, height: barHeight(for: projection.surplus))
+                                .frame(width: 70, height: barHeight(for: projection.surplus))
                             Text("Überschuss")
                                 .foregroundColor(.white)
                                 .font(.caption2)
-                                .padding(.top, 8)
+                                .padding(.top, 4)
                             Text(formatAmount(projection.surplus))
                                 .foregroundColor(colorForValue(projection.surplus))
                                 .font(.caption2)
-                                .padding(.top, 4)
+                                .padding(.top, 2)
                         }
                     }
+                    .frame(height: 80)
                     .padding(.horizontal)
                 }
             }
         }
-        .padding(.vertical)
+        .padding(.vertical, 12)
         .background(Color.black.opacity(0.2))
         .cornerRadius(10)
     }
 
     private func barHeight(for value: Double) -> CGFloat {
-        let maxHeight: CGFloat = 80
-        let minHeight: CGFloat = 20
-        let scaleFactor: CGFloat = 0.2
-        let normalizedHeight = CGFloat(abs(value)) / 2000 * maxHeight * scaleFactor
-        return max(normalizedHeight, minHeight)
+        let maxHeight: CGFloat = 80 // Zurück zum ursprünglichen Wert
+        let minHeight: CGFloat = 15  // Zurück zum ursprünglichen Wert
+        
+        // Sehr aggressive Skalierung: Pro 10.000€ nur 5 Pixel
+        let pixelsPerTenThousand: CGFloat = 5  // Noch aggressiver als vorher
+        let calculatedHeight = CGFloat(abs(value)) / 10000 * pixelsPerTenThousand
+        
+        return max(min(calculatedHeight, maxHeight), minHeight)
     }
 }
 

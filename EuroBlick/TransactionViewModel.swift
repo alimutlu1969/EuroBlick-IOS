@@ -2763,10 +2763,6 @@ class TransactionViewModel: ObservableObject {
             let request: NSFetchRequest<Transaction> = Transaction.fetchRequest()
             
             // Suche nach Transaktionen, die eigentlich Umbuchungen sind
-            let predicates = [
-                NSPredicate(format: "type == %@", "einnahme"),
-                NSPredicate(format: "usage CONTAINS[cd] %@", "sb-zahlung")
-            ]
             let orPredicates = [
                 NSPredicate(format: "usage CONTAINS[cd] %@", "sb-zahlung"),
                 NSPredicate(format: "usage CONTAINS[cd] %@", "bargeldauszahlung"),

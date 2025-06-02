@@ -13,6 +13,7 @@ struct IncomeCategoryChartView: View {
     @State private var showTransactionsSheet = false
     @State private var transactionsToShow: [Transaction] = []
     @State private var transactionsTitle: String = ""
+    @State private var isLoading = true
     
     init(accounts: [Account], viewModel: TransactionViewModel) {
         self.accounts = accounts
@@ -72,27 +73,9 @@ struct IncomeCategoryChartView: View {
     }
     
     private func categoryColor(for name: String) -> Color {
-        let categoryColors: [(pattern: String, color: Color)] = [
-            ("gehalt", .blue),
-            ("honorar", .green),
-            ("provision", .purple),
-            ("zinsen", .orange),
-            ("erstattung", .pink),
-            ("sonstiges", .gray)
-        ]
-        
-        let lowercaseName = name.lowercased()
-        if let match = categoryColors.first(where: { lowercaseName.contains($0.pattern) }) {
-            return match.color
-        }
-        
-        let fallbackColors: [Color] = [
-            .blue, .green, .purple, .orange, .pink, .yellow,
-            .mint, .cyan, .indigo, .red, .brown
-        ]
-        
-        let index = abs(name.hashValue) % fallbackColors.count
-        return fallbackColors[index]
+        let colors: [Color] = [.green, .mint, .teal, .cyan, .blue, .indigo, .purple, .pink]
+        let index = abs(name.hashValue) % colors.count
+        return colors[index]
     }
     
     private func formatAmount(_ amount: Double) -> String {
@@ -121,31 +104,46 @@ struct IncomeCategoryChartView: View {
                 )
                 .background(Color.black.opacity(0.3))
                 
-                ScrollView {
-                    VStack(spacing: 20) {
-                        if !incomeCategoryData.isEmpty {
-                            IncomeCategoryChartViewComponent(
-                                categoryData: incomeCategoryData,
-                                totalIncome: totalCategoryIncome,
-                                showTransactions: { transactions, title in
-                                    transactionsToShow = transactions
-                                    transactionsTitle = title
-                                    showTransactionsSheet = true
-                                }
-                            )
-                        } else {
-                            Text("Keine Einnahmen im ausgewählten Zeitraum")
-                                .foregroundColor(.gray)
-                                .padding()
+                if isLoading {
+                    Spacer()
+                    ProgressView("Lade Daten...")
+                        .foregroundColor(.white)
+                    Spacer()
+                } else {
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            if !incomeCategoryData.isEmpty {
+                                IncomeCategoryChartViewComponent(
+                                    categoryData: incomeCategoryData,
+                                    totalIncome: totalCategoryIncome,
+                                    showTransactions: { transactions, title in
+                                        print("🔍 IncomeCategoryChartView: showTransactions aufgerufen mit Titel '\(title)' und \(transactions.count) Transaktionen")
+                                        transactionsToShow = transactions
+                                        transactionsTitle = title
+                                        print("🔍 IncomeCategoryChartView: showTransactionsSheet wird auf true gesetzt")
+                                        DispatchQueue.main.async {
+                                            showTransactionsSheet = true
+                                        }
+                                        print("🔍 IncomeCategoryChartView: showTransactionsSheet wurde gesetzt")
+                                    }
+                                )
+                            } else {
+                                Text("Keine Einnahmen im ausgewählten Zeitraum")
+                                    .foregroundColor(.gray)
+                                    .padding()
+                            }
                         }
+                        .padding(.vertical)
                     }
-                    .padding(.vertical)
                 }
             }
         }
         .navigationTitle("Einnahmen nach Kategorie")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            loadMonthlyData()
+        }
+        .onChange(of: selectedMonth) { oldValue, newValue in
             loadMonthlyData()
         }
         .sheet(isPresented: $showMonthPickerSheet) {
@@ -169,30 +167,48 @@ struct IncomeCategoryChartView: View {
                 viewModel: viewModel
             )
         }
+        .onChange(of: showTransactionsSheet) { oldValue, newValue in
+            print("🔍 IncomeCategoryChartView: showTransactionsSheet geändert von \(oldValue) zu \(newValue)")
+        }
     }
     
     private func loadMonthlyData() {
+        isLoading = true
+        print("DEBUG: loadMonthlyData started for IncomeCategoryChartView")
+        print("DEBUG: selectedMonth = '\(selectedMonth)'")
+        print("DEBUG: accounts count = \(accounts.count)")
+        
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "de_DE")
         fmt.dateFormat = "MMM yyyy"
         let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+        print("DEBUG: Total transactions found = \(allTx.count)")
+        
         let filtered: [Transaction]
         if selectedMonth == "Benutzerdefinierter Zeitraum", let range = customDateRange {
             filtered = allTx.filter { transaction in
                 let date = transaction.date
                 return date >= range.start && date <= range.end
             }
+            print("DEBUG: Filtered for custom date range = \(filtered.count)")
+        } else if selectedMonth == "Alle Monate" {
+            filtered = allTx
+            print("DEBUG: Using all transactions = \(filtered.count)")
         } else {
-            filtered = selectedMonth == "Alle Monate" ? allTx : allTx.filter { fmt.string(from: $0.date) == selectedMonth }
+            filtered = allTx.filter { fmt.string(from: $0.date) == selectedMonth }
+            print("DEBUG: Filtered for month '\(selectedMonth)' = \(filtered.count)")
         }
+        
         let grouped = Dictionary(grouping: filtered, by: { fmt.string(from: $0.date) })
+        print("DEBUG: Grouped by months = \(grouped.keys.sorted())")
+        
         monthlyData = grouped.keys.sorted().map { month in
             let txs = grouped[month] ?? []
-            // Filtere Umbuchungen aus - sie sind weder Einnahmen noch Ausgaben
             let ins = txs.filter { $0.type == "einnahme" }
             let outs = txs.filter { $0.type == "ausgabe" }
             let income = ins.reduce(0) { $0 + $1.amount }
             let expenses = outs.reduce(0) { $0 + abs($1.amount) }
+            print("DEBUG: Month '\(month)' - Income: \(income), Expenses: \(expenses), Transactions: \(txs.count)")
             return MonthlyData(
                 month: month,
                 income: income,
@@ -202,6 +218,13 @@ struct IncomeCategoryChartView: View {
                 expenseTransactions: outs
             )
         }
+        
+        print("DEBUG: Final monthlyData count = \(monthlyData.count)")
+        if let firstData = monthlyData.first {
+            print("DEBUG: First data - Month: '\(firstData.month)', Income: \(firstData.income), Expenses: \(firstData.expenses), IncomeTransactions: \(firstData.incomeTransactions.count), ExpenseTransactions: \(firstData.expenseTransactions.count)")
+        }
+        
+        isLoading = false
     }
 }
 
@@ -238,8 +261,11 @@ struct IncomeCategoryChartViewComponent: View {
                         }
                         .fill(categoryColor(for: segment.name))
                         .onTapGesture {
+                            print("🔍 IncomeCategoryChart: Segment '\(segment.name)' wurde angetippt")
                             if let categoryData = categoryData.first(where: { $0.name == segment.name }) {
+                                print("🔍 IncomeCategoryChart: \(categoryData.transactions.count) Transaktionen gefunden für '\(segment.name)'")
                                 showTransactions(categoryData.transactions, "Einnahmen: \(segment.name)")
+                                print("🔍 IncomeCategoryChart: showTransactions aufgerufen")
                             }
                         }
                     }
@@ -354,7 +380,9 @@ struct IncomeCategoryTableView: View {
                 .font(.callout)
                 .contentShape(Rectangle())
                 .onTapGesture {
+                    print("🔍 IncomeCategoryTableView: Zeile für '\(category.name)' angetippt")
                     showTransactions(category.transactions, "Einnahmen: \(category.name)")
+                    print("🔍 IncomeCategoryTableView: showTransactions aufgerufen")
                 }
                 
                 Divider()

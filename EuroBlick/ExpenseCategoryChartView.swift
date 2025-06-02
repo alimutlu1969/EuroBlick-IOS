@@ -13,6 +13,7 @@ struct ExpenseCategoryChartView: View {
     @State private var showTransactionsSheet = false
     @State private var transactionsToShow: [Transaction] = []
     @State private var transactionsTitle: String = ""
+    @State private var isLoading = true
     
     init(accounts: [Account], viewModel: TransactionViewModel) {
         self.accounts = accounts
@@ -36,10 +37,14 @@ struct ExpenseCategoryChartView: View {
     
     private var categoryData: [CategoryData] {
         let filteredTransactions = filterTransactionsByMonth(monthlyData.flatMap { $0.expenseTransactions })
+            .filter { transaction in
+                // Filtere alle Umbuchungen heraus (interne Transfers zwischen Konten)
+                transaction.type != "umbuchung"
+            }
         let grouped = Dictionary(grouping: filteredTransactions, by: { $0.categoryRelationship?.name ?? "Unbekannt" })
         
         return grouped.map { (category, transactions) in
-            let value = transactions.reduce(0.0) { $0 + $1.amount }
+            let value = transactions.reduce(0.0) { $0 + abs($1.amount) }
             let color = categoryColor(for: category)
             return CategoryData(name: category, value: abs(value), color: color, transactions: transactions)
         }.sorted { abs($0.value) > abs($1.value) }
@@ -68,33 +73,9 @@ struct ExpenseCategoryChartView: View {
     }
     
     private func categoryColor(for name: String) -> Color {
-        let categoryColors: [(pattern: String, color: Color)] = [
-            ("personal", .blue),
-            ("raumkosten", .green),
-            ("priv. kv", .purple),
-            ("kv-beiträge", .mint),
-            ("steuern", .orange),
-            ("büro", .pink),
-            ("marketing", .yellow),
-            ("versicherung", .cyan),
-            ("wareneinkauf", .red),
-            ("instandhaltung", .indigo),
-            ("reparatur", .brown),
-            ("sonstiges", .gray)
-        ]
-        
-        let lowercaseName = name.lowercased()
-        if let match = categoryColors.first(where: { lowercaseName.contains($0.pattern) }) {
-            return match.color
-        }
-        
-        let fallbackColors: [Color] = [
-            .blue, .green, .purple, .orange, .pink, .yellow,
-            .mint, .cyan, .indigo, .red, .brown
-        ]
-        
-        let index = abs(name.hashValue) % fallbackColors.count
-        return fallbackColors[index]
+        let colors: [Color] = [.red, .orange, .pink, .purple, .blue, .indigo, .brown, .gray]
+        let index = abs(name.hashValue) % colors.count
+        return colors[index]
     }
     
     private func formatAmount(_ amount: Double) -> String {
@@ -123,31 +104,46 @@ struct ExpenseCategoryChartView: View {
                 )
                 .background(Color.black.opacity(0.3))
                 
-                ScrollView {
-                    VStack(spacing: 20) {
-                        if !categoryData.isEmpty {
-                            CategoryChartView(
-                                categoryData: categoryData,
-                                totalExpenses: totalCategoryExpenses,
-                                showTransactions: { transactions, title in
-                                    transactionsToShow = transactions
-                                    transactionsTitle = title
-                                    showTransactionsSheet = true
-                                }
-                            )
-                        } else {
-                            Text("Keine Ausgaben im ausgewählten Zeitraum")
-                                .foregroundColor(.gray)
-                                .padding()
+                if isLoading {
+                    Spacer()
+                    ProgressView("Lade Daten...")
+                        .foregroundColor(.white)
+                    Spacer()
+                } else {
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            if !categoryData.isEmpty {
+                                CategoryChartView(
+                                    categoryData: categoryData,
+                                    totalExpenses: totalCategoryExpenses,
+                                    showTransactions: { transactions, title in
+                                        print("🔍 ExpenseCategoryChartView: showTransactions aufgerufen mit Titel '\(title)' und \(transactions.count) Transaktionen")
+                                        transactionsToShow = transactions
+                                        transactionsTitle = title
+                                        print("🔍 ExpenseCategoryChartView: showTransactionsSheet wird auf true gesetzt")
+                                        DispatchQueue.main.async {
+                                            showTransactionsSheet = true
+                                        }
+                                        print("🔍 ExpenseCategoryChartView: showTransactionsSheet wurde gesetzt")
+                                    }
+                                )
+                            } else {
+                                Text("Keine Ausgaben im ausgewählten Zeitraum")
+                                    .foregroundColor(.gray)
+                                    .padding()
+                            }
                         }
+                        .padding(.vertical)
                     }
-                    .padding(.vertical)
                 }
             }
         }
         .navigationTitle("Ausgaben nach Kategorie")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            loadMonthlyData()
+        }
+        .onChange(of: selectedMonth) { oldValue, newValue in
             loadMonthlyData()
         }
         .sheet(isPresented: $showMonthPickerSheet) {
@@ -171,29 +167,48 @@ struct ExpenseCategoryChartView: View {
                 viewModel: viewModel
             )
         }
+        .onChange(of: showTransactionsSheet) { oldValue, newValue in
+            print("🔍 ExpenseCategoryChartView: showTransactionsSheet geändert von \(oldValue) zu \(newValue)")
+        }
     }
     
     private func loadMonthlyData() {
+        isLoading = true
+        print("DEBUG: loadMonthlyData started for ExpenseCategoryChartView")
+        print("DEBUG: selectedMonth = '\(selectedMonth)'")
+        print("DEBUG: accounts count = \(accounts.count)")
+        
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "de_DE")
         fmt.dateFormat = "MMM yyyy"
         let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+        print("DEBUG: Total transactions found = \(allTx.count)")
+        
         let filtered: [Transaction]
         if selectedMonth == "Benutzerdefinierter Zeitraum", let range = customDateRange {
             filtered = allTx.filter { transaction in
                 let date = transaction.date
                 return date >= range.start && date <= range.end
             }
+            print("DEBUG: Filtered for custom date range = \(filtered.count)")
+        } else if selectedMonth == "Alle Monate" {
+            filtered = allTx
+            print("DEBUG: Using all transactions = \(filtered.count)")
         } else {
-            filtered = selectedMonth == "Alle Monate" ? allTx : allTx.filter { fmt.string(from: $0.date) == selectedMonth }
+            filtered = allTx.filter { fmt.string(from: $0.date) == selectedMonth }
+            print("DEBUG: Filtered for month '\(selectedMonth)' = \(filtered.count)")
         }
+        
         let grouped = Dictionary(grouping: filtered, by: { fmt.string(from: $0.date) })
+        print("DEBUG: Grouped by months = \(grouped.keys.sorted())")
+        
         monthlyData = grouped.keys.sorted().map { month in
             let txs = grouped[month] ?? []
             let ins = txs.filter { $0.type == "einnahme" }
             let outs = txs.filter { $0.type == "ausgabe" }
             let income = ins.reduce(0) { $0 + $1.amount }
             let expenses = outs.reduce(0) { $0 + abs($1.amount) }
+            print("DEBUG: Month '\(month)' - Income: \(income), Expenses: \(expenses), Transactions: \(txs.count)")
             return MonthlyData(
                 month: month,
                 income: income,
@@ -203,6 +218,13 @@ struct ExpenseCategoryChartView: View {
                 expenseTransactions: outs
             )
         }
+        
+        print("DEBUG: Final monthlyData count = \(monthlyData.count)")
+        if let firstData = monthlyData.first {
+            print("DEBUG: First data - Month: '\(firstData.month)', Income: \(firstData.income), Expenses: \(firstData.expenses), IncomeTransactions: \(firstData.incomeTransactions.count), ExpenseTransactions: \(firstData.expenseTransactions.count)")
+        }
+        
+        isLoading = false
     }
 }
 
