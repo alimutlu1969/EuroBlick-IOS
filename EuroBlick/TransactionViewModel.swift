@@ -258,7 +258,8 @@ class TransactionViewModel: ObservableObject {
         let context = self.context
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
 
-        // Schließe Reservierungen aus der Kontostand-Berechnung aus
+        // Kontostand berücksichtigt ALLE Transaktionen (auch ausgeschlossene), da es die physische Realität widerspiegelt
+        // Nur Reservierungen werden ausgeschlossen, da sie noch nicht "echt" stattgefunden haben
         fetchRequest.predicate = NSPredicate(format: "account == %@ AND type != %@", account, "reservierung")
         fetchRequest.resultType = .dictionaryResultType
 
@@ -290,10 +291,10 @@ class TransactionViewModel: ObservableObject {
                         totalBalance += amount // Umbuchungen werden auch addiert
                         summeUmbuchungen += amount
                     }
-                    // "reservierung" wird ignoriert
+                    // "reservierung" wird durch Predicate ignoriert
                 }
             }
-            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance) (Reservierungen ausgeschlossen)")
+            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance) (alle Transaktionen außer Reservierungen)")
             return totalBalance
         } catch {
             print("Fehler beim Berechnen des Kontostands: \(error.localizedDescription)")
@@ -795,7 +796,8 @@ class TransactionViewModel: ObservableObject {
     func buildMonthlyData(for account: Account) -> [MonthlyData] {
         context.performAndWait {
             let transactions = (account.transactions?.allObjects as? [Transaction]) ?? []
-            // Filtere Reservierungen und Umbuchungen aus
+            // Für Kontostand-Berechnung: Alle Transaktionen außer Umbuchungen und Reservierungen
+            // (ausgeschlossene Transaktionen werden berücksichtigt, da sie den physischen Kontostand beeinflussen)
             let filteredTransactions = transactions.filter { $0.type != "umbuchung" && $0.type != "reservierung" }
             var monthlyEinnahmen: [String: Double] = [:]
             var monthlyAusgaben: [String: Double] = [:]
@@ -1154,10 +1156,10 @@ class TransactionViewModel: ObservableObject {
         return success
     }
     
-    // Filtere Transaktionen basierend auf Datum, Monat oder benutzerdefiniertem Zeitraum
+    // Filtere Transaktionen für Kontostand-Berechnungen (berücksichtigt alle Transaktionen)
     func filterTransactions(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [Transaction] {
         let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
-        // Filtere Reservierungen aus allen Transaktions-Listen aus
+        // Für Kontostände: Alle Transaktionen außer Reservierungen
         let nonReservationTx = allTx.filter { $0.type != "reservierung" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "de_DE")
@@ -1179,9 +1181,34 @@ class TransactionViewModel: ObservableObject {
         }
     }
 
-    // Aktualisierte Methode für monatliche Daten mit Filter
+    // Filtere Transaktionen für Auswertungsdiagramme (schließt ausgeschlossene Transaktionen aus)
+    func filterTransactionsForEvaluation(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [Transaction] {
+        let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+        // Für Auswertungen: Reservierungen und ausgeschlossene Transaktionen ausschließen
+        let filteredTx = allTx.filter { $0.type != "reservierung" && !$0.excludeFromBalance }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.dateFormat = "MMM yyyy"
+        
+        switch filterType {
+        case "Alle Monate":
+            return filteredTx
+        case "Benutzerdefinierter Zeitraum":
+            guard let range = customDateRange else { return [] }
+            return filteredTx.filter { transaction in
+                let date = transaction.date
+                return date >= range.start && date <= range.end
+            }
+        default:
+            return filteredTx.filter { transaction in
+                formatter.string(from: transaction.date) == selectedMonth
+            }
+        }
+    }
+
+    // Aktualisierte Methode für monatliche Daten mit Filter (für Auswertungsdiagramme)
     func buildMonthlyData(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [MonthlyData] {
-        let filteredTransactions = filterTransactions(accounts: accounts, filterType: filterType, selectedMonth: selectedMonth, customDateRange: customDateRange)
+        let filteredTransactions = filterTransactionsForEvaluation(accounts: accounts, filterType: filterType, selectedMonth: selectedMonth, customDateRange: customDateRange)
         var monthlyEinnahmen: [String: Double] = [:]
         var monthlyAusgaben: [String: Double] = [:]
         var monthlyTransactions: [String: [Transaction]] = [:]
@@ -1215,9 +1242,9 @@ class TransactionViewModel: ObservableObject {
         }
     }
 
-    // Aktualisierte Methode für Kategorien-Daten mit Filter
+    // Aktualisierte Methode für Kategorien-Daten mit Filter (für Auswertungsdiagramme)
     func buildCategoryData(accounts: [Account], filterType: String, selectedMonth: String, customDateRange: (start: Date, end: Date)?) -> [CategoryData] {
-        let filteredTransactions = filterTransactions(accounts: accounts, filterType: filterType, selectedMonth: selectedMonth, customDateRange: customDateRange)
+        let filteredTransactions = filterTransactionsForEvaluation(accounts: accounts, filterType: filterType, selectedMonth: selectedMonth, customDateRange: customDateRange)
         let expenseTransactions = filteredTransactions.filter { $0.type == "ausgabe" }
         let grouped = Dictionary(grouping: expenseTransactions) { $0.categoryRelationship?.name ?? "Unbekannt" }
         let colors: [Color] = [.blue, .green, .purple, .orange, .pink, .yellow, .gray]
@@ -1910,7 +1937,8 @@ class TransactionViewModel: ObservableObject {
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
         fetchRequest.resultType = .dictionaryResultType
         
-        // Schließe Reservierungen aus allen Bilanz-Berechnungen aus
+        // Kontostände berücksichtigen ALLE Transaktionen (auch ausgeschlossene), da sie die physische Realität widerspiegeln
+        // Nur Reservierungen werden ausgeschlossen, da sie noch nicht "echt" stattgefunden haben
         fetchRequest.predicate = NSPredicate(format: "type != %@", "reservierung")
 
         let sumExpression = NSExpressionDescription()
@@ -1939,7 +1967,7 @@ class TransactionViewModel: ObservableObject {
                 }
             }
             
-            // Berechne die Bilanzen (ohne Reservierungen)
+            // Berechne die Bilanzen (alle Transaktionen außer Reservierungen)
             for result in results {
                 if let account = result["account"] as? NSManagedObjectID,
                    let balance = result["totalAmount"] as? Double,
@@ -1955,10 +1983,10 @@ class TransactionViewModel: ObservableObject {
                         balanceDict[account] = currentBalance + balance // Umbuchungen werden auch addiert
                         umbuchungenDict[account] = (umbuchungenDict[account] ?? 0.0) + balance
                     }
-                    // "reservierung" wird automatisch ignoriert durch das Predicate
+                    // "reservierung" wird automatisch durch das Predicate ignoriert
                 }
             }
-            print("Berechnete Kontostände (ohne Reservierungen):")
+            print("Berechnete Kontostände (alle Transaktionen außer Reservierungen):")
             for (accountID, balance) in balanceDict {
                 var name = "-"
                 let einnahmen = einnahmenDict[accountID] ?? 0.0

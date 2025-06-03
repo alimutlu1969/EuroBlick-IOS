@@ -124,7 +124,7 @@ struct TransactionView: View {
 
     private var categorySum: Double {
         filteredTransactions
-            .filter { $0.categoryRelationship?.name == selectedCategory && !$0.excludeFromBalance }
+            .filter { $0.categoryRelationship?.name == selectedCategory && $0.type != "reservierung" }
             .reduce(0.0) { $0 + $1.amount }
     }
 
@@ -138,7 +138,7 @@ struct TransactionView: View {
 
     private var searchTotalAmount: Double {
         let total = filteredTransactions
-            .filter { !$0.excludeFromBalance }
+            .filter { $0.type != "reservierung" }
             .reduce(0.0) { $0 + $1.amount }
         return total.isNaN ? 0.0 : total
     }
@@ -165,9 +165,10 @@ struct TransactionView: View {
         let sortedGroups = grouped.sorted { $0.key < $1.key }
         var result: [TransactionGroup] = []
         for (date, transactions) in sortedGroups {
-            // Berechne die tägliche Bilanz nur mit Transaktionen, die nicht ausgeschlossen sind
+            // Berechne die tägliche Bilanz mit ALLEN Transaktionen (für physischen Kassenstand)
+            // Nur Reservierungen werden ausgeschlossen
             let dailyBalance = transactions
-                .filter { !$0.excludeFromBalance }
+                .filter { $0.type != "reservierung" }
                 .reduce(0.0) { $0 + $1.amount }
             cumulativeBalance += dailyBalance
             let group = TransactionGroup(

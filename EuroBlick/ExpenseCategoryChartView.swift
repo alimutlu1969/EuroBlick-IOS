@@ -30,6 +30,7 @@ struct ExpenseCategoryChartView: View {
         fmt.dateFormat = "MMM yyyy"
         
         let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+            .filter { !$0.excludeFromBalance } // Exclude transactions marked as excluded
         let months = Set(allTx.map { fmt.string(from: $0.date) })
         
         return ["Alle Monate", "Benutzerdefinierter Zeitraum"] + months.sorted()
@@ -182,7 +183,8 @@ struct ExpenseCategoryChartView: View {
         fmt.locale = Locale(identifier: "de_DE")
         fmt.dateFormat = "MMM yyyy"
         let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
-        print("DEBUG: Total transactions found = \(allTx.count)")
+            .filter { !$0.excludeFromBalance } // Exclude transactions marked as excluded
+        print("DEBUG: Total transactions found = \(allTx.count) (excluding excluded transactions)")
         
         let filtered: [Transaction]
         if selectedMonth == "Benutzerdefinierter Zeitraum", let range = customDateRange {

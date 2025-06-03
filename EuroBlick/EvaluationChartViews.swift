@@ -667,7 +667,7 @@ struct AccountBalanceHistoryView: View {
             
             // Hole alle Transaktionen bis zum Startdatum für den Anfangssaldo
             let allTransactions = account.transactions?.allObjects as? [Transaction] ?? []
-            let transactionsBeforeStart = allTransactions.filter { $0.date < dateRange.start && $0.type != "reservierung" }
+            let transactionsBeforeStart = allTransactions.filter { $0.date < dateRange.start && $0.type != "reservierung" && !$0.excludeFromBalance }
             cumulativeBalance = transactionsBeforeStart.reduce(0.0) { $0 + $1.amount }
             
             // Iteriere über jeden Tag im Zeitraum
@@ -677,7 +677,7 @@ struct AccountBalanceHistoryView: View {
                 let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? currentDate
                 
                 let dayTransactions = allTransactions.filter { 
-                    $0.date >= dayStart && $0.date < dayEnd && $0.type != "reservierung"
+                    $0.date >= dayStart && $0.date < dayEnd && $0.type != "reservierung" && !$0.excludeFromBalance
                 }
                 
                 // Addiere die Transaktionen des Tages zum Saldo

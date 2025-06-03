@@ -169,6 +169,7 @@ struct PDFExportView: View {
         fmt.locale = Locale(identifier: "de_DE")
         fmt.dateFormat = "MMM yyyy"
         let allTx = accounts.flatMap { $0.transactions?.allObjects as? [Transaction] ?? [] }
+            .filter { !$0.excludeFromBalance }
         let filtered: [Transaction]
         if selectedMonth == "Benutzerdefinierter Zeitraum", let range = customDateRange {
             filtered = allTx.filter { transaction in
