@@ -556,6 +556,19 @@ struct AccountGroupView: View {
                 viewModel.fetchAccountGroups()
             })
         }
+        .sheet(isPresented: $showEditSheet) {
+            if let account = selectedAccount?.account {
+                EditAccountView(viewModel: viewModel, account: account) {
+                    // Callback nach dem Speichern
+                    DispatchQueue.main.async {
+                        viewModel.objectWillChange.send()
+                        viewModel.refreshContextIfNeeded()
+                        viewModel.fetchAccountGroups()
+                        calculateBalances()
+                    }
+                }
+            }
+        }
     }
 
     private func calculateBalances() {
