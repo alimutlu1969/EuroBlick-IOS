@@ -1556,6 +1556,7 @@ struct CategoryManagementView: View {
     @State private var newCategoryName: String = ""
     @State private var showAlert: Bool = false
     @State private var alertMessage: String = ""
+    @State private var addingNewCategory: String = "" // Für neue Kategorie hinzufügen
 
     var body: some View {
         NavigationStack {
@@ -1563,22 +1564,51 @@ struct CategoryManagementView: View {
                 Color.black.edgesIgnoringSafeArea(.all)
                 VStack {
                     List {
-                        ForEach(viewModel.categories, id: \.self) { category in
-                            CategoryRowView(
-                                category: category,
-                                isEditing: editingCategory == category,
-                                newCategoryName: $newCategoryName,
-                                onEdit: {
-                                    editingCategory = category
-                                    newCategoryName = category.name ?? ""
-                                },
-                                onSave: { saveEditedCategory(category) },
-                                onCancel: {
-                                    editingCategory = nil
-                                    newCategoryName = ""
-                                },
-                                onDelete: { deleteCategory(category) }
-                            )
+                        // Sektion für neue Kategorie hinzufügen
+                        Section(header: Text("Neue Kategorie hinzufügen")
+                            .foregroundColor(.blue)
+                            .font(.headline)) {
+                            HStack {
+                                TextField("Kategoriename eingeben...", text: $addingNewCategory)
+                                    .foregroundColor(.white)
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                                    .background(Color.gray.opacity(0.4))
+                                    .cornerRadius(8)
+                                
+                                Button(action: {
+                                    addNewCategory()
+                                }) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.title2)
+                                        .foregroundColor(addingNewCategory.isEmpty ? .gray : .green)
+                                }
+                                .disabled(addingNewCategory.isEmpty)
+                            }
+                            .listRowBackground(Color.gray.opacity(0.1))
+                        }
+                        
+                        // Sektion für bestehende Kategorien
+                        Section(header: Text("Bestehende Kategorien (\(viewModel.categories.count))")
+                            .foregroundColor(.white)
+                            .font(.headline)) {
+                            ForEach(viewModel.categories, id: \.self) { category in
+                                CategoryRowView(
+                                    category: category,
+                                    isEditing: editingCategory == category,
+                                    newCategoryName: $newCategoryName,
+                                    onEdit: {
+                                        editingCategory = category
+                                        newCategoryName = category.name ?? ""
+                                    },
+                                    onSave: { saveEditedCategory(category) },
+                                    onCancel: {
+                                        editingCategory = nil
+                                        newCategoryName = ""
+                                    },
+                                    onDelete: { deleteCategory(category) }
+                                )
+                            }
                         }
                     }
                     .scrollContentBackground(.hidden)
@@ -1598,6 +1628,20 @@ struct CategoryManagementView: View {
                 }
             }
             .navigationTitle("Kategorien verwalten")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        if !addingNewCategory.isEmpty {
+                            addNewCategory()
+                        }
+                    }) {
+                        Image(systemName: "plus")
+                            .foregroundColor(addingNewCategory.isEmpty ? .gray : .blue)
+                    }
+                    .disabled(addingNewCategory.isEmpty)
+                }
+            }
             .alert(isPresented: $showAlert) {
                 Alert(
                     title: Text("Fehler"),
@@ -1606,6 +1650,31 @@ struct CategoryManagementView: View {
                         alertMessage = ""
                     }
                 )
+            }
+        }
+    }
+
+    // Neue Methode zum Hinzufügen einer Kategorie
+    private func addNewCategory() {
+        guard !addingNewCategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            alertMessage = "Der Kategoriename darf nicht leer sein."
+            showAlert = true
+            return
+        }
+        
+        let trimmedName = addingNewCategory.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Prüfe ob Kategorie bereits existiert
+        if viewModel.categories.contains(where: { $0.name?.lowercased() == trimmedName.lowercased() }) {
+            alertMessage = "Eine Kategorie mit diesem Namen existiert bereits."
+            showAlert = true
+            return
+        }
+        
+        viewModel.addCategory(name: trimmedName) {
+            DispatchQueue.main.async {
+                self.addingNewCategory = ""
+                print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
             }
         }
     }
