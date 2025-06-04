@@ -6,7 +6,10 @@ struct SideMenuView: View {
     @State private var showColorSchemeSheet = false
     @State private var showFeedbackSheet = false
     @State private var showInfoLegalSheet = false
+    @State private var showSyncView = false
     @EnvironmentObject var authManager: AuthenticationManager
+    @EnvironmentObject var syncService: SynologyBackupSyncService
+    @EnvironmentObject var multiUserManager: MultiUserSyncManager
     
     // Dynamische Benutzerdaten
     private var userName: String {
@@ -75,6 +78,17 @@ struct SideMenuView: View {
                     NotificationCenter.default.post(name: NSNotification.Name("SideMenuShowAnalysis"), object: nil)
                     showSideMenu = false
                 }
+                
+                // Neuer Sync-Menüpunkt mit Status-Indikator
+                SideMenuSyncItem(
+                    icon: "icloud.and.arrow.up",
+                    title: "Synology Drive",
+                    syncStatus: syncService.syncStatus,
+                    isSyncing: syncService.isSyncing
+                ) {
+                    showSyncView = true
+                }
+                
                 SideMenuItem(icon: "paintpalette", title: "Farbdesign") {
                     showColorSchemeSheet = true
                 }
@@ -107,6 +121,9 @@ struct SideMenuView: View {
         .sheet(isPresented: $showInfoLegalSheet) {
             InfoLegalSheetView()
         }
+        .sheet(isPresented: $showSyncView) {
+            SynologyDriveSyncView(syncService: syncService, multiUserManager: multiUserManager)
+        }
     }
 }
 
@@ -129,5 +146,89 @@ struct SideMenuItem: View {
             .padding(.vertical, 12)
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct SideMenuSyncItem: View {
+    let icon: String
+    let title: String
+    let syncStatus: SynologyBackupSyncService.SyncStatus
+    let isSyncing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                ZStack {
+                    Image(systemName: icon)
+                        .foregroundColor(.orange)
+                        .frame(width: 24, height: 24)
+                    
+                    if isSyncing {
+                        Circle()
+                            .stroke(Color.blue, lineWidth: 2)
+                            .frame(width: 8, height: 8)
+                            .offset(x: 12, y: -12)
+                            .overlay(
+                                Circle()
+                                    .fill(Color.blue)
+                                    .frame(width: 4, height: 4)
+                                    .offset(x: 12, y: -12)
+                            )
+                    } else {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 8, height: 8)
+                            .offset(x: 12, y: -12)
+                    }
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .foregroundColor(Color.primary)
+                        .font(.system(size: 18, weight: .medium))
+                    
+                    Text(statusText)
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 12))
+                }
+                
+                Spacer()
+            }
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private var statusColor: Color {
+        switch syncStatus {
+        case .idle:
+            return .gray
+        case .checking, .downloading, .uploading, .syncing:
+            return .blue
+        case .error:
+            return .red
+        case .success:
+            return .green
+        }
+    }
+    
+    private var statusText: String {
+        switch syncStatus {
+        case .idle:
+            return "Bereit"
+        case .checking:
+            return "Überprüft..."
+        case .downloading:
+            return "Lädt herunter..."
+        case .uploading:
+            return "Lädt hoch..."
+        case .syncing:
+            return "Synchronisiert..."
+        case .error:
+            return "Fehler"
+        case .success:
+            return "Aktuell"
+        }
     }
 } 

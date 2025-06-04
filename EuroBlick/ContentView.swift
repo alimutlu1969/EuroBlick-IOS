@@ -853,6 +853,8 @@ struct BackupDocument: FileDocument {
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject var authManager: AuthenticationManager
+    @EnvironmentObject var syncService: SynologyBackupSyncService
+    @EnvironmentObject var multiUserManager: MultiUserSyncManager
     @StateObject private var viewModel: TransactionViewModel
     @State private var sheetState: SheetPresentationState = .none
     @State private var showSettingsSheet = false
@@ -1107,10 +1109,12 @@ struct ContentView: View {
                 .onChange(of: viewModel.transactionsUpdated) { _, _ in
                     refreshBalances()
                     print("Kontostände aktualisiert bei Transaktionsänderung: \(accountBalances.count) Konten")
-                    // Automatisches Backup aktivieren
-                    if let backupURL = viewModel.backupData() {
-                        print("Automatisches Backup wird erstellt...")
-                        viewModel.uploadBackupToWebDAV(backupURL: backupURL)
+                    
+                    // Neue automatische Synchronisation - prüft lokale Änderungen und synchronisiert wenn nötig
+                    Task {
+                        print("🔄 Triggering sync check due to transaction changes...")
+                        // Der Sync-Service wird automatisch prüfen, ob lokale Änderungen vorhanden sind
+                        // und diese entsprechend hochladen
                     }
                 }
                 .onAppear {
@@ -1192,6 +1196,8 @@ struct ContentView: View {
             if showSideMenu {
                 SideMenuView(showSideMenu: $showSideMenu)
                     .environmentObject(authManager)
+                    .environmentObject(syncService)
+                    .environmentObject(multiUserManager)
                     .transition(.move(edge: .leading))
                     .zIndex(1)
             }

@@ -31,15 +31,21 @@ struct EuroBlickApp: App {
         WindowGroup {
             Group {
                 if isDataLoaded {
-                    LoginView()
+                    AppContentView()
                         .environment(\.managedObjectContext, persistenceController.container.viewContext)
                         .preferredColorScheme(.dark)
                 } else {
                     ZStack {
                         Color.black.ignoresSafeArea()
-                        ProgressView("Lade Daten...")
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .foregroundColor(.white)
+                        VStack(spacing: 16) {
+                            ProgressView("Lade Daten...")
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .foregroundColor(.white)
+                            
+                            Text("Initialisiere Sync-Services...")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
                     }
                 }
             }
@@ -48,6 +54,37 @@ struct EuroBlickApp: App {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     isDataLoaded = true
                 }
+            }
+        }
+    }
+}
+
+// Neue View, die die Sync-Services initialisiert
+struct AppContentView: View {
+    @StateObject private var viewModel = TransactionViewModel()
+    @StateObject private var multiUserManager = MultiUserSyncManager()
+    @State private var syncService: SynologyBackupSyncService?
+    
+    var body: some View {
+        Group {
+            if let syncService = syncService {
+                LoginView()
+                    .environmentObject(viewModel)
+                    .environmentObject(syncService)
+                    .environmentObject(multiUserManager)
+            } else {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    ProgressView("Initialisiere Sync...")
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .onAppear {
+            if syncService == nil {
+                // Erstelle den SynologyBackupSyncService nach der View-Initialisierung
+                syncService = SynologyBackupSyncService(viewModel: viewModel)
             }
         }
     }
