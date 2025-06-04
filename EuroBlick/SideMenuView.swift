@@ -7,9 +7,11 @@ struct SideMenuView: View {
     @State private var showFeedbackSheet = false
     @State private var showInfoLegalSheet = false
     @State private var showSyncView = false
+    @State private var showCleanupSheet = false
     @EnvironmentObject var authManager: AuthenticationManager
     @EnvironmentObject var syncService: SynologyBackupSyncService
     @EnvironmentObject var multiUserManager: MultiUserSyncManager
+    @EnvironmentObject var viewModel: TransactionViewModel
     
     // Dynamische Benutzerdaten
     private var userName: String {
@@ -99,6 +101,9 @@ struct SideMenuView: View {
                     NotificationCenter.default.post(name: NSNotification.Name("SideMenuShowSettings"), object: nil)
                     showSideMenu = false
                 }
+                SideMenuItem(icon: "trash.circle", title: "Daten bereinigen") {
+                    showCleanupSheet = true
+                }
                 SideMenuItem(icon: "info.circle", title: "Info / Rechtliches") {
                     showInfoLegalSheet = true
                 }
@@ -122,7 +127,10 @@ struct SideMenuView: View {
             InfoLegalSheetView()
         }
         .sheet(isPresented: $showSyncView) {
-            SynologyDriveSyncView(syncService: syncService, multiUserManager: multiUserManager)
+            SynologyDriveSyncView(syncService: syncService, multiUserManager: multiUserManager, viewModel: viewModel)
+        }
+        .sheet(isPresented: $showCleanupSheet) {
+            DataCleanupView(viewModel: viewModel)
         }
     }
 }

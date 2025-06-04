@@ -1078,8 +1078,68 @@ class TransactionViewModel: ObservableObject {
                     let account = Account(context: context)
                     account.name = name
                     account.group = group
+                    
+                    // 🔧 Setze fehlende Eigenschaften für Konten (Legacy-Kompatibilität)
+                    
+                    // includeInBalance: Standardmäßig true, es sei denn, es ist explizit definiert
+                    if let includeInBalance = accountDict["includeInBalance"] as? Bool {
+                        account.setValue(includeInBalance, forKey: "includeInBalance")
+                    } else {
+                        account.setValue(true, forKey: "includeInBalance") // Standard für alte Backups
+                    }
+                    
+                    // type: Bestimme den Typ basierend auf dem Namen oder verwende expliziten Wert
+                    if let type = accountDict["type"] as? String {
+                        account.setValue(type, forKey: "type")
+                    } else {
+                        // Automatische Typ-Bestimmung für Legacy-Backups
+                        let accountNameLower = name.lowercased()
+                        if accountNameLower.contains("bargeld") || accountNameLower.contains("kasse") || accountNameLower.contains("bar") {
+                            account.setValue("bargeld", forKey: "type")
+                        } else if accountNameLower.contains("giro") || accountNameLower.contains("bank") {
+                            account.setValue("bankkonto", forKey: "type")
+                        } else {
+                            account.setValue("offline", forKey: "type")
+                        }
+                    }
+                    
+                    // icon: Setze Standard-Icon basierend auf Typ oder Namen
+                    if let icon = accountDict["icon"] as? String {
+                        account.setValue(icon, forKey: "icon")
+                    } else {
+                        let accountNameLower = name.lowercased()
+                        if accountNameLower.contains("bargeld") || accountNameLower.contains("kasse") || accountNameLower.contains("bar") {
+                            account.setValue("banknote.fill", forKey: "icon")
+                        } else if accountNameLower.contains("giro") || accountNameLower.contains("bank") {
+                            account.setValue("building.columns.fill", forKey: "icon")
+                        } else {
+                            account.setValue("wallet.pass.fill", forKey: "icon")
+                        }
+                    }
+                    
+                    // iconColor: Setze Standard-Farbe basierend auf Typ oder Namen
+                    if let iconColor = accountDict["iconColor"] as? String {
+                        account.setValue(iconColor, forKey: "iconColor")
+                    } else {
+                        let accountNameLower = name.lowercased()
+                        if accountNameLower.contains("bargeld") || accountNameLower.contains("kasse") || accountNameLower.contains("bar") {
+                            account.setValue("#22C55E", forKey: "iconColor") // Grün für Bargeld
+                        } else if accountNameLower.contains("giro") || accountNameLower.contains("bank") {
+                            account.setValue("#3B82F6", forKey: "iconColor") // Blau für Bankkonten
+                        } else {
+                            account.setValue("#6B7280", forKey: "iconColor") // Grau für andere
+                        }
+                    }
+                    
+                    // order: Setze Reihenfolge für Sortierung
+                    if let order = accountDict["order"] as? Int16 {
+                        account.setValue(order, forKey: "order")
+                    } else {
+                        account.setValue(Int16(accountMap.count), forKey: "order")
+                    }
+                    
                     accountMap[name] = account
-                    print("Konto \(name) wiederhergestellt, Gruppe: \(groupName)")
+                    print("✅ Konto \(name) wiederhergestellt (Gruppe: \(groupName), Typ: \(account.value(forKey: "type") as? String ?? "unknown"))")
                 }
 
                 // Wiederherstellung der Transaktionen
@@ -1119,15 +1179,17 @@ class TransactionViewModel: ObservableObject {
                         transaction.categoryRelationship = category
                         print("Transaktion \(idString) mit Kategorie \(categoryName) wiederhergestellt")
                     } else {
-                        print("Kategorie nicht gefunden oder leer für Transaktion \(idString): \(String(describing: transactionDict["category"]))")
+                        print("⚠️ Kategorie nicht gefunden oder leer für Transaktion \(idString): \(String(describing: transactionDict["category"]))")
                     }
                     if let targetAccountName = transactionDict["targetAccount"] as? String, let targetAccount = accountMap[targetAccountName], !targetAccountName.isEmpty {
                         transaction.targetAccount = targetAccount
                         print("Transaktion \(idString) mit Zielkonto \(targetAccountName) wiederhergestellt")
                     }
-                    if let usage = transactionDict["usage"] as? String, !usage.isEmpty {
-                        transaction.usage = usage
-                        print("Transaktion \(idString) mit Verwendungszweck \(usage) wiederhergestellt")
+                    // 🔧 Verbesserte Behandlung des Verwendungszwecks für Legacy-Backups
+                    if let usage = transactionDict["usage"] as? String {
+                        transaction.usage = usage.isEmpty ? "" : usage
+                    } else {
+                        transaction.usage = "" // Leerer String für alte Backups ohne usage-Feld
                     }
                 }
 
@@ -1144,9 +1206,17 @@ class TransactionViewModel: ObservableObject {
                 // Aktualisiere die Daten im ViewModel
                 self.fetchAccountGroups()
                 self.fetchCategories()
-                print("Daten erfolgreich wiederhergestellt, Kontogruppen: \(self.accountGroups.count)")
+                
+                // 📊 Zeige Wiederherstellungsstatistiken
+                print("📊 Legacy-Backup Wiederherstellung abgeschlossen:")
+                print("  ✅ Kontogruppen: \(groupMap.count)")
+                print("  💳 Konten: \(accountMap.count)")
+                print("  🏷️ Kategorien: \(categoryMap.count)")
+                print("  💰 Transaktionen: \(transactionsData.count)")
+                print("  📁 Verfügbare Kontogruppen nach Import: \(self.accountGroups.count)")
+                
                 success = true
-                print("Wiederherstellung abgeschlossen, Erfolg: \(success)")
+                print("✅ Wiederherstellung erfolgreich abgeschlossen!")
             } catch {
                 print("Fehler beim Wiederherstellen der Daten: \(error)")
                 success = false
@@ -2861,6 +2931,139 @@ class TransactionViewModel: ObservableObject {
         
         // Sonst basierend auf Betrag
         return amount >= 0 ? "einnahme" : "ausgabe"
+    }
+    
+    // Bereinige doppelte Kontogruppen
+    func removeDuplicateAccountGroups(completion: (() -> Void)? = nil) {
+        print("🔍 Prüfe auf doppelte Kontogruppen...")
+        
+        context.perform {
+            let fetchRequest: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
+            
+            do {
+                let groups = try self.context.fetch(fetchRequest)
+                
+                // Gruppiere nach Namen
+                var groupsByName: [String: [AccountGroup]] = [:]
+                for group in groups {
+                    let name = group.name ?? ""
+                    if groupsByName[name] == nil {
+                        groupsByName[name] = []
+                    }
+                    groupsByName[name]?.append(group)
+                }
+                
+                var duplicatesFound = 0
+                var duplicatesRemoved = 0
+                
+                // Verarbeite jede Namensgruppe
+                for (name, duplicateGroups) in groupsByName {
+                    if duplicateGroups.count > 1 {
+                        duplicatesFound += duplicateGroups.count - 1
+                        print("🔍 Gefunden: \(duplicateGroups.count) Gruppen mit Name '\(name)'")
+                        
+                        // Behalte die erste Gruppe und lösche die anderen
+                        let keepGroup = duplicateGroups[0]
+                        let removeGroups = Array(duplicateGroups[1...])
+                        
+                        for removeGroup in removeGroups {
+                            // Übertrage alle Konten zur ersten Gruppe
+                            let accounts = removeGroup.accounts?.allObjects as? [Account] ?? []
+                            for account in accounts {
+                                account.group = keepGroup
+                                print("  📦 Konto '\(account.name ?? "")' übertragen")
+                            }
+                            
+                            // Lösche die doppelte Gruppe
+                            self.context.delete(removeGroup)
+                            duplicatesRemoved += 1
+                            print("  🗑️ Doppelte Gruppe gelöscht")
+                        }
+                    }
+                }
+                
+                try self.context.save()
+                print("✅ Duplikat-Bereinigung abgeschlossen:")
+                print("  🔍 Gefunden: \(duplicatesFound) Duplikate")
+                print("  🗑️ Entfernt: \(duplicatesRemoved) Duplikate")
+                
+                DispatchQueue.main.async {
+                    self.fetchAccountGroups()
+                    completion?()
+                }
+                
+            } catch {
+                print("❌ Fehler bei Duplikat-Bereinigung: \(error)")
+                DispatchQueue.main.async {
+                    completion?()
+                }
+            }
+        }
+    }
+    
+    // Repariere Icons und Farben für Konten
+    func fixAccountIconsAndColors(completion: (() -> Void)? = nil) {
+        print("🔧 Repariere Icons und Farben...")
+        
+        context.perform {
+            let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
+            
+            do {
+                let accounts = try self.context.fetch(fetchRequest)
+                var fixedAccounts = 0
+                
+                for account in accounts {
+                    var needsUpdate = false
+                    let accountName = account.name?.lowercased() ?? ""
+                    
+                    // Prüfe und repariere Icon
+                    let currentIcon = account.value(forKey: "icon") as? String
+                    if currentIcon == nil || currentIcon == "" {
+                        if accountName.contains("bargeld") || accountName.contains("kasse") || accountName.contains("bar") {
+                            account.setValue("banknote.fill", forKey: "icon")
+                        } else if accountName.contains("giro") || accountName.contains("bank") {
+                            account.setValue("building.columns.fill", forKey: "icon")
+                        } else {
+                            account.setValue("wallet.pass.fill", forKey: "icon")
+                        }
+                        needsUpdate = true
+                    }
+                    
+                    // Prüfe und repariere Farbe
+                    let currentColor = account.value(forKey: "iconColor") as? String
+                    if currentColor == nil || currentColor == "" {
+                        if accountName.contains("bargeld") || accountName.contains("kasse") || accountName.contains("bar") {
+                            account.setValue("#22C55E", forKey: "iconColor") // Grün
+                        } else if accountName.contains("giro") || accountName.contains("bank") {
+                            account.setValue("#3B82F6", forKey: "iconColor") // Blau
+                        } else {
+                            account.setValue("#6B7280", forKey: "iconColor") // Grau
+                        }
+                        needsUpdate = true
+                    }
+                    
+                    if needsUpdate {
+                        fixedAccounts += 1
+                        print("🔧 Repariert: \(account.name ?? "unknown") - Icon: \(account.value(forKey: "icon") as? String ?? ""), Farbe: \(account.value(forKey: "iconColor") as? String ?? "")")
+                    }
+                }
+                
+                try self.context.save()
+                print("✅ Icon-/Farb-Reparatur abgeschlossen:")
+                print("  🔧 Reparierte Konten: \(fixedAccounts)")
+                
+                DispatchQueue.main.async {
+                    self.fetchAccountGroups()
+                    completion?()
+                }
+                
+            } catch {
+                print("❌ Fehler bei Icon-/Farb-Reparatur: \(error)")
+                DispatchQueue.main.async {
+                    completion?()
+                }
+            }
+        }
     }
 }
 

@@ -384,6 +384,7 @@ struct AccountGroupView: View {
     @State private var showEditAlert = false
     @State private var showSortSheet = false
     @State private var showActionDialog = false
+    @State private var showDeleteConfirmation = false
     @State private var editedName = ""
     @State private var showAccountContextMenu = false
     @State private var selectedAccount: (account: Account, balance: Double)? = nil
@@ -492,6 +493,9 @@ struct AccountGroupView: View {
                 Button("Konten sortieren") {
                     showSortSheet = true
                 }
+                Button("Löschen", role: .destructive) {
+                    showDeleteConfirmation = true
+                }
                 Button("Abbrechen", role: .cancel) {}
             }
             .alert("Kontogruppe bearbeiten", isPresented: $showEditAlert) {
@@ -502,6 +506,14 @@ struct AccountGroupView: View {
                 }
             } message: {
                 Text("Geben Sie einen neuen Namen für die Kontogruppe ein")
+            }
+            .alert("Kontogruppe löschen", isPresented: $showDeleteConfirmation) {
+                Button("Abbrechen", role: .cancel) { }
+                Button("Löschen", role: .destructive) {
+                    viewModel.deleteAccountGroup(group)
+                }
+            } message: {
+                Text("Möchten Sie die Kontogruppe '\(group.name ?? "")' wirklich löschen? Alle Konten und Transaktionen in dieser Gruppe werden ebenfalls gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.")
             }
 
             if expanded {

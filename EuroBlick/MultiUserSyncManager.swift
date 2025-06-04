@@ -7,6 +7,39 @@ class MultiUserSyncManager: ObservableObject {
     @Published var mergeConflicts: [MergeConflict] = []
     @Published var showConflictResolutionSheet = false
     
+    // Legacy backup format for compatibility
+    struct LegacyBackupData: Codable {
+        let accountGroups: [LegacyAccountGroupData]
+        let accounts: [LegacyAccountData]
+        let categories: [LegacyCategoryData]
+        let transactions: [LegacyTransactionData]
+        
+        struct LegacyAccountGroupData: Codable {
+            let name: String
+            let createdAt: Date
+        }
+        
+        struct LegacyAccountData: Codable {
+            let name: String
+            let groupName: String
+            let includeInBalance: Bool
+            let createdAt: Date
+        }
+        
+        struct LegacyCategoryData: Codable {
+            let name: String
+            let createdAt: Date
+        }
+        
+        struct LegacyTransactionData: Codable {
+            let amount: Double
+            let categoryName: String
+            let accountName: String
+            let timestamp: Date
+            let notes: String?
+        }
+    }
+    
     enum ConflictStrategy {
         case lastWriteWins          // Letzte Änderung gewinnt
         case mergeChanges           // Versuche intelligentes Merging
@@ -40,21 +73,39 @@ class MultiUserSyncManager: ObservableObject {
     func restoreWithConflictResolution(from url: URL, viewModel: TransactionViewModel) async -> Bool {
         do {
             let jsonData = try Data(contentsOf: url)
-            let backup = try JSONDecoder().decode(BackupManager.EnhancedBackupData.self, from: jsonData)
             
-            print("🔄 Starting conflict resolution restore...")
-            print("📊 Remote backup from user: \(backup.userID), device: \(backup.deviceName)")
-            
-            switch conflictResolutionStrategy {
-            case .lastWriteWins:
-                return await performLastWriteWinsRestore(backup, viewModel: viewModel)
-            case .mergeChanges:
-                return await performIntelligentMerge(backup, viewModel: viewModel)
-            case .askUser:
-                return await performUserDecisionRestore(backup, viewModel: viewModel)
-            case .preserveLocal:
-                return await performPreserveLocalRestore(backup, viewModel: viewModel)
+            // Try to decode as new Enhanced Backup format first
+            if let backup = try? JSONDecoder().decode(BackupManager.EnhancedBackupData.self, from: jsonData) {
+                print("🔄 Starting conflict resolution restore with Enhanced Backup...")
+                print("📊 Remote backup from user: \(backup.userID), device: \(backup.deviceName)")
+                
+                switch conflictResolutionStrategy {
+                case .lastWriteWins:
+                    return await performLastWriteWinsRestore(backup, viewModel: viewModel)
+                case .mergeChanges:
+                    return await performIntelligentMerge(backup, viewModel: viewModel)
+                case .askUser:
+                    return await performUserDecisionRestore(backup, viewModel: viewModel)
+                case .preserveLocal:
+                    return await performPreserveLocalRestore(backup, viewModel: viewModel)
+                }
             }
+            
+            // Fallback: Try to decode as legacy backup format
+            print("🔄 Enhanced backup parsing failed, trying legacy format...")
+            if let legacyBackup = try? JSONDecoder().decode(LegacyBackupData.self, from: jsonData) {
+                print("📊 Legacy backup detected, converting to enhanced format...")
+                return await performLegacyBackupRestore(legacyBackup, viewModel: viewModel)
+            }
+            
+            // If both fail, try raw JSON dictionary approach
+            if let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                print("🔄 Trying raw JSON dictionary fallback...")
+                return await performRawJSONRestore(jsonObject, viewModel: viewModel)
+            }
+            
+            print("❌ Failed to parse backup in any known format")
+            return false
             
         } catch {
             print("❌ Failed to parse backup for conflict resolution: \(error)")
@@ -76,15 +127,20 @@ class MultiUserSyncManager: ObservableObject {
                     
                     if success {
                         try viewModel.getBackgroundContext().save()
-                        print("✅ Last Write Wins restore completed")
-                    }
-                    
-                    DispatchQueue.main.async {
-                        if success {
+                        print("✅ Last Write Wins restore completed - context saved")
+                        
+                        // Force main context to refresh from persistent store
+                        DispatchQueue.main.async {
+                            viewModel.getContext().refreshAllObjects()
                             viewModel.fetchAccountGroups()
                             viewModel.fetchCategories()
+                            print("🔄 UI refreshed after restore")
+                            continuation.resume(returning: true)
                         }
-                        continuation.resume(returning: success)
+                    } else {
+                        DispatchQueue.main.async {
+                            continuation.resume(returning: false)
+                        }
                     }
                 } catch {
                     print("❌ Last Write Wins restore failed: \(error)")
@@ -225,7 +281,7 @@ class MultiUserSyncManager: ObservableObject {
     private func mergeAccounts(_ remoteAccounts: [BackupManager.EnhancedBackupData.AccountData], context: NSManagedObjectContext) throws {
         let groupRequest: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
         let localGroups = try context.fetch(groupRequest)
-        let groupMap = Dictionary(uniqueKeysWithValues: localGroups.compactMap { group in
+        let groupMap: [String: AccountGroup] = Dictionary(uniqueKeysWithValues: localGroups.compactMap { group in
             guard let name = group.name else { return nil }
             return (name, group)
         })
@@ -255,14 +311,14 @@ class MultiUserSyncManager: ObservableObject {
         // Get account and category maps
         let accountRequest: NSFetchRequest<Account> = Account.fetchRequest()
         let localAccounts = try context.fetch(accountRequest)
-        let accountMap = Dictionary(uniqueKeysWithValues: localAccounts.compactMap { account in
+        let accountMap: [String: Account] = Dictionary(uniqueKeysWithValues: localAccounts.compactMap { account in
             guard let name = account.name else { return nil }
             return (name, account)
         })
         
         let categoryRequest: NSFetchRequest<Category> = Category.fetchRequest()
         let localCategories = try context.fetch(categoryRequest)
-        let categoryMap = Dictionary(uniqueKeysWithValues: localCategories.compactMap { category in
+        let categoryMap: [String: Category] = Dictionary(uniqueKeysWithValues: localCategories.compactMap { category in
             guard let name = category.name else { return nil }
             return (name, category)
         })
@@ -316,70 +372,86 @@ class MultiUserSyncManager: ObservableObject {
     // MARK: - Helper Methods
     
     private func clearAllData(_ context: NSManagedObjectContext) throws {
+        print("🗑️ Starting data clearance...")
+        
+        // Use individual fetch and delete instead of batch delete for better reliability
         let entities = ["Transaction", "Account", "AccountGroup", "Category"]
         
         for entityName in entities {
-            let fetchRequest: NSFetchRequest<NSFetchRequestResult> = NSFetchRequest(entityName: entityName)
-            let batchDeleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
-            batchDeleteRequest.resultType = .resultTypeCount
+            // Fetch all objects of this entity type
+            let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+            let objects = try context.fetch(fetchRequest)
             
-            try context.execute(batchDeleteRequest)
+            // Delete each object individually
+            for object in objects {
+                context.delete(object)
+            }
+            
+            print("🗑️ Marked \(objects.count) \(entityName) entities for deletion")
         }
         
-        print("🗑️ Cleared all existing data")
+        // Save the context to actually delete the objects
+        try context.save()
+        
+        // Force context to refresh to reflect the deletions
+        context.reset()
+        
+        print("🗑️ Cleared all existing data and reset context")
+        
+        // Verify deletion by checking counts
+        for entityName in entities {
+            let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+            let count = try context.count(for: fetchRequest)
+            print("🔍 After deletion - \(entityName): \(count) objects remaining")
+        }
     }
     
     private func restoreFromBackup(_ backup: BackupManager.EnhancedBackupData, context: NSManagedObjectContext) -> Bool {
-        do {
-            // Restore categories
-            var categoryMap: [String: Category] = [:]
-            for categoryData in backup.categories {
-                let category = Category(context: context)
-                category.name = categoryData.name
-                categoryMap[categoryData.name] = category
-            }
-            
-            // Restore account groups
-            var groupMap: [String: AccountGroup] = [:]
-            for groupData in backup.accountGroups {
-                let group = AccountGroup(context: context)
-                group.name = groupData.name
-                groupMap[groupData.name] = group
-            }
-            
-            // Restore accounts
-            var accountMap: [String: Account] = [:]
-            for accountData in backup.accounts {
-                let account = Account(context: context)
-                account.name = accountData.name
-                account.group = groupMap[accountData.group]
-                account.setValue(accountData.type, forKey: "type")
-                account.setValue(accountData.includeInBalance, forKey: "includeInBalance")
-                accountMap[accountData.name] = account
-            }
-            
-            // Restore transactions
-            for transactionData in backup.transactions {
-                let transaction = Transaction(context: context)
-                transaction.id = UUID(uuidString: transactionData.id) ?? UUID()
-                transaction.type = transactionData.type
-                transaction.amount = transactionData.amount
-                transaction.date = Date(timeIntervalSince1970: transactionData.date)
-                transaction.usage = transactionData.usage
-                transaction.account = accountMap[transactionData.account]
-                transaction.categoryRelationship = categoryMap[transactionData.category]
-                
-                if let targetAccountName = transactionData.targetAccount {
-                    transaction.targetAccount = accountMap[targetAccountName]
-                }
-            }
-            
-            return true
-            
-        } catch {
-            print("❌ Failed to restore from backup: \(error)")
-            return false
+        // Restore categories
+        var categoryMap: [String: Category] = [:]
+        for categoryData in backup.categories {
+            let category = Category(context: context)
+            category.name = categoryData.name
+            categoryMap[categoryData.name] = category
         }
+        
+        // Restore account groups
+        var groupMap: [String: AccountGroup] = [:]
+        for groupData in backup.accountGroups {
+            let group = AccountGroup(context: context)
+            group.name = groupData.name
+            groupMap[groupData.name] = group
+        }
+        
+        // Restore accounts
+        var accountMap: [String: Account] = [:]
+        for accountData in backup.accounts {
+            let account = Account(context: context)
+            account.name = accountData.name
+            account.group = groupMap[accountData.group]
+            account.setValue(accountData.type, forKey: "type")
+            account.setValue(accountData.includeInBalance, forKey: "includeInBalance")
+            accountMap[accountData.name] = account
+        }
+        
+        // Restore transactions
+        for transactionData in backup.transactions {
+            let transaction = Transaction(context: context)
+            transaction.id = UUID(uuidString: transactionData.id) ?? UUID()
+            transaction.type = transactionData.type
+            transaction.amount = transactionData.amount
+            transaction.date = Date(timeIntervalSince1970: transactionData.date)
+            transaction.usage = transactionData.usage
+            transaction.account = accountMap[transactionData.account]
+            transaction.categoryRelationship = categoryMap[transactionData.category]
+            
+            if let targetAccountName = transactionData.targetAccount {
+                transaction.targetAccount = accountMap[targetAccountName]
+            }
+        }
+        
+        print("✅ Backup restoration completed successfully")
+        return true
     }
     
     // MARK: - Configuration
@@ -405,6 +477,276 @@ class MultiUserSyncManager: ObservableObject {
                 conflictResolutionStrategy = .lastWriteWins
             }
         }
+    }
+    
+    // MARK: - Legacy Backup Support
+    
+    private func performLegacyBackupRestore(_ legacyBackup: LegacyBackupData, viewModel: TransactionViewModel) async -> Bool {
+        print("🔄 Restoring legacy backup format...")
+        
+        return await withCheckedContinuation { continuation in
+            viewModel.getBackgroundContext().perform {
+                do {
+                    // Convert legacy format to our standard restore process
+                    try self.clearAllData(viewModel.getBackgroundContext())
+                    let success = self.restoreFromLegacyBackup(legacyBackup, context: viewModel.getBackgroundContext())
+                    
+                    if success {
+                        try viewModel.getBackgroundContext().save()
+                        print("✅ Legacy backup restore completed")
+                    }
+                    
+                    DispatchQueue.main.async {
+                        if success {
+                            viewModel.fetchAccountGroups()
+                            viewModel.fetchCategories()
+                        }
+                        continuation.resume(returning: success)
+                    }
+                } catch {
+                    print("❌ Legacy backup restore failed: \(error)")
+                    DispatchQueue.main.async {
+                        continuation.resume(returning: false)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func performRawJSONRestore(_ jsonObject: [String: Any], viewModel: TransactionViewModel) async -> Bool {
+        print("🔄 Attempting raw JSON restore...")
+        
+        return await withCheckedContinuation { continuation in
+            viewModel.getBackgroundContext().perform {
+                do {
+                    // Clear all existing data first to prevent duplicates
+                    try self.clearAllData(viewModel.getBackgroundContext())
+                    print("🗑️ Cleared existing data before raw JSON restore")
+                    
+                    let success = self.restoreFromRawJSON(jsonObject, context: viewModel.getBackgroundContext())
+                    
+                    if success {
+                        // Update the backup manager's hash to prevent immediate re-upload
+                        Task {
+                            let backupManager = BackupManager(viewModel: viewModel)
+                            if await backupManager.createEnhancedBackup() != nil {
+                                // This will update the saved hash in BackupManager
+                                _ = await backupManager.hasLocalChanges()
+                            }
+                        }
+                        
+                        try viewModel.getBackgroundContext().save()
+                        print("✅ Raw JSON restore completed and saved")
+                        
+                        // Force main context to refresh from persistent store
+                        DispatchQueue.main.async {
+                            viewModel.getContext().refreshAllObjects()
+                            viewModel.fetchAccountGroups()
+                            viewModel.fetchCategories()
+                            print("🔄 UI refreshed after raw JSON restore")
+                            continuation.resume(returning: true)
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            continuation.resume(returning: false)
+                        }
+                    }
+                } catch {
+                    print("❌ Raw JSON restore failed with error: \(error)")
+                    DispatchQueue.main.async {
+                        continuation.resume(returning: false)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func restoreFromLegacyBackup(_ backup: LegacyBackupData, context: NSManagedObjectContext) -> Bool {
+        // Restore categories
+        var categoryMap: [String: Category] = [:]
+        for categoryData in backup.categories {
+            let category = Category(context: context)
+            category.name = categoryData.name
+            categoryMap[categoryData.name] = category
+        }
+        
+        // Restore account groups
+        var groupMap: [String: AccountGroup] = [:]
+        for groupData in backup.accountGroups {
+            let group = AccountGroup(context: context)
+            group.name = groupData.name
+            groupMap[groupData.name] = group
+        }
+        
+        // Restore accounts
+        var accountMap: [String: Account] = [:]
+        for accountData in backup.accounts {
+            let account = Account(context: context)
+            account.name = accountData.name
+            account.group = groupMap[accountData.groupName]
+            account.setValue(accountData.includeInBalance, forKey: "includeInBalance")
+            accountMap[accountData.name] = account
+        }
+        
+        // Restore transactions
+        for transactionData in backup.transactions {
+            let transaction = Transaction(context: context)
+            transaction.id = UUID()
+            transaction.amount = transactionData.amount
+            transaction.date = transactionData.timestamp
+            transaction.usage = transactionData.notes ?? ""
+            transaction.account = accountMap[transactionData.accountName]
+            transaction.categoryRelationship = categoryMap[transactionData.categoryName]
+            
+            // Set transaction type based on amount (critical fix for legacy backups)
+            if transactionData.amount >= 0 {
+                transaction.type = "income"
+            } else {
+                transaction.type = "expense"
+            }
+        }
+        
+        print("✅ Legacy backup restoration completed successfully")
+        return true
+    }
+    
+    private func restoreFromRawJSON(_ jsonObject: [String: Any], context: NSManagedObjectContext) -> Bool {
+        // Try to extract basic data structures from raw JSON
+        print("🔍 Analyzing raw JSON structure...")
+        
+        // Check if it has the basic structure we expect
+        guard let accountGroups = jsonObject["accountGroups"] as? [[String: Any]],
+              let accounts = jsonObject["accounts"] as? [[String: Any]],
+              let categories = jsonObject["categories"] as? [[String: Any]],
+              let transactions = jsonObject["transactions"] as? [[String: Any]] else {
+            print("❌ Raw JSON does not contain expected structure")
+            return false
+        }
+        
+        print("📊 Found structured data: \(accountGroups.count) groups, \(accounts.count) accounts, \(categories.count) categories, \(transactions.count) transactions")
+        
+        // Since we cleared all data, we can create fresh entities without checking for duplicates
+        
+        // Create categories
+        var categoryMap: [String: Category] = [:]
+        for categoryJSON in categories {
+            if let name = categoryJSON["name"] as? String {
+                let category = Category(context: context)
+                category.name = name
+                categoryMap[name] = category
+                print("➕ Created category: \(name)")
+            }
+        }
+        
+        // Create account groups
+        var groupMap: [String: AccountGroup] = [:]
+        for groupJSON in accountGroups {
+            if let name = groupJSON["name"] as? String {
+                let group = AccountGroup(context: context)
+                group.name = name
+                groupMap[name] = group
+                print("➕ Created account group: \(name)")
+            }
+        }
+        
+        // Create accounts
+        var accountMap: [String: Account] = [:]
+        for accountJSON in accounts {
+            if let name = accountJSON["name"] as? String,
+               let groupName = accountJSON["groupName"] as? String ?? accountJSON["group"] as? String {
+                
+                let account = Account(context: context)
+                account.name = name
+                account.group = groupMap[groupName]
+                
+                if let includeInBalance = accountJSON["includeInBalance"] as? Bool {
+                    account.setValue(includeInBalance, forKey: "includeInBalance")
+                }
+                
+                accountMap[name] = account
+                print("➕ Created account: \(name)")
+            }
+        }
+        
+        var newTransactionsCount = 0
+        
+        // Create transactions
+        for transactionJSON in transactions {
+            if let amount = transactionJSON["amount"] as? Double,
+               let categoryName = transactionJSON["categoryName"] as? String ?? transactionJSON["category"] as? String,
+               let accountName = transactionJSON["accountName"] as? String ?? transactionJSON["account"] as? String {
+                
+                // Get transaction date - handle multiple date formats
+                var transactionDate: Date
+                if let timestamp = transactionJSON["timestamp"] as? TimeInterval {
+                    transactionDate = Date(timeIntervalSince1970: timestamp)
+                } else if let dateValue = transactionJSON["date"] as? TimeInterval {
+                    // Handle Unix timestamp (your backup format)
+                    transactionDate = Date(timeIntervalSince1970: dateValue)
+                } else if let dateString = transactionJSON["date"] as? String {
+                    // Try to parse date string
+                    let formatter = ISO8601DateFormatter()
+                    transactionDate = formatter.date(from: dateString) ?? Date()
+                } else {
+                    transactionDate = Date()
+                }
+                
+                let transaction = Transaction(context: context)
+                
+                // Handle transaction ID - use existing ID if available
+                if let idString = transactionJSON["id"] as? String,
+                   let uuid = UUID(uuidString: idString) {
+                    transaction.id = uuid
+                } else {
+                    transaction.id = UUID()
+                }
+                
+                transaction.amount = amount
+                transaction.date = transactionDate
+                transaction.account = accountMap[accountName]
+                transaction.categoryRelationship = categoryMap[categoryName]
+                
+                // Use the transaction type from JSON if available, otherwise derive from amount
+                if let transactionType = transactionJSON["type"] as? String {
+                    transaction.type = transactionType
+                } else {
+                    // Fallback: Set transaction type based on amount
+                    if amount >= 0 {
+                        transaction.type = "einnahme"  // Use German terms to match your data
+                    } else {
+                        transaction.type = "ausgabe"
+                    }
+                }
+                
+                // Try to get notes/usage
+                if let notes = transactionJSON["notes"] as? String {
+                    transaction.usage = notes
+                } else if let usage = transactionJSON["usage"] as? String {
+                    transaction.usage = usage
+                } else {
+                    transaction.usage = ""
+                }
+                
+                // Handle target account for transfers
+                if let targetAccountName = transactionJSON["targetAccount"] as? String,
+                   !targetAccountName.isEmpty,
+                   let targetAccount = accountMap[targetAccountName] {
+                    transaction.targetAccount = targetAccount
+                }
+                
+                newTransactionsCount += 1
+                print("➕ Created transaction: \(amount) \(categoryName) on \(transactionDate)")
+                
+            } else {
+                print("⚠️ Skipping transaction due to missing required fields: \(transactionJSON)")
+            }
+        }
+        
+        print("📊 Transaction processing:")
+        print("  New transactions created: \(newTransactionsCount)")
+        
+        print("✅ Raw JSON restoration completed successfully")
+        return true
     }
     
     init() {

@@ -67,10 +67,33 @@ class BackupManager: ObservableObject {
     }
     
     func hasLocalChanges() async -> Bool {
-        guard let backup = await createEnhancedBackup() else { return false }
+        guard let backup = await createEnhancedBackup() else { 
+            print("📊 hasLocalChanges: Failed to create backup")
+            return false 
+        }
         
         let currentHash = calculateDataHash(backup)
-        return currentHash != lastBackupHash
+        let savedHash = lastBackupHash
+        
+        print("📊 Change Detection:")
+        print("  Current Hash: \(currentHash)")
+        print("  Saved Hash: \(savedHash ?? "none")")
+        print("  Has Changes: \(currentHash != savedHash)")
+        
+        // Don't upload if we just restored data and haven't made real changes
+        if let savedHash = savedHash, currentHash == savedHash {
+            print("📊 No changes detected - skipping upload")
+            return false
+        }
+        
+        // Also check if we just uploaded recently (within last 2 minutes) to prevent loops
+        if let lastUploadTime = UserDefaults.standard.object(forKey: "lastUploadTime") as? Date,
+           Date().timeIntervalSince(lastUploadTime) < 120 {
+            print("📊 Recently uploaded (\(Int(Date().timeIntervalSince(lastUploadTime)))s ago) - skipping upload")
+            return false
+        }
+        
+        return true
     }
     
     func uploadBackup(_ backup: EnhancedBackupData) async throws {
@@ -86,11 +109,26 @@ class BackupManager: ObservableObject {
         // Convert backup to JSON
         let jsonData = try JSONEncoder().encode(backup)
         
-        // Create upload URL
-        let baseURL = webdavURL.replacingOccurrences(of: "/EuroBlickBackup", with: "")
-        guard let uploadURL = URL(string: "\(baseURL)/\(filename)") else {
-            throw BackupError.invalidURL
+        // Create upload URL - handle both directory and file URLs
+        var uploadURL: URL
+        if webdavURL.hasSuffix(".json") {
+            // WebDAV URL points to a specific file, extract directory and construct new path
+            let url = URL(string: webdavURL)!
+            let directoryURL = url.deletingLastPathComponent()
+            uploadURL = directoryURL.appendingPathComponent(filename)
+        } else {
+            // WebDAV URL points to directory, append filename
+            let baseURL = webdavURL.hasSuffix("/") ? webdavURL : webdavURL + "/"
+            guard let constructedURL = URL(string: baseURL + filename) else {
+                throw BackupError.invalidURL
+            }
+            uploadURL = constructedURL
         }
+        
+        print("📤 Upload Configuration:")
+        print("  WebDAV URL: \(webdavURL)")
+        print("  Upload URL: \(uploadURL)")
+        print("  Filename: \(filename)")
         
         // Create request
         var request = URLRequest(url: uploadURL)
@@ -104,16 +142,30 @@ class BackupManager: ObservableObject {
         request.httpBody = jsonData
         
         // Upload
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         
-        guard let httpResponse = response as? HTTPURLResponse,
-              200...299 ~= httpResponse.statusCode else {
+        print("📤 Upload Response:")
+        if let httpResponse = response as? HTTPURLResponse {
+            print("  Status Code: \(httpResponse.statusCode)")
+            print("  Response Headers: \(httpResponse.allHeaderFields)")
+        }
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BackupError.uploadFailed
+        }
+        
+        guard 200...299 ~= httpResponse.statusCode else {
+            let responseString = String(data: data, encoding: .utf8) ?? "No response body"
+            print("❌ Upload HTTP Error \(httpResponse.statusCode): \(responseString)")
             throw BackupError.uploadFailed
         }
         
         // Update last backup hash
         lastBackupHash = backup.dataHash
         saveLastBackupHash()
+        
+        // Save upload time to prevent loops
+        UserDefaults.standard.set(Date(), forKey: "lastUploadTime")
         
         print("✅ Enhanced backup uploaded successfully: \(filename)")
     }
@@ -229,15 +281,41 @@ class BackupManager: ObservableObject {
     }
     
     private func calculateDataHash(_ backup: EnhancedBackupData) -> String {
-        // Create a hash from the core data (excluding metadata like timestamp, userID, etc.)
-        let coreData = [
-            backup.accountGroups.description,
-            backup.accounts.description,
-            backup.transactions.description,
-            backup.categories.description
-        ].joined()
+        // Create a deterministic hash from the core data
+        var hashComponents: [String] = []
         
-        return String(coreData.hashValue)
+        // Sort and hash categories
+        let sortedCategories = backup.categories.sorted { $0.name < $1.name }
+        hashComponents.append("categories:\(sortedCategories.count)")
+        for category in sortedCategories {
+            hashComponents.append("cat:\(category.name)")
+        }
+        
+        // Sort and hash account groups
+        let sortedGroups = backup.accountGroups.sorted { $0.name < $1.name }
+        hashComponents.append("groups:\(sortedGroups.count)")
+        for group in sortedGroups {
+            hashComponents.append("grp:\(group.name):\(group.accounts.sorted().joined(separator:","))")
+        }
+        
+        // Sort and hash accounts
+        let sortedAccounts = backup.accounts.sorted { $0.name < $1.name }
+        hashComponents.append("accounts:\(sortedAccounts.count)")
+        for account in sortedAccounts {
+            hashComponents.append("acc:\(account.name):\(account.group):\(account.includeInBalance)")
+        }
+        
+        // Sort and hash transactions (excluding timestamps to avoid constant changes)
+        let sortedTransactions = backup.transactions.sorted { $0.id < $1.id }
+        hashComponents.append("transactions:\(sortedTransactions.count)")
+        for transaction in sortedTransactions {
+            hashComponents.append("txn:\(transaction.id):\(transaction.amount):\(transaction.category):\(transaction.account)")
+        }
+        
+        let combinedString = hashComponents.joined(separator:"|")
+        print("📊 Hash calculation base: \(combinedString.prefix(200))...")
+        
+        return String(combinedString.hashValue)
     }
     
     private func performRestore(_ backup: EnhancedBackupData) -> Bool {
