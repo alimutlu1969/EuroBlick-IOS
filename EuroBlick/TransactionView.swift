@@ -303,6 +303,7 @@ struct TransactionView: View {
                         onToggleExcludeFromBalance: toggleExcludeFromBalance
                     )
                     .id(refreshID)
+                    .padding(.horizontal, 25)
                     
                     Spacer()
                     
