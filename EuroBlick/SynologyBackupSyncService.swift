@@ -322,7 +322,12 @@ class SynologyBackupSyncService: ObservableObject {
                 }
             } else if localDataExists && !hasRemoteData {
                 // Case 2: Local has data, remote empty → Upload (only if not manual sync to avoid endless uploads)
-                if isManual || await shouldUploadLocalData() {
+                var shouldUpload = isManual
+                if !shouldUpload {
+                    shouldUpload = await shouldUploadLocalData()
+                }
+                
+                if shouldUpload {
                     await MainActor.run {
                         syncStatus = .uploading
                     }
@@ -348,7 +353,13 @@ class SynologyBackupSyncService: ObservableObject {
                 }
                 
                 // Check if we have local changes to upload (only for manual sync or significant changes)
-                if (isManual || await hasSignificantLocalChanges()) && await backupManager.hasLocalChanges() {
+                var hasSignificantChanges = isManual
+                if !hasSignificantChanges {
+                    hasSignificantChanges = await hasSignificantLocalChanges()
+                }
+                
+                let hasLocalChanges = await backupManager.hasLocalChanges()
+                if hasSignificantChanges && hasLocalChanges {
                     await MainActor.run {
                         syncStatus = .uploading
                     }
