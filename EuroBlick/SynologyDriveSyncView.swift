@@ -12,6 +12,11 @@ struct SynologyDriveSyncView: View {
     @State private var showBackupAnalysis = false
     @State private var backupAnalysis: [(SynologyBackupSyncService.BackupInfo, String)] = []
     @State private var isAnalyzing = false
+    @State private var showDebugLogs = false
+    @State private var debugLogs: [String] = []
+    @State private var isCapturingLogs = false
+    @State private var showForceRestore = false
+    @State private var forceRestoreJSON = ""
     
     var body: some View {
         NavigationView {
@@ -86,7 +91,7 @@ struct SynologyDriveSyncView: View {
                     VStack(spacing: 12) {
                         Button(action: {
                             Task {
-                                await syncService.performManualSync()
+                                await performManualSyncWithLogging()
                             }
                         }) {
                             HStack {
@@ -105,6 +110,30 @@ struct SynologyDriveSyncView: View {
                             .cornerRadius(12)
                         }
                         .disabled(syncService.isSyncing)
+                        
+                        HStack(spacing: 12) {
+                            Button("Debug-Logs") {
+                                showDebugLogs = true
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.purple)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                            
+                            Button("Diagnose") {
+                                Task {
+                                    syncService.clearDebugLogs()
+                                    await syncService.performDiagnosticSync()
+                                    showDebugLogs = true
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.orange)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
                         
                         Button("WebDAV-Verbindung testen") {
                             Task {
@@ -143,6 +172,15 @@ struct SynologyDriveSyncView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .background(Color.purple)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        
+                        Button("JSON-Backup wiederherstellen") {
+                            showForceRestore = true
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.red)
                         .foregroundColor(.white)
                         .cornerRadius(8)
                     }
@@ -210,6 +248,12 @@ struct SynologyDriveSyncView: View {
                         }
                     }
                 )
+            }
+            .sheet(isPresented: $showDebugLogs) {
+                DebugLogsView(logs: syncService.debugLogs, syncService: syncService)
+            }
+            .sheet(isPresented: $showForceRestore) {
+                ForceRestoreView(syncService: syncService)
             }
             .alert("WebDAV-Test", isPresented: $showTestAlert) {
                 Button("OK") { }
@@ -379,6 +423,12 @@ struct SynologyDriveSyncView: View {
         
         // Restart auto sync
         syncService.startAutoSync()
+    }
+    
+    // MARK: - Debug Methods
+    private func performManualSyncWithLogging() async {
+        syncService.clearDebugLogs()
+        await syncService.performManualSync()
     }
 }
 
@@ -705,6 +755,196 @@ struct BackupAnalysisView: View {
         formatter.timeStyle = .short
         formatter.locale = Locale(identifier: "de_DE")
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Debug Logs View
+struct DebugLogsView: View {
+    let logs: [String]
+    let syncService: SynologyBackupSyncService
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if logs.isEmpty {
+                        VStack(spacing: 16) {
+                            Text("Keine Debug-Logs verfügbar")
+                                .foregroundColor(.secondary)
+                            
+                            Button("Sync-Test ausführen") {
+                                Task {
+                                    await syncService.performManualSync()
+                                }
+                            }
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                        }
+                        .padding()
+                    } else {
+                        ForEach(logs, id: \.self) { log in
+                            Text(log)
+                                .font(.system(.caption, design: .monospaced))
+                                .padding(.horizontal)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle("Debug-Logs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Schließen") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack {
+                        if !logs.isEmpty {
+                            Button("Löschen") {
+                                syncService.clearDebugLogs()
+                            }
+                            
+                            Button("Kopieren") {
+                                let allLogs = logs.joined(separator: "\n")
+                                UIPasteboard.general.string = allLogs
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Force Restore View
+struct ForceRestoreView: View {
+    let syncService: SynologyBackupSyncService
+    @Environment(\.dismiss) private var dismiss
+    @State private var jsonInput = ""
+    @State private var isProcessing = false
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("JSON-Backup-Daten")
+                        .font(.headline)
+                    
+                    Text("Fügen Sie hier die vollständigen JSON-Backup-Daten ein:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    TextEditor(text: $jsonInput)
+                        .font(.system(.caption, design: .monospaced))
+                        .border(Color.gray, width: 1)
+                        .frame(minHeight: 200)
+                }
+                
+                VStack(spacing: 8) {
+                    Text("⚠️ Achtung")
+                        .font(.headline)
+                        .foregroundColor(.red)
+                    
+                    Text("Diese Funktion überschreibt alle lokalen Daten mit den bereitgestellten Backup-Daten. Stellen Sie sicher, dass Sie ein aktuelles Backup haben.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                
+                Button(action: {
+                    Task {
+                        await performForceRestore()
+                    }
+                }) {
+                    HStack {
+                        if isProcessing {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        Text(isProcessing ? "Wird wiederhergestellt..." : "Backup wiederherstellen")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(jsonInput.isEmpty || isProcessing ? Color.gray : Color.red)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .disabled(jsonInput.isEmpty || isProcessing)
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("JSON-Backup wiederherstellen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Beispiel einfügen") {
+                        insertSampleJSON()
+                    }
+                    .disabled(isProcessing)
+                }
+            }
+            .alert("Wiederherstellung", isPresented: $showAlert) {
+                Button("OK") {
+                    if alertMessage.contains("erfolgreich") {
+                        dismiss()
+                    }
+                }
+            } message: {
+                Text(alertMessage)
+            }
+        }
+    }
+    
+    private func performForceRestore() async {
+        isProcessing = true
+        syncService.clearDebugLogs()
+        
+        let success = await syncService.forceRestoreFromJSON(jsonInput)
+        
+        await MainActor.run {
+            isProcessing = false
+            if success {
+                alertMessage = "✅ Backup wurde erfolgreich wiederhergestellt! Die App zeigt jetzt die Daten aus dem bereitgestellten Backup an."
+            } else {
+                alertMessage = "❌ Wiederherstellung fehlgeschlagen. Bitte überprüfen Sie die JSON-Daten und versuchen Sie es erneut. Weitere Details finden Sie in den Debug-Logs."
+            }
+            showAlert = true
+        }
+    }
+    
+    private func insertSampleJSON() {
+        jsonInput = """
+{
+  "version": "2.0",
+  "userID": "Ihre_Backup_Daten_hier_einfügen",
+  "deviceName": "iPhone",
+  "timestamp": 770838890.495885,
+  "appVersion": "1.0",
+  "deviceID": "f8ef64e2",
+  "accountGroups": [],
+  "transactions": [],
+  "accounts": [],
+  "categories": []
+}
+"""
     }
 }
 

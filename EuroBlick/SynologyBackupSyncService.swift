@@ -7,6 +7,7 @@ class SynologyBackupSyncService: ObservableObject {
     @Published var lastSyncDate: Date?
     @Published var syncStatus: SyncStatus = .idle
     @Published var availableBackups: [BackupInfo] = []
+    @Published var debugLogs: [String] = []
     
     private var syncTimer: Timer?
     private let syncInterval: TimeInterval = 30 // Sync alle 30 Sekunden
@@ -48,7 +49,7 @@ class SynologyBackupSyncService: ObservableObject {
         
         loadLastSyncDate()
         // AUTO-SYNC: Verbesserte Logik mit Safeguards
-        print("🔄 Initializing Synology Drive sync service with improved safeguards")
+        debugLog("🔄 Initializing Synology Drive sync service with improved safeguards")
         
         // Aktiviere Auto-Sync nur wenn konfiguriert und aktiviert
         enableAutoSyncIfConfigured()
@@ -58,6 +59,29 @@ class SynologyBackupSyncService: ObservableObject {
         stopAutoSync()
     }
     
+    private func debugLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        let timestamp = formatter.string(from: Date())
+        let logMessage = "[\(timestamp)] \(message)"
+        
+        print(logMessage) // Still print to console
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.debugLogs.append(logMessage)
+            // Keep only last 100 logs to prevent memory issues
+            if let logs = self?.debugLogs, logs.count > 100 {
+                self?.debugLogs = Array(logs.suffix(100))
+            }
+        }
+    }
+    
+    func clearDebugLogs() {
+        DispatchQueue.main.async { [weak self] in
+            self?.debugLogs.removeAll()
+        }
+    }
+    
     // MARK: - Public Methods
     
     func startAutoSync() {
@@ -65,11 +89,11 @@ class SynologyBackupSyncService: ObservableObject {
         
         // Prüfe WebDAV-Konfiguration bevor Auto-Sync gestartet wird
         guard hasValidWebDAVConfiguration() else {
-            print("⚠️ Auto-sync not started: WebDAV configuration incomplete")
+            debugLog("⚠️ Auto-sync not started: WebDAV configuration incomplete")
             return
         }
         
-        print("🔄 Starting automatic Synology Drive sync with improved safeguards...")
+        debugLog("🔄 Starting automatic Synology Drive sync with improved safeguards...")
         syncTimer = Timer.scheduledTimer(withTimeInterval: syncInterval, repeats: true) { [weak self] _ in
             Task {
                 await self?.performAutoSyncWithSafeguards()
@@ -86,11 +110,67 @@ class SynologyBackupSyncService: ObservableObject {
     func stopAutoSync() {
         syncTimer?.invalidate()
         syncTimer = nil
-        print("⏹️ Stopped automatic sync")
+        debugLog("⏹️ Stopped automatic sync")
     }
     
     func performManualSync() async {
         await performAutoSync(isManual: true)
+    }
+    
+    func performDiagnosticSync() async {
+        debugLog("🩺 DIAGNOSTIC SYNC STARTED")
+        debugLog("📋 Checking WebDAV configuration...")
+        
+        // Check WebDAV configuration
+        let hasWebDAV = hasValidWebDAVConfiguration()
+        debugLog("📋 WebDAV configuration: \(hasWebDAV ? "✅ Valid" : "❌ Invalid")")
+        
+        if !hasWebDAV {
+            debugLog("❌ Cannot proceed without WebDAV configuration")
+            return
+        }
+        
+        // Check auto-sync status
+        debugLog("📋 Auto-sync enabled: \(isAutoSyncEnabled ? "✅ Yes" : "❌ No")")
+        debugLog("📋 Sync timer active: \(syncTimer != nil ? "✅ Yes" : "❌ No")")
+        
+        // Check last sync date
+        if let lastSync = lastSyncDate {
+            let timeSinceLastSync = Date().timeIntervalSince(lastSync)
+            debugLog("📋 Last sync: \(formatDate(lastSync)) (\(Int(timeSinceLastSync))s ago)")
+        } else {
+            debugLog("📋 Last sync: Never")
+        }
+        
+        // Check local data
+        let hasLocalData = await checkLocalDataExists()
+        debugLog("📋 Local data present: \(hasLocalData ? "✅ Yes" : "❌ No")")
+        
+        // Try to fetch remote backups
+        debugLog("📋 Attempting to fetch remote backups...")
+        do {
+            let remoteBackups = try await fetchRemoteBackups()
+            debugLog("📋 Remote backups found: \(remoteBackups.count)")
+            
+            for backup in remoteBackups.prefix(5) {
+                debugLog("  📄 \(backup.filename) - \(backup.size) bytes - \(formatDate(backup.timestamp))")
+                if let userID = backup.userID {
+                    debugLog("     👤 User: \(userID)")
+                }
+            }
+            
+            // Check if we should sync
+            if !remoteBackups.isEmpty {
+                let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp })!
+                let shouldDownload = await shouldDownloadBackupWithConflictCheck(newestRemote)
+                debugLog("📋 Should download newest backup: \(shouldDownload ? "✅ Yes" : "❌ No")")
+            }
+            
+        } catch {
+            debugLog("❌ Failed to fetch remote backups: \(error)")
+        }
+        
+        debugLog("🩺 DIAGNOSTIC SYNC COMPLETED")
     }
     
     func analyzeAvailableBackups() async -> [(BackupInfo, String)] {
@@ -105,7 +185,7 @@ class SynologyBackupSyncService: ObservableObject {
             
             return results
         } catch {
-            print("❌ Failed to analyze backups: \(error)")
+            debugLog("❌ Failed to analyze backups: \(error)")
             return []
         }
     }
@@ -117,7 +197,7 @@ class SynologyBackupSyncService: ObservableObject {
                 syncStatus = .downloading
             }
             
-            print("🎯 Manually restoring selected backup: \(backup.filename)")
+            debugLog("🎯 Manually restoring selected backup: \(backup.filename)")
             try await downloadAndRestoreBackup(backup)
             
             await MainActor.run {
@@ -126,17 +206,17 @@ class SynologyBackupSyncService: ObservableObject {
                 saveLastSyncDate()
             }
             
-            print("✅ Manual backup restore completed successfully")
+            debugLog("✅ Manual backup restore completed successfully")
             
             // Force UI refresh on main thread after successful restore
             await MainActor.run {
                 viewModel.fetchAccountGroups()
                 viewModel.fetchCategories()
-                print("🔄 Manual restore - UI refreshed on main thread")
+                debugLog("🔄 Manual restore - UI refreshed on main thread")
             }
             
         } catch {
-            print("❌ Manual backup restore failed: \(error)")
+            debugLog("❌ Manual backup restore failed: \(error)")
             await MainActor.run {
                 syncStatus = .error(error.localizedDescription)
             }
@@ -262,19 +342,19 @@ class SynologyBackupSyncService: ObservableObject {
     private func performAutoSyncWithSafeguards() async {
         // Safeguard 1: Check if sync is already in progress
         guard !isSyncing else {
-            print("📋 Sync already in progress, skipping auto-sync")
+            debugLog("📋 Sync already in progress, skipping auto-sync")
             return
         }
         
         // Safeguard 2: Rate limiting - don't sync too frequently
         if let lastSync = lastSyncDate, Date().timeIntervalSince(lastSync) < 15 {
-            print("⏰ Auto-sync skipped: too soon since last sync (< 15 seconds)")
+            debugLog("⏰ Auto-sync skipped: too soon since last sync (< 15 seconds)")
             return
         }
         
         // Safeguard 3: Check WebDAV configuration
         guard hasValidWebDAVConfiguration() else {
-            print("⚠️ Auto-sync skipped: WebDAV configuration incomplete")
+            debugLog("⚠️ Auto-sync skipped: WebDAV configuration incomplete")
             return
         }
         
@@ -283,7 +363,7 @@ class SynologyBackupSyncService: ObservableObject {
     
     private func performAutoSync(isManual: Bool = false) async {
         guard !isSyncing else {
-            print("📋 Sync already in progress, skipping...")
+            debugLog("📋 Sync already in progress, skipping...")
             return
         }
         
@@ -293,11 +373,11 @@ class SynologyBackupSyncService: ObservableObject {
         }
         
         do {
-            print("🔍 Checking for new backups on Synology Drive...")
+            debugLog("🔍 Checking for new backups on Synology Drive...")
             
             // 1. Check local data state first
             let localDataExists = await checkLocalDataExists()
-            print("📊 Local data check: \(localDataExists ? "HAS DATA" : "EMPTY")")
+            debugLog("📊 Local data check: \(localDataExists ? "HAS DATA" : "EMPTY")")
             
             // 2. Check for remote backups
             let remoteBackups = try await fetchRemoteBackups()
@@ -307,7 +387,7 @@ class SynologyBackupSyncService: ObservableObject {
             }
             
             let hasRemoteData = !remoteBackups.isEmpty
-            print("📊 Remote data check: \(hasRemoteData ? "HAS BACKUPS (\(remoteBackups.count))" : "EMPTY")")
+            debugLog("📊 Remote data check: \(hasRemoteData ? "HAS BACKUPS (\(remoteBackups.count))" : "EMPTY")")
             
             // 3. Smart sync decision making with improved conflict detection
             if !localDataExists && hasRemoteData {
@@ -317,7 +397,7 @@ class SynologyBackupSyncService: ObservableObject {
                         syncStatus = .downloading
                     }
                     
-                    print("📥 LOCAL EMPTY → Downloading remote backup: \(newestRemote.filename)")
+                    debugLog("📥 LOCAL EMPTY → Downloading remote backup: \(newestRemote.filename)")
                     try await downloadAndRestoreBackup(newestRemote)
                 }
             } else if localDataExists && !hasRemoteData {
@@ -332,10 +412,10 @@ class SynologyBackupSyncService: ObservableObject {
                         syncStatus = .uploading
                     }
                     
-                    print("📤 REMOTE EMPTY → Uploading local data...")
+                    debugLog("📤 REMOTE EMPTY → Uploading local data...")
                     try await uploadCurrentState()
                 } else {
-                    print("⏭️ Upload skipped: recent upload or auto-sync upload prevention")
+                    debugLog("⏭️ Upload skipped: recent upload or auto-sync upload prevention")
                 }
             } else if localDataExists && hasRemoteData {
                 // Case 3: Both have data → Advanced conflict resolution
@@ -347,7 +427,7 @@ class SynologyBackupSyncService: ObservableObject {
                             syncStatus = .downloading
                         }
                         
-                        print("📥 CONFLICT RESOLUTION → Downloading newer backup: \(newestRemote.filename)")
+                        debugLog("📥 CONFLICT RESOLUTION → Downloading newer backup: \(newestRemote.filename)")
                         try await downloadAndRestoreBackup(newestRemote)
                     }
                 }
@@ -364,12 +444,12 @@ class SynologyBackupSyncService: ObservableObject {
                         syncStatus = .uploading
                     }
                     
-                    print("📤 LOCAL CHANGES → Uploading changes...")
+                    debugLog("📤 LOCAL CHANGES → Uploading changes...")
                     try await uploadCurrentState()
                 }
             } else {
                 // Case 4: Both empty → Nothing to do
-                print("⭕ Both local and remote are empty - nothing to sync")
+                debugLog("⭕ Both local and remote are empty - nothing to sync")
             }
             
             await MainActor.run {
@@ -378,10 +458,10 @@ class SynologyBackupSyncService: ObservableObject {
                 saveLastSyncDate()
             }
             
-            print("✅ Sync completed successfully at \(Date())")
+            debugLog("✅ Sync completed successfully at \(Date())")
             
         } catch {
-            print("❌ Sync failed: \(error)")
+            debugLog("❌ Sync failed: \(error)")
             await MainActor.run {
                 syncStatus = .error(error.localizedDescription)
             }
@@ -407,15 +487,15 @@ class SynologyBackupSyncService: ObservableObject {
                     
                     let hasData = !groups.isEmpty || !accounts.isEmpty || !transactions.isEmpty
                     
-                    print("📊 Local data inventory:")
-                    print("  Account Groups: \(groups.count)")
-                    print("  Accounts: \(accounts.count)")
-                    print("  Transactions: \(transactions.count)")
-                    print("  Has meaningful data: \(hasData)")
+                    self.debugLog("📊 Local data inventory:")
+                    self.debugLog("  Account Groups: \(groups.count)")
+                    self.debugLog("  Accounts: \(accounts.count)")
+                    self.debugLog("  Transactions: \(transactions.count)")
+                    self.debugLog("  Has meaningful data: \(hasData)")
                     
                     continuation.resume(returning: hasData)
                 } catch {
-                    print("❌ Error checking local data: \(error)")
+                    self.debugLog("❌ Error checking local data: \(error)")
                     continuation.resume(returning: false)
                 }
             }
@@ -428,10 +508,10 @@ class SynologyBackupSyncService: ObservableObject {
               let webdavUser = UserDefaults.standard.string(forKey: "webdavUser"),
               let webdavPassword = UserDefaults.standard.string(forKey: "webdavPassword"),
               !webdavURL.isEmpty, !webdavUser.isEmpty, !webdavPassword.isEmpty else {
-            print("❌ WebDAV credentials missing or empty")
-            print("  URL: \(UserDefaults.standard.string(forKey: "webdavURL") ?? "nil")")
-            print("  User: \(UserDefaults.standard.string(forKey: "webdavUser") ?? "nil")")
-            print("  Password: \(UserDefaults.standard.string(forKey: "webdavPassword")?.isEmpty == false ? "present" : "missing")")
+            debugLog("❌ WebDAV credentials missing or empty")
+            debugLog("  URL: \(UserDefaults.standard.string(forKey: "webdavURL") ?? "nil")")
+            debugLog("  User: \(UserDefaults.standard.string(forKey: "webdavUser") ?? "nil")")
+            debugLog("  Password: \(UserDefaults.standard.string(forKey: "webdavPassword")?.isEmpty == false ? "present" : "missing")")
             throw SyncError.missingCredentials
         }
         
@@ -441,13 +521,13 @@ class SynologyBackupSyncService: ObservableObject {
             return result1
         }
         
-        print("🔄 No backups found in configured path, trying alternative paths...")
+        debugLog("🔄 No backups found in configured path, trying alternative paths...")
         
         // Second try: Check if the URL points to a specific file, try the parent directory  
         if webdavURL.hasSuffix(".json") {
             if let url = URL(string: webdavURL) {
                 let parentURL = url.deletingLastPathComponent().absoluteString
-                print("🔄 Trying parent directory: \(parentURL)")
+                debugLog("🔄 Trying parent directory: \(parentURL)")
                 let result2 = try await fetchBackupsFromPath(parentURL, user: webdavUser, password: webdavPassword)
                 if !result2.isEmpty {
                     return result2
@@ -460,7 +540,7 @@ class SynologyBackupSyncService: ObservableObject {
            let host = URL(string: webdavURL)?.host,
            let port = URL(string: webdavURL)?.port {
             let rootWebDAV = "\(baseHost)://\(host):\(port)/webdav"
-            print("🔄 Trying root WebDAV directory: \(rootWebDAV)")
+            debugLog("🔄 Trying root WebDAV directory: \(rootWebDAV)")
             let result3 = try await fetchBackupsFromPath(rootWebDAV, user: webdavUser, password: webdavPassword)
             if !result3.isEmpty {
                 return result3
@@ -468,7 +548,7 @@ class SynologyBackupSyncService: ObservableObject {
         }
         
         // Fourth try: Direct file check - maybe the file still exists
-        print("🔄 Trying direct file access to original configured file...")
+        debugLog("🔄 Trying direct file access to original configured file...")
         if webdavURL.hasSuffix(".json") {
             let directResult = try await checkDirectFileAccess(webdavURL, user: webdavUser, password: webdavPassword)
             if let backup = directResult {
@@ -485,7 +565,7 @@ class SynologyBackupSyncService: ObservableObject {
         if path.hasSuffix(".json") {
             // URL points to a specific file, get directory
             guard let url = URL(string: path) else {
-                print("❌ Invalid WebDAV URL: \(path)")
+                debugLog("❌ Invalid WebDAV URL: \(path)")
                 throw SyncError.invalidURL
             }
             baseURL = url.deletingLastPathComponent().absoluteString
@@ -498,14 +578,14 @@ class SynologyBackupSyncService: ObservableObject {
         }
         
         guard let serverURL = URL(string: baseURL) else {
-            print("❌ Invalid server URL: \(baseURL)")
+            debugLog("❌ Invalid server URL: \(baseURL)")
             throw SyncError.invalidURL
         }
         
-        print("🌐 WebDAV PROPFIND Request:")
-        print("  Original URL: \(path)")
-        print("  Server URL: \(serverURL)")
-        print("  User: \(user)")
+        debugLog("🌐 WebDAV PROPFIND Request:")
+        debugLog("  Original URL: \(path)")
+        debugLog("  Server URL: \(serverURL)")
+        debugLog("  User: \(user)")
         
         var request = URLRequest(url: serverURL)
         request.httpMethod = "PROPFIND"
@@ -533,31 +613,31 @@ class SynologyBackupSyncService: ObservableObject {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                print("❌ Invalid response type")
+                debugLog("❌ Invalid response type")
                 throw SyncError.networkError("Invalid response type")
             }
             
-            print("📡 WebDAV Response:")
-            print("  Status Code: \(httpResponse.statusCode)")
-            print("  Headers: \(httpResponse.allHeaderFields)")
+            debugLog("📡 WebDAV Response:")
+            debugLog("  Status Code: \(httpResponse.statusCode)")
+            debugLog("  Headers: \(httpResponse.allHeaderFields)")
             
             if let responseString = String(data: data, encoding: .utf8) {
-                print("  Response Body: \(responseString.prefix(500))...")
+                debugLog("  Response Body: \(responseString.prefix(500))...")
             }
             
             guard 200...299 ~= httpResponse.statusCode else {
                 let errorMessage = "HTTP \(httpResponse.statusCode): \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))"
-                print("❌ HTTP Error: \(errorMessage)")
+                debugLog("❌ HTTP Error: \(errorMessage)")
                 throw SyncError.networkError(errorMessage)
             }
             
             return try parseWebDAVResponse(data)
             
         } catch {
-            print("❌ Network error: \(error)")
+            debugLog("❌ Network error: \(error)")
             if let urlError = error as? URLError {
-                print("  URLError code: \(urlError.code)")
-                print("  URLError description: \(urlError.localizedDescription)")
+                debugLog("  URLError code: \(urlError.code)")
+                debugLog("  URLError description: \(urlError.localizedDescription)")
             }
             throw SyncError.networkError("Network error: \(error.localizedDescription)")
         }
@@ -566,7 +646,7 @@ class SynologyBackupSyncService: ObservableObject {
     private func checkDirectFileAccess(_ fileURL: String, user: String, password: String) async throws -> BackupInfo? {
         guard let url = URL(string: fileURL) else { return nil }
         
-        print("🔍 Direct file check: \(fileURL)")
+        debugLog("🔍 Direct file check: \(fileURL)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"  // Just check if file exists
@@ -581,7 +661,7 @@ class SynologyBackupSyncService: ObservableObject {
             
             guard let httpResponse = response as? HTTPURLResponse else { return nil }
             
-            print("📡 Direct file response: \(httpResponse.statusCode)")
+            debugLog("📡 Direct file response: \(httpResponse.statusCode)")
             
             if 200...299 ~= httpResponse.statusCode {
                 let filename = url.lastPathComponent
@@ -593,7 +673,7 @@ class SynologyBackupSyncService: ObservableObject {
                     timestamp = parseWebDAVDate(lastModifiedString) ?? Date()
                 }
                 
-                print("✅ Found direct file: \(filename) (\(size) bytes)")
+                debugLog("✅ Found direct file: \(filename) (\(size) bytes)")
                 
                 return BackupInfo(
                     filename: filename,
@@ -605,7 +685,7 @@ class SynologyBackupSyncService: ObservableObject {
             }
             
         } catch {
-            print("❌ Direct file check failed: \(error)")
+            debugLog("❌ Direct file check failed: \(error)")
         }
         
         return nil
@@ -613,21 +693,21 @@ class SynologyBackupSyncService: ObservableObject {
     
     private func parseWebDAVResponse(_ data: Data) throws -> [BackupInfo] {
         let xmlString = String(data: data, encoding: .utf8) ?? ""
-        print("🔍 Parsing WebDAV XML response:")
-        print("📄 Full XML: \(xmlString)")
+        debugLog("🔍 Parsing WebDAV XML response:")
+        debugLog("📄 Full XML: \(xmlString)")
         
         var backups: [BackupInfo] = []
         
         // Split into individual <D:response> blocks
         let responseBlocks = xmlString.components(separatedBy: "<D:response")
-        print("📦 Found \(responseBlocks.count - 1) response blocks")
+        debugLog("📦 Found \(responseBlocks.count - 1) response blocks")
         
         for (index, block) in responseBlocks.enumerated() {
             if index == 0 { continue } // Skip the first empty block
             
             let fullBlock = "<D:response" + block
-            print("📋 Processing response block \(index):")
-            print("  Content: \(fullBlock.prefix(200))...")
+            debugLog("📋 Processing response block \(index):")
+            debugLog("  Content: \(fullBlock.prefix(200))...")
             
             // Extract href (file path)
             var href: String?
@@ -636,22 +716,22 @@ class SynologyBackupSyncService: ObservableObject {
                 let startIndex = hrefStart.upperBound
                 let endIndex = hrefEnd.lowerBound
                 href = String(fullBlock[startIndex..<endIndex])
-                print("  📁 Found href: \(href ?? "nil")")
+                debugLog("  📁 Found href: \(href ?? "nil")")
             }
             
             // Skip directory entries (ending with /)
             guard let filePath = href, !filePath.hasSuffix("/") else {
-                print("  ⏭️ Skipping directory entry: \(href ?? "nil")")
+                debugLog("  ⏭️ Skipping directory entry: \(href ?? "nil")")
                 continue
             }
             
             // Extract filename from path
             let filename = URL(string: filePath)?.lastPathComponent ?? filePath
-            print("  📄 Filename: \(filename)")
+            debugLog("  📄 Filename: \(filename)")
             
             // Only process EuroBlick backup files
             guard filename.contains("EuroBlick") && filename.hasSuffix(".json") else {
-                print("  ⏭️ Skipping non-backup file: \(filename)")
+                debugLog("  ⏭️ Skipping non-backup file: \(filename)")
                 continue
             }
             
@@ -663,7 +743,7 @@ class SynologyBackupSyncService: ObservableObject {
                 let endIndex = dateEnd.lowerBound
                 let dateString = String(fullBlock[startIndex..<endIndex])
                 lastModified = parseWebDAVDate(dateString)
-                print("  📅 Date: \(dateString) -> \(lastModified?.description ?? "nil")")
+                debugLog("  📅 Date: \(dateString) -> \(lastModified?.description ?? "nil")")
             }
             
             // Extract content length
@@ -674,7 +754,7 @@ class SynologyBackupSyncService: ObservableObject {
                 let endIndex = sizeEnd.lowerBound
                 let sizeString = String(fullBlock[startIndex..<endIndex])
                 contentLength = Int64(sizeString) ?? 0
-                print("  📦 Size: \(sizeString) -> \(contentLength)")
+                debugLog("  📦 Size: \(sizeString) -> \(contentLength)")
             }
             
             // Create backup info if we have minimum required data
@@ -687,15 +767,15 @@ class SynologyBackupSyncService: ObservableObject {
                     deviceID: extractDeviceID(from: filename)
                 )
                 backups.append(backup)
-                print("  ✅ Created backup info: \(backup.filename)")
+                debugLog("  ✅ Created backup info: \(backup.filename)")
             } else {
-                print("  ❌ Missing timestamp for: \(filename)")
+                debugLog("  ❌ Missing timestamp for: \(filename)")
             }
         }
         
-        print("🎯 Found \(backups.count) valid backup files:")
+        debugLog("🎯 Found \(backups.count) valid backup files:")
         for backup in backups {
-            print("  📄 \(backup.filename) - \(backup.size) bytes - \(formatDate(backup.timestamp))")
+            debugLog("  📄 \(backup.filename) - \(backup.size) bytes - \(formatDate(backup.timestamp))")
         }
         
         return backups
@@ -738,7 +818,7 @@ class SynologyBackupSyncService: ObservableObject {
         if let lastUpload = UserDefaults.standard.object(forKey: "lastUploadDate") as? Date {
             let timeSinceLastUpload = Date().timeIntervalSince(lastUpload)
             if timeSinceLastUpload < 300 { // 5 Minuten
-                print("⏰ Upload skipped: recent upload (< 5 minutes ago)")
+                debugLog("⏰ Upload skipped: recent upload (< 5 minutes ago)")
                 return false
             }
         }
@@ -758,7 +838,7 @@ class SynologyBackupSyncService: ObservableObject {
         let hasLocalChanges = await backupManager.hasLocalChanges()
         
         if isNewerThanLastSync && hasLocalChanges {
-            print("⚠️ CONFLICT DETECTED: Remote backup is newer but local changes exist")
+            debugLog("⚠️ CONFLICT DETECTED: Remote backup is newer but local changes exist")
             // In diesem Fall sollte intelligent zusammengeführt werden
             return true // Momentan downloaden und auf Conflict Resolution vertrauen
         }
@@ -781,10 +861,10 @@ class SynologyBackupSyncService: ObservableObject {
                     let recentTransactions = try self.viewModel.getContext().fetch(request)
                     let hasRecentActivity = recentTransactions.count > 0
                     
-                    print("📊 Recent activity check: \(recentTransactions.count) transactions in last 24h")
+                    self.debugLog("📊 Recent activity check: \(recentTransactions.count) transactions in last 24h")
                     continuation.resume(returning: hasRecentActivity)
                 } catch {
-                    print("❌ Error checking recent activity: \(error)")
+                    self.debugLog("❌ Error checking recent activity: \(error)")
                     continuation.resume(returning: false)
                 }
             }
@@ -794,17 +874,17 @@ class SynologyBackupSyncService: ObservableObject {
     private func chooseBestBackup(_ backups: [BackupInfo]) async -> BackupInfo? {
         guard !backups.isEmpty else { return nil }
         
-        print("🎯 Analyzing \(backups.count) available backups...")
+        debugLog("🎯 Analyzing \(backups.count) available backups...")
         
         // Sort by timestamp (newest first) but also consider data richness
         let sortedBackups = backups.sorted { $0.timestamp > $1.timestamp }
         
         for backup in sortedBackups.prefix(3) { // Check top 3 newest
-            print("📋 Backup: \(backup.filename)")
-            print("  📅 Date: \(formatDate(backup.timestamp))")
-            print("  📦 Size: \(backup.size) bytes")
-            print("  👤 User: \(backup.userID ?? "unknown")")
-            print("  📱 Device: \(backup.deviceID)")
+            debugLog("📋 Backup: \(backup.filename)")
+            debugLog("  📅 Date: \(formatDate(backup.timestamp))")
+            debugLog("  📦 Size: \(backup.size) bytes")
+            debugLog("  👤 User: \(backup.userID ?? "unknown")")
+            debugLog("  📱 Device: \(backup.deviceID)")
         }
         
         // For now, return the newest, but we could add logic to prefer larger backups
@@ -844,7 +924,7 @@ class SynologyBackupSyncService: ObservableObject {
             fileURL = constructedURL
         }
         
-        print("📥 Downloading backup from: \(fileURL.absoluteString)")
+        debugLog("📥 Downloading backup from: \(fileURL.absoluteString)")
         
         var request = URLRequest(url: fileURL)
         request.httpMethod = "GET"
@@ -857,42 +937,42 @@ class SynologyBackupSyncService: ObservableObject {
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
-            print("❌ Invalid response type")
+            debugLog("❌ Invalid response type")
             throw SyncError.networkError("Invalid response type")
         }
         
-        print("📡 Download response:")
-        print("  Status Code: \(httpResponse.statusCode)")
-        print("  Content Length: \(data.count) bytes")
+        debugLog("📡 Download response:")
+        debugLog("  Status Code: \(httpResponse.statusCode)")
+        debugLog("  Content Length: \(data.count) bytes")
         
         guard 200...299 ~= httpResponse.statusCode else {
             let errorMessage = "HTTP \(httpResponse.statusCode): \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))"
-            print("❌ Download failed: \(errorMessage)")
+            debugLog("❌ Download failed: \(errorMessage)")
             throw SyncError.networkError("Failed to download backup: \(errorMessage)")
         }
         
-        print("✅ Successfully downloaded \(data.count) bytes")
+        debugLog("✅ Successfully downloaded \(data.count) bytes")
         
         // Save to temporary file and restore
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(backupInfo.filename)
         try data.write(to: tempURL)
         
-        print("📄 Temporary file created at: \(tempURL.path)")
+        debugLog("📄 Temporary file created at: \(tempURL.path)")
         
         await MainActor.run {
             syncStatus = .syncing
         }
         
         // Restore using multi-user sync manager for conflict resolution
-        print("🔄 Starting restore with conflict resolution...")
+        debugLog("🔄 Starting restore with conflict resolution...")
         let success = await multiUserSyncManager.restoreWithConflictResolution(from: tempURL, viewModel: viewModel)
         
         if !success {
-            print("❌ Restore with conflict resolution failed")
+            debugLog("❌ Restore with conflict resolution failed")
             throw SyncError.restoreError("Failed to restore backup with conflict resolution")
         }
         
-        print("✅ Backup successfully restored!")
+        debugLog("✅ Backup successfully restored!")
         
         // Clean up temp file
         try? FileManager.default.removeItem(at: tempURL)
@@ -903,12 +983,12 @@ class SynologyBackupSyncService: ObservableObject {
             throw SyncError.restoreError("Failed to create backup data")
         }
         
-        print("📤 Starting upload with tracking...")
+        debugLog("📤 Starting upload with tracking...")
         try await backupManager.uploadBackup(backup)
         
         // Speichere Upload-Zeitstempel um redundante Uploads zu verhindern
         UserDefaults.standard.set(Date(), forKey: "lastUploadDate")
-        print("✅ Upload completed and timestamp saved")
+        debugLog("✅ Upload completed and timestamp saved")
     }
     
     private func loadLastSyncDate() {
@@ -926,12 +1006,12 @@ class SynologyBackupSyncService: ObservableObject {
         let autoSyncEnabled = UserDefaults.standard.bool(forKey: "autoSyncEnabled")
         
         if autoSyncEnabled && hasValidWebDAVConfiguration() {
-            print("✅ Auto-sync is enabled and configured - starting auto-sync")
+            debugLog("✅ Auto-sync is enabled and configured - starting auto-sync")
             startAutoSync()
         } else if autoSyncEnabled {
-            print("⚠️ Auto-sync is enabled but WebDAV configuration is incomplete")
+            debugLog("⚠️ Auto-sync is enabled but WebDAV configuration is incomplete")
         } else {
-            print("ℹ️ Auto-sync is disabled by user")
+            debugLog("ℹ️ Auto-sync is disabled by user")
         }
     }
     
@@ -947,6 +1027,107 @@ class SynologyBackupSyncService: ObservableObject {
     
     var isAutoSyncEnabled: Bool {
         return UserDefaults.standard.bool(forKey: "autoSyncEnabled")
+    }
+    
+    func forceRestoreFromJSON(_ jsonString: String) async -> Bool {
+        debugLog("🔧 FORCE RESTORE FROM PROVIDED JSON STARTED")
+        
+        guard let jsonData = jsonString.data(using: .utf8) else {
+            debugLog("❌ Failed to convert JSON string to data")
+            return false
+        }
+        
+        do {
+            // Validate JSON format
+            let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
+            guard let json = jsonObject else {
+                debugLog("❌ Invalid JSON format")
+                return false
+            }
+            
+            // Log backup info
+            if let version = json["version"] as? String {
+                debugLog("📋 Backup version: \(version)")
+            }
+            if let userID = json["userID"] as? String {
+                debugLog("👤 User ID: \(userID)")
+            }
+            if let deviceName = json["deviceName"] as? String {
+                debugLog("📱 Device: \(deviceName)")
+            }
+            if let timestamp = json["timestamp"] as? Double {
+                let date = Date(timeIntervalSinceReferenceDate: timestamp)
+                debugLog("📅 Backup date: \(formatDate(date))")
+            }
+            if let transactions = json["transactions"] as? [[String: Any]] {
+                debugLog("💰 Transactions: \(transactions.count)")
+            }
+            
+            // Create temporary file
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("force_restore_\(UUID().uuidString).json")
+            try jsonData.write(to: tempURL)
+            debugLog("📄 Created temporary file: \(tempURL.path)")
+            
+            await MainActor.run {
+                isSyncing = true
+                syncStatus = .syncing
+            }
+            
+            // Stop auto-sync temporarily
+            let wasAutoSyncRunning = syncTimer != nil
+            stopAutoSync()
+            
+            // Restore using multi-user sync manager
+            debugLog("🔄 Starting force restore with conflict resolution...")
+            let success = await multiUserSyncManager.restoreWithConflictResolution(from: tempURL, viewModel: viewModel)
+            
+            if success {
+                debugLog("✅ Force restore completed successfully!")
+                
+                // Update sync date
+                await MainActor.run {
+                    lastSyncDate = Date()
+                    saveLastSyncDate()
+                    syncStatus = .success
+                }
+                
+                // Refresh UI
+                await MainActor.run {
+                    viewModel.fetchAccountGroups()
+                    viewModel.fetchCategories()
+                    debugLog("🔄 UI refreshed after force restore")
+                }
+                
+                // Restart auto-sync if it was running
+                if wasAutoSyncRunning {
+                    enableAutoSyncIfConfigured()
+                }
+                
+            } else {
+                debugLog("❌ Force restore failed")
+                await MainActor.run {
+                    syncStatus = .error("Force restore failed")
+                }
+            }
+            
+            // Clean up
+            try? FileManager.default.removeItem(at: tempURL)
+            debugLog("🗑️ Cleaned up temporary file")
+            
+            await MainActor.run {
+                isSyncing = false
+            }
+            
+            return success
+            
+        } catch {
+            debugLog("❌ Force restore error: \(error)")
+            await MainActor.run {
+                isSyncing = false
+                syncStatus = .error("Force restore error: \(error.localizedDescription)")
+            }
+            return false
+        }
     }
     
     enum SyncError: LocalizedError {
