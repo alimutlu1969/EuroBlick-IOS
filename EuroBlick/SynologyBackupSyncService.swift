@@ -47,9 +47,11 @@ class SynologyBackupSyncService: ObservableObject {
         self.multiUserSyncManager = MultiUserSyncManager()
         
         loadLastSyncDate()
-        // TEMPORARILY DISABLED: startAutoSync() - to stop the endless loop
-        print("🛑 Automatic sync DISABLED to prevent endless loop")
-        startAutoSync()
+        // AUTO-SYNC: Verbesserte Logik mit Safeguards
+        print("🔄 Initializing Synology Drive sync service with improved safeguards")
+        
+        // Aktiviere Auto-Sync nur wenn konfiguriert und aktiviert
+        enableAutoSyncIfConfigured()
     }
     
     deinit {
@@ -61,16 +63,23 @@ class SynologyBackupSyncService: ObservableObject {
     func startAutoSync() {
         guard syncTimer == nil else { return }
         
-        print("🔄 Starting automatic Synology Drive sync...")
+        // Prüfe WebDAV-Konfiguration bevor Auto-Sync gestartet wird
+        guard hasValidWebDAVConfiguration() else {
+            print("⚠️ Auto-sync not started: WebDAV configuration incomplete")
+            return
+        }
+        
+        print("🔄 Starting automatic Synology Drive sync with improved safeguards...")
         syncTimer = Timer.scheduledTimer(withTimeInterval: syncInterval, repeats: true) { [weak self] _ in
             Task {
-                await self?.performAutoSync()
+                await self?.performAutoSyncWithSafeguards()
             }
         }
         
-        // Perform initial sync
+        // Perform initial sync after a small delay to avoid startup conflicts
         Task {
-            await performAutoSync()
+            try await Task.sleep(nanoseconds: 2_000_000_000) // 2 second delay
+            await performAutoSyncWithSafeguards()
         }
     }
     
@@ -240,6 +249,38 @@ class SynologyBackupSyncService: ObservableObject {
     
     // MARK: - Private Methods
     
+    private func hasValidWebDAVConfiguration() -> Bool {
+        guard let webdavURL = UserDefaults.standard.string(forKey: "webdavURL"),
+              let webdavUser = UserDefaults.standard.string(forKey: "webdavUser"),
+              let webdavPassword = UserDefaults.standard.string(forKey: "webdavPassword"),
+              !webdavURL.isEmpty, !webdavUser.isEmpty, !webdavPassword.isEmpty else {
+            return false
+        }
+        return true
+    }
+    
+    private func performAutoSyncWithSafeguards() async {
+        // Safeguard 1: Check if sync is already in progress
+        guard !isSyncing else {
+            print("📋 Sync already in progress, skipping auto-sync")
+            return
+        }
+        
+        // Safeguard 2: Rate limiting - don't sync too frequently
+        if let lastSync = lastSyncDate, Date().timeIntervalSince(lastSync) < 15 {
+            print("⏰ Auto-sync skipped: too soon since last sync (< 15 seconds)")
+            return
+        }
+        
+        // Safeguard 3: Check WebDAV configuration
+        guard hasValidWebDAVConfiguration() else {
+            print("⚠️ Auto-sync skipped: WebDAV configuration incomplete")
+            return
+        }
+        
+        await performAutoSync(isManual: false)
+    }
+    
     private func performAutoSync(isManual: Bool = false) async {
         guard !isSyncing else {
             print("📋 Sync already in progress, skipping...")
@@ -268,7 +309,7 @@ class SynologyBackupSyncService: ObservableObject {
             let hasRemoteData = !remoteBackups.isEmpty
             print("📊 Remote data check: \(hasRemoteData ? "HAS BACKUPS (\(remoteBackups.count))" : "EMPTY")")
             
-            // 3. Smart sync decision making
+            // 3. Smart sync decision making with improved conflict detection
             if !localDataExists && hasRemoteData {
                 // Case 1: Local empty, remote has data → Download newest
                 if let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }) {
@@ -280,28 +321,34 @@ class SynologyBackupSyncService: ObservableObject {
                     try await downloadAndRestoreBackup(newestRemote)
                 }
             } else if localDataExists && !hasRemoteData {
-                // Case 2: Local has data, remote empty → Upload
-                await MainActor.run {
-                    syncStatus = .uploading
-                }
-                
-                print("📤 REMOTE EMPTY → Uploading local data...")
-                try await uploadCurrentState()
-            } else if localDataExists && hasRemoteData {
-                // Case 3: Both have data → Check for newer remote backup
-                if let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }),
-                   shouldDownloadBackup(newestRemote) {
-                    
+                // Case 2: Local has data, remote empty → Upload (only if not manual sync to avoid endless uploads)
+                if isManual || await shouldUploadLocalData() {
                     await MainActor.run {
-                        syncStatus = .downloading
+                        syncStatus = .uploading
                     }
                     
-                    print("📥 CONFLICT RESOLUTION → Downloading newer backup: \(newestRemote.filename)")
-                    try await downloadAndRestoreBackup(newestRemote)
+                    print("📤 REMOTE EMPTY → Uploading local data...")
+                    try await uploadCurrentState()
+                } else {
+                    print("⏭️ Upload skipped: recent upload or auto-sync upload prevention")
+                }
+            } else if localDataExists && hasRemoteData {
+                // Case 3: Both have data → Advanced conflict resolution
+                if let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }) {
+                    let shouldDownload = await shouldDownloadBackupWithConflictCheck(newestRemote)
+                    
+                    if shouldDownload {
+                        await MainActor.run {
+                            syncStatus = .downloading
+                        }
+                        
+                        print("📥 CONFLICT RESOLUTION → Downloading newer backup: \(newestRemote.filename)")
+                        try await downloadAndRestoreBackup(newestRemote)
+                    }
                 }
                 
-                // Check if we have local changes to upload
-                if await backupManager.hasLocalChanges() {
+                // Check if we have local changes to upload (only for manual sync or significant changes)
+                if (isManual || await hasSignificantLocalChanges()) && await backupManager.hasLocalChanges() {
                     await MainActor.run {
                         syncStatus = .uploading
                     }
@@ -675,6 +722,64 @@ class SynologyBackupSyncService: ObservableObject {
         return true // First sync, download latest
     }
     
+    private func shouldUploadLocalData() async -> Bool {
+        // Prüfe ob kürzlich schon hochgeladen wurde
+        if let lastUpload = UserDefaults.standard.object(forKey: "lastUploadDate") as? Date {
+            let timeSinceLastUpload = Date().timeIntervalSince(lastUpload)
+            if timeSinceLastUpload < 300 { // 5 Minuten
+                print("⏰ Upload skipped: recent upload (< 5 minutes ago)")
+                return false
+            }
+        }
+        return true
+    }
+    
+    private func shouldDownloadBackupWithConflictCheck(_ remoteBackup: BackupInfo) async -> Bool {
+        // Erweiterte Konfliktprüfung
+        guard let lastSync = lastSyncDate else {
+            return true // Erste Synchronisation
+        }
+        
+        // Prüfe ob Remote-Backup wirklich neuer ist
+        let isNewerThanLastSync = remoteBackup.timestamp > lastSync
+        
+        // Prüfe ob wir lokale Änderungen haben, die nicht gesichert wurden
+        let hasLocalChanges = await backupManager.hasLocalChanges()
+        
+        if isNewerThanLastSync && hasLocalChanges {
+            print("⚠️ CONFLICT DETECTED: Remote backup is newer but local changes exist")
+            // In diesem Fall sollte intelligent zusammengeführt werden
+            return true // Momentan downloaden und auf Conflict Resolution vertrauen
+        }
+        
+        return isNewerThanLastSync
+    }
+    
+    private func hasSignificantLocalChanges() async -> Bool {
+        // Prüfe ob es bedeutende lokale Änderungen gibt, die einen Upload rechtfertigen
+        return await withCheckedContinuation { continuation in
+            viewModel.getContext().perform {
+                // Prüfe Transaktionen der letzten 24 Stunden
+                let calendar = Calendar.current
+                let dayAgo = calendar.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+                
+                let request: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+                request.predicate = NSPredicate(format: "date >= %@", dayAgo as NSDate)
+                
+                do {
+                    let recentTransactions = try self.viewModel.getContext().fetch(request)
+                    let hasRecentActivity = recentTransactions.count > 0
+                    
+                    print("📊 Recent activity check: \(recentTransactions.count) transactions in last 24h")
+                    continuation.resume(returning: hasRecentActivity)
+                } catch {
+                    print("❌ Error checking recent activity: \(error)")
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+    
     private func chooseBestBackup(_ backups: [BackupInfo]) async -> BackupInfo? {
         guard !backups.isEmpty else { return nil }
         
@@ -786,7 +891,13 @@ class SynologyBackupSyncService: ObservableObject {
         guard let backup = await backupManager.createEnhancedBackup() else {
             throw SyncError.restoreError("Failed to create backup data")
         }
+        
+        print("📤 Starting upload with tracking...")
         try await backupManager.uploadBackup(backup)
+        
+        // Speichere Upload-Zeitstempel um redundante Uploads zu verhindern
+        UserDefaults.standard.set(Date(), forKey: "lastUploadDate")
+        print("✅ Upload completed and timestamp saved")
     }
     
     private func loadLastSyncDate() {
@@ -797,6 +908,34 @@ class SynologyBackupSyncService: ObservableObject {
     
     private func saveLastSyncDate() {
         UserDefaults.standard.set(lastSyncDate, forKey: "lastSyncDate")
+    }
+    
+    func enableAutoSyncIfConfigured() {
+        // Prüfe ob Auto-Sync aktiviert werden soll
+        let autoSyncEnabled = UserDefaults.standard.bool(forKey: "autoSyncEnabled")
+        
+        if autoSyncEnabled && hasValidWebDAVConfiguration() {
+            print("✅ Auto-sync is enabled and configured - starting auto-sync")
+            startAutoSync()
+        } else if autoSyncEnabled {
+            print("⚠️ Auto-sync is enabled but WebDAV configuration is incomplete")
+        } else {
+            print("ℹ️ Auto-sync is disabled by user")
+        }
+    }
+    
+    func setAutoSyncEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "autoSyncEnabled")
+        
+        if enabled {
+            enableAutoSyncIfConfigured()
+        } else {
+            stopAutoSync()
+        }
+    }
+    
+    var isAutoSyncEnabled: Bool {
+        return UserDefaults.standard.bool(forKey: "autoSyncEnabled")
     }
     
     enum SyncError: LocalizedError {

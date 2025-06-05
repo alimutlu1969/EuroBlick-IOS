@@ -146,6 +146,46 @@ struct SynologyDriveSyncView: View {
                         .foregroundColor(.white)
                         .cornerRadius(8)
                     }
+                    
+                    Group {
+                        Section("Auto-Sync Einstellungen") {
+                            HStack {
+                                Image(systemName: syncService.isAutoSyncEnabled ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(syncService.isAutoSyncEnabled ? .green : .gray)
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Automatische Synchronisation")
+                                        .font(.headline)
+                                    Text("Alle 30 Sekunden im Hintergrund synchronisieren")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Toggle("", isOn: Binding(
+                                    get: { syncService.isAutoSyncEnabled },
+                                    set: { syncService.setAutoSyncEnabled($0) }
+                                ))
+                            }
+                            .padding(.vertical, 4)
+                            
+                            if syncService.isAutoSyncEnabled {
+                                HStack {
+                                    Image(systemName: "info.circle")
+                                        .foregroundColor(.blue)
+                                    Text("Auto-Sync ist aktiv. Änderungen werden automatisch synchronisiert.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+                        
+                        Section("Synchronisation") {
+                            // Add synchronization-related content here
+                        }
+                    }
                 }
                 .padding()
                 .padding(.bottom, 20) // Extra padding at bottom

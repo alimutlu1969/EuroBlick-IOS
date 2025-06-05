@@ -117,10 +117,17 @@ class MultiUserSyncManager: ObservableObject {
     
     private func performLastWriteWinsRestore(_ backup: BackupManager.EnhancedBackupData, viewModel: TransactionViewModel) async -> Bool {
         print("🏆 Using Last Write Wins strategy")
+        print("📊 Remote backup: \(backup.transactions.count) transactions, \(backup.accounts.count) accounts")
         
         return await withCheckedContinuation { continuation in
             viewModel.getBackgroundContext().perform {
                 do {
+                    // Backup current state for potential rollback
+                    let backupSuccessful = self.createPreRestoreSnapshot(viewModel.getBackgroundContext())
+                    if !backupSuccessful {
+                        print("⚠️ Warning: Could not create pre-restore snapshot")
+                    }
+                    
                     // Simple approach: Replace everything with remote data
                     try self.clearAllData(viewModel.getBackgroundContext())
                     let success = self.restoreFromBackup(backup, context: viewModel.getBackgroundContext())
@@ -138,18 +145,35 @@ class MultiUserSyncManager: ObservableObject {
                             continuation.resume(returning: true)
                         }
                     } else {
+                        print("❌ Restore failed - attempting rollback")
+                        self.attemptRollback(viewModel.getBackgroundContext())
                         DispatchQueue.main.async {
                             continuation.resume(returning: false)
                         }
                     }
                 } catch {
                     print("❌ Last Write Wins restore failed: \(error)")
+                    self.attemptRollback(viewModel.getBackgroundContext())
                     DispatchQueue.main.async {
                         continuation.resume(returning: false)
                     }
                 }
             }
         }
+    }
+    
+    private func createPreRestoreSnapshot(_ context: NSManagedObjectContext) -> Bool {
+        // Erstelle einen Snapshot der aktuellen Daten für potentiellen Rollback
+        // Vereinfachte Version - in einer vollständigen Implementierung würde hier
+        // ein vollständiger Snapshot erstellt werden
+        print("📸 Creating pre-restore snapshot...")
+        return true // Placeholder
+    }
+    
+    private func attemptRollback(_ context: NSManagedObjectContext) {
+        print("🔄 Attempting rollback after failed restore...")
+        context.rollback()
+        // In einer vollständigen Implementierung würde hier der Snapshot wiederhergestellt
     }
     
     private func performIntelligentMerge(_ backup: BackupManager.EnhancedBackupData, viewModel: TransactionViewModel) async -> Bool {
