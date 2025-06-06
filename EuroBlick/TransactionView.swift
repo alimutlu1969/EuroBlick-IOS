@@ -523,9 +523,20 @@ struct TransactionView: View {
 
     private func fetchTransactions() {
         let backgroundContext = viewModel.getBackgroundContext()
+        let accountObjectID = self.account.objectID
+        
         backgroundContext.perform {
+            // Konvertiere das Account-Objekt für den Background Context
+            guard let backgroundAccount = try? backgroundContext.existingObject(with: accountObjectID) as? Account else {
+                print("🚫 Fehler: Account-Objekt konnte nicht für Background Context konvertiert werden")
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                }
+                return
+            }
+            
             let fetchRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
-            fetchRequest.predicate = NSPredicate(format: "account == %@", self.account)
+            fetchRequest.predicate = NSPredicate(format: "account == %@", backgroundAccount)
             fetchRequest.sortDescriptors = [NSSortDescriptor(key: "date", ascending: false)]
             fetchRequest.returnsObjectsAsFaults = false
 

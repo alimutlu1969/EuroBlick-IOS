@@ -12,6 +12,8 @@
         <relationship name="transactions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Transaction" inverseName="account" inverseEntity="Transaction"/>
     </entity>
     <entity name="AccountGroup" representedClassName="AccountGroup" syncable="YES">
+        <attribute name="icon" optional="YES" attributeType="String" defaultValueString="folder.fill"/>
+        <attribute name="iconColor" optional="YES" attributeType="String" defaultValueString="#666666"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <relationship name="accounts" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Account" inverseName="group" inverseEntity="Account"/>
     </entity>

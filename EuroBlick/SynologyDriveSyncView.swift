@@ -87,11 +87,39 @@ struct SynologyDriveSyncView: View {
                         .cornerRadius(12)
                     }
                     
-                    // Action Buttons
+                    // Action Buttons - NEUES KONSERVATIVES SYNC-SYSTEM
                     VStack(spacing: 12) {
+                        // Status Warning wenn zu viele Uploads
+                        if case .blocked(let reason) = syncService.syncStatus {
+                            VStack {
+                                HStack {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.red)
+                                    Text("Synchronisation pausiert")
+                                        .font(.headline)
+                                        .foregroundColor(.red)
+                                    Spacer()
+                                }
+                                Text(reason)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                Button("Upload-Zähler zurücksetzen") {
+                                    syncService.resetUploadCounter()
+                                }
+                                .font(.caption)
+                                .padding(.top, 4)
+                            }
+                            .padding()
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(12)
+                        }
+                        
+                        // Hauptsync-Button (nur Download)
                         Button(action: {
                             Task {
-                                await performManualSyncWithLogging()
+                                await syncService.performManualSync(allowUpload: false)
                             }
                         }) {
                             HStack {
@@ -99,17 +127,57 @@ struct SynologyDriveSyncView: View {
                                     ProgressView()
                                         .scaleEffect(0.8)
                                 } else {
-                                    Image(systemName: "arrow.clockwise")
+                                    Image(systemName: "arrow.down.circle")
                                 }
-                                Text(syncService.isSyncing ? "Synchronisiert..." : "Manueller Sync")
+                                Text(syncService.isSyncing ? "Synchronisiert..." : "Sichere Synchronisation (nur Download)")
                             }
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(syncService.isSyncing ? Color.gray : Color.blue)
+                            .background(syncService.isSyncing ? Color.gray : Color.green)
                             .foregroundColor(.white)
                             .cornerRadius(12)
                         }
                         .disabled(syncService.isSyncing)
+                        
+                        // Upload-Button (mit Warnung)
+                        Button(action: {
+                            Task {
+                                await syncService.performManualSync(allowUpload: true)
+                            }
+                        }) {
+                            HStack {
+                                if syncService.isSyncing {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: "arrow.up.circle")
+                                }
+                                Text("Upload erlauben (Vorsicht!)")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(syncService.isSyncing ? Color.gray : Color.orange)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                        .disabled(syncService.isSyncing)
+                        
+                        // Info-Text
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("💡 Sicherheitshinweise:")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            Text("• 'Sichere Synchronisation' lädt nur neue Daten herunter")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text("• 'Upload erlauben' kann Daten überschreiben - nur verwenden wenn sicher")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(8)
                         
                         HStack(spacing: 12) {
                             Button("Debug-Logs") {
@@ -183,10 +251,63 @@ struct SynologyDriveSyncView: View {
                         .background(Color.red)
                         .foregroundColor(.white)
                         .cornerRadius(8)
+                        
+                        Button("Datenbank-Diagnose") {
+                            Task {
+                                syncService.clearDebugLogs()
+                                await syncService.performDatabaseDiagnostic()
+                                showDebugLogs = true
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.cyan)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        
+                        Divider()
+                            .padding(.vertical, 8)
+                        
+                        Text("🚨 NOTFALL-FUNKTIONEN")
+                            .font(.headline)
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        
+                        Text("Nutzen Sie diese nur, wenn Daten nach erfolgreichem Sync nicht sichtbar sind!")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                        
+                        Button("🔧 UI KOMPLETT AKTUALISIEREN") {
+                            Task {
+                                await syncService.forceCompleteUIRefresh()
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .fontWeight(.bold)
+                        
+                        Button("🔍 DATENBANK-STATUS PRÜFEN") {
+                            Task {
+                                syncService.clearDebugLogs()
+                                await syncService.debugCurrentDatabaseState()
+                                showDebugLogs = true
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .fontWeight(.bold)
                     }
                     
                     Group {
-                        Section("Auto-Sync Einstellungen") {
+                        Section("Auto-Sync Einstellungen (Konservativ)") {
                             HStack {
                                 Image(systemName: syncService.isAutoSyncEnabled ? "checkmark.circle.fill" : "circle")
                                     .foregroundColor(syncService.isAutoSyncEnabled ? .green : .gray)
@@ -194,7 +315,7 @@ struct SynologyDriveSyncView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Automatische Synchronisation")
                                         .font(.headline)
-                                    Text("Alle 30 Sekunden im Hintergrund synchronisieren")
+                                    Text("Alle 5 Minuten, nur Downloads - keine automatischen Uploads")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
@@ -210,9 +331,9 @@ struct SynologyDriveSyncView: View {
                             
                             if syncService.isAutoSyncEnabled {
                                 HStack {
-                                    Image(systemName: "info.circle")
-                                        .foregroundColor(.blue)
-                                    Text("Auto-Sync ist aktiv. Änderungen werden automatisch synchronisiert.")
+                                    Image(systemName: "shield.checkered")
+                                        .foregroundColor(.green)
+                                    Text("SICHER: Auto-Sync lädt nur Daten herunter, überschreibt nie lokale Änderungen")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
@@ -270,17 +391,19 @@ struct SynologyDriveSyncView: View {
         case .idle:
             return "Bereit"
         case .checking:
-            return "Überprüfe Backups..."
+            return "Prüfe Server..."
         case .downloading:
-            return "Lade Backup herunter..."
+            return "Lade herunter..."
         case .uploading:
-            return "Lade Backup hoch..."
+            return "Lade hoch..."
         case .syncing:
             return "Synchronisiert..."
         case .error(let message):
             return "Fehler: \(message)"
         case .success:
             return "Erfolgreich"
+        case .blocked(let reason):
+            return "⚠️ Pausiert: \(reason)"
         }
     }
     
@@ -294,6 +417,8 @@ struct SynologyDriveSyncView: View {
             return .red
         case .success:
             return .green
+        case .blocked:
+            return .orange
         }
     }
     
@@ -307,6 +432,8 @@ struct SynologyDriveSyncView: View {
             return "exclamationmark.circle"
         case .success:
             return "checkmark.circle"
+        case .blocked:
+            return "exclamationmark.triangle.fill"
         }
     }
     
@@ -426,10 +553,7 @@ struct SynologyDriveSyncView: View {
     }
     
     // MARK: - Debug Methods
-    private func performManualSyncWithLogging() async {
-        syncService.clearDebugLogs()
-        await syncService.performManualSync()
-    }
+    // Removed - now using conservative sync methods directly
 }
 
 // MARK: - Supporting Views

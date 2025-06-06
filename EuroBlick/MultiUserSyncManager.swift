@@ -78,6 +78,22 @@ class MultiUserSyncManager: ObservableObject {
             if let backup = try? JSONDecoder().decode(BackupManager.EnhancedBackupData.self, from: jsonData) {
                 print("🔄 Starting conflict resolution restore with Enhanced Backup...")
                 print("📊 Remote backup from user: \(backup.userID), device: \(backup.deviceName)")
+                print("📊 BACKUP CONTENT VERIFICATION:")
+                print("  📁 Account Groups: \(backup.accountGroups.count)")
+                print("  💳 Accounts: \(backup.accounts.count)")
+                print("  🏷️ Categories: \(backup.categories.count)")
+                print("  💰 Transactions: \(backup.transactions.count)")
+                
+                // Show first few items for verification
+                if !backup.accountGroups.isEmpty {
+                    print("  📁 First group: '\(backup.accountGroups[0].name)'")
+                }
+                if !backup.accounts.isEmpty {
+                    print("  💳 First account: '\(backup.accounts[0].name)' in group '\(backup.accounts[0].group)'")
+                }
+                if !backup.transactions.isEmpty {
+                    print("  💰 First transaction: \(backup.transactions[0].amount) \(backup.transactions[0].type)")
+                }
                 
                 switch conflictResolutionStrategy {
                 case .lastWriteWins:
@@ -95,16 +111,41 @@ class MultiUserSyncManager: ObservableObject {
             print("🔄 Enhanced backup parsing failed, trying legacy format...")
             if let legacyBackup = try? JSONDecoder().decode(LegacyBackupData.self, from: jsonData) {
                 print("📊 Legacy backup detected, converting to enhanced format...")
+                print("📊 LEGACY BACKUP CONTENT:")
+                print("  📁 Account Groups: \(legacyBackup.accountGroups.count)")
+                print("  💳 Accounts: \(legacyBackup.accounts.count)")
+                print("  🏷️ Categories: \(legacyBackup.categories.count)")
+                print("  💰 Transactions: \(legacyBackup.transactions.count)")
                 return await performLegacyBackupRestore(legacyBackup, viewModel: viewModel)
             }
             
             // If both fail, try raw JSON dictionary approach
             if let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
                 print("🔄 Trying raw JSON dictionary fallback...")
+                
+                // Show what's in the raw JSON
+                if let accountGroups = jsonObject["accountGroups"] as? [[String: Any]] {
+                    print("📊 RAW JSON CONTENT:")
+                    print("  📁 Account Groups: \(accountGroups.count)")
+                    if let accounts = jsonObject["accounts"] as? [[String: Any]] {
+                        print("  💳 Accounts: \(accounts.count)")
+                    }
+                    if let categories = jsonObject["categories"] as? [[String: Any]] {
+                        print("  🏷️ Categories: \(categories.count)")
+                    }
+                    if let transactions = jsonObject["transactions"] as? [[String: Any]] {
+                        print("  💰 Transactions: \(transactions.count)")
+                    }
+                }
+                
                 return await performRawJSONRestore(jsonObject, viewModel: viewModel)
             }
             
             print("❌ Failed to parse backup in any known format")
+            print("❌ JSON data size: \(jsonData.count) bytes")
+            if let jsonString = String(data: jsonData, encoding: .utf8) {
+                print("❌ JSON preview: \(String(jsonString.prefix(200)))...")
+            }
             return false
             
         } catch {
@@ -130,19 +171,135 @@ class MultiUserSyncManager: ObservableObject {
                     
                     // Simple approach: Replace everything with remote data
                     try self.clearAllData(viewModel.getBackgroundContext())
+                    print("🔄 About to call restoreFromBackup...")
                     let success = self.restoreFromBackup(backup, context: viewModel.getBackgroundContext())
+                    print("🔄 restoreFromBackup returned: \(success)")
                     
                     if success {
+                        print("🔄 Attempting to save background context...")
                         try viewModel.getBackgroundContext().save()
-                        print("✅ Last Write Wins restore completed - context saved")
+                        print("✅ Background context saved")
                         
-                        // Force main context to refresh from persistent store
+                        // CRITICAL: In Parent-Child setup, we MUST also save the parent (main) context!
+                        print("🔄 CRITICAL: Saving parent (main) context to persistent store...")
+                        
+                        // Force save main context synchronously  
+                        var mainContextSaveError: Error? = nil
+                        DispatchQueue.main.sync {
+                            viewModel.getContext().performAndWait {
+                                do {
+                                    if viewModel.getContext().hasChanges {
+                                        try viewModel.getContext().save()
+                                        print("✅ Main context saved to persistent store!")
+                                    } else {
+                                        print("ℹ️ Main context had no changes to save")
+                                    }
+                                } catch {
+                                    print("❌ Failed to save main context: \(error)")
+                                    mainContextSaveError = error
+                                }
+                            }
+                        }
+                        
+                        if let error = mainContextSaveError {
+                            throw error
+                        }
+                        
+                        print("✅ Parent-Child save sequence completed!")
+                        
+                        // CRITICAL: Force main context to completely reload from persistent store
+                        print("🔄 FORCING MAIN CONTEXT TO COMPLETELY RELOAD FROM PERSISTENT STORE...")
+                        
+                        // Force comprehensive UI refresh from persistent store
                         DispatchQueue.main.async {
-                            viewModel.getContext().refreshAllObjects()
-                            viewModel.fetchAccountGroups()
-                            viewModel.fetchCategories()
-                            print("🔄 UI refreshed after restore")
-                            continuation.resume(returning: true)
+                            // 1. NUCLEAR OPTION: Complete context reconstruction
+                            print("🔄 NUCLEAR OPTION: Forcing complete main context reload...")
+                            
+                            // Force main context to drop everything and reload from store
+                            viewModel.getContext().performAndWait {
+                                viewModel.getContext().reset()
+                                print("🔄 Main context reset completed")
+                            }
+                            
+                            // Wait for reset to complete
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                
+                                // Force fresh object loading with explicit Core Data fetch
+                                viewModel.getContext().performAndWait {
+                                    // Force reload all entities from persistent store
+                                    let entities = ["AccountGroup", "Account", "Transaction", "Category"]
+                                    
+                                    for entityName in entities {
+                                        let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                                        fetchRequest.returnsObjectsAsFaults = false // Force full object loading
+                                        
+                                        do {
+                                            let objects = try viewModel.getContext().fetch(fetchRequest)
+                                            print("🔄 FORCED RELOAD: \(entityName) = \(objects.count) objects")
+                                            
+                                            // Touch each object to ensure it's loaded
+                                            for object in objects {
+                                                _ = object.objectID
+                                            }
+                                        } catch {
+                                            print("❌ Error reloading \(entityName): \(error)")
+                                        }
+                                    }
+                                }
+                                
+                                // 2. Fetch all data fresh from store
+                                viewModel.fetchAccountGroups()
+                                viewModel.fetchCategories()
+                                
+                                // 3. CRITICAL: Force balance recalculation with fresh data
+                                print("🔄 Forcing balance recalculation after context reload...")
+                                let _ = viewModel.calculateAllBalances()
+                                
+                                // 4. Force view model to notify UI of changes
+                                viewModel.objectWillChange.send()
+                                
+                                // 5. Send notification for additional UI updates
+                                NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+                                NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
+                                
+                                print("🔄 Nuclear context reload completed after restore")
+                                continuation.resume(returning: true)
+                                
+                                // 6. Additional verification after nuclear reload
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    print("🔄 Phase 2: Post-nuclear verification...")
+                                    
+                                    // Verify main context now sees the data
+                                    viewModel.getContext().performAndWait {
+                                        let entities = ["AccountGroup", "Account", "Transaction", "Category"]
+                                        
+                                        for entityName in entities {
+                                            let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                                            do {
+                                                let count = try viewModel.getContext().count(for: fetchRequest)
+                                                print("🔍 POST-NUCLEAR VERIFICATION: \(entityName) = \(count) objects")
+                                            } catch {
+                                                print("❌ Error verifying \(entityName): \(error)")
+                                            }
+                                        }
+                                    }
+                                    
+                                    let _ = viewModel.calculateAllBalances()
+                                    viewModel.fetchAccountGroups()
+                                    viewModel.fetchCategories()
+                                    viewModel.objectWillChange.send()
+                                    NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
+                                }
+                                
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                                    print("🔄 Phase 3: Final verification and balance recalculation...")
+                                    let _ = viewModel.calculateAllBalances()
+                                    viewModel.fetchAccountGroups()
+                                    viewModel.objectWillChange.send()
+                                    NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+                                    print("🔄 Nuclear restore completed - data should now be visible!")
+                                }
+                            }
                         }
                     } else {
                         print("❌ Restore failed - attempting rollback")
@@ -431,50 +588,106 @@ class MultiUserSyncManager: ObservableObject {
     }
     
     private func restoreFromBackup(_ backup: BackupManager.EnhancedBackupData, context: NSManagedObjectContext) -> Bool {
+        print("🔄 DETAILED RESTORE - Starting with backup containing:")
+        print("  📁 Account Groups: \(backup.accountGroups.count)")
+        print("  💳 Accounts: \(backup.accounts.count)")
+        print("  🏷️ Categories: \(backup.categories.count)")
+        print("  💰 Transactions: \(backup.transactions.count)")
+        
         // Restore categories
         var categoryMap: [String: Category] = [:]
-        for categoryData in backup.categories {
+        print("🔄 Creating \(backup.categories.count) categories...")
+        for (index, categoryData) in backup.categories.enumerated() {
             let category = Category(context: context)
             category.name = categoryData.name
             categoryMap[categoryData.name] = category
+            print("  ➕ Category \(index + 1): '\(categoryData.name)'")
         }
+        print("✅ Created \(categoryMap.count) categories")
         
         // Restore account groups
         var groupMap: [String: AccountGroup] = [:]
-        for groupData in backup.accountGroups {
+        print("🔄 Creating \(backup.accountGroups.count) account groups...")
+        for (index, groupData) in backup.accountGroups.enumerated() {
             let group = AccountGroup(context: context)
             group.name = groupData.name
             groupMap[groupData.name] = group
+            print("  ➕ Group \(index + 1): '\(groupData.name)'")
         }
+        print("✅ Created \(groupMap.count) account groups")
         
         // Restore accounts
         var accountMap: [String: Account] = [:]
-        for accountData in backup.accounts {
+        print("🔄 Creating \(backup.accounts.count) accounts...")
+        for (index, accountData) in backup.accounts.enumerated() {
             let account = Account(context: context)
             account.name = accountData.name
             account.group = groupMap[accountData.group]
             account.setValue(accountData.type, forKey: "type")
             account.setValue(accountData.includeInBalance, forKey: "includeInBalance")
             accountMap[accountData.name] = account
+            print("  ➕ Account \(index + 1): '\(accountData.name)' in group '\(accountData.group)'")
         }
+        print("✅ Created \(accountMap.count) accounts")
         
         // Restore transactions
-        for transactionData in backup.transactions {
+        print("🔄 Creating \(backup.transactions.count) transactions...")
+        var transactionCount = 0
+        for (index, transactionData) in backup.transactions.enumerated() {
+            guard let account = accountMap[transactionData.account],
+                  let category = categoryMap[transactionData.category] else {
+                print("  ❌ Skipping transaction \(index + 1): missing account '\(transactionData.account)' or category '\(transactionData.category)'")
+                continue
+            }
+            
             let transaction = Transaction(context: context)
             transaction.id = UUID(uuidString: transactionData.id) ?? UUID()
             transaction.type = transactionData.type
             transaction.amount = transactionData.amount
             transaction.date = Date(timeIntervalSince1970: transactionData.date)
             transaction.usage = transactionData.usage
-            transaction.account = accountMap[transactionData.account]
-            transaction.categoryRelationship = categoryMap[transactionData.category]
+            transaction.account = account
+            transaction.categoryRelationship = category
             
             if let targetAccountName = transactionData.targetAccount {
                 transaction.targetAccount = accountMap[targetAccountName]
             }
+            
+            transactionCount += 1
+            if index < 5 || index % 10 == 0 { // Log first 5 and every 10th
+                print("  ➕ Transaction \(index + 1): \(transactionData.amount) \(transactionData.type) for \(transactionData.account)")
+            }
+        }
+        print("✅ Created \(transactionCount) transactions")
+        
+        // CRITICAL: Verify entities were actually created
+        do {
+            let categoryCount = try context.count(for: NSFetchRequest<Category>(entityName: "Category"))
+            let groupCount = try context.count(for: NSFetchRequest<AccountGroup>(entityName: "AccountGroup"))
+            let accountCount = try context.count(for: NSFetchRequest<Account>(entityName: "Account"))
+            let transactionCountCheck = try context.count(for: NSFetchRequest<Transaction>(entityName: "Transaction"))
+            
+            print("🔍 VERIFICATION - Entities in context:")
+            print("  📁 Account Groups: \(groupCount)")
+            print("  💳 Accounts: \(accountCount)")
+            print("  🏷️ Categories: \(categoryCount)")
+            print("  💰 Transactions: \(transactionCountCheck)")
+            
+            if groupCount == 0 && accountCount == 0 && transactionCountCheck == 0 {
+                print("❌ NO ENTITIES CREATED - RESTORE FAILED!")
+                return false
+            }
+            
+            if transactionCountCheck != backup.transactions.count {
+                print("⚠️ Transaction count mismatch: expected \(backup.transactions.count), got \(transactionCountCheck)")
+            }
+            
+        } catch {
+            print("❌ Verification error: \(error)")
+            return false
         }
         
-        print("✅ Backup restoration completed successfully")
+        print("✅ Backup restoration completed successfully with verified entities")
         return true
     }
     

@@ -275,6 +275,58 @@ struct AccountRowView: View {
         let colorHex = account.value(forKey: "iconColor") as? String ?? "#007AFF"
         return (icon, Color(hex: colorHex) ?? .blue)
     }
+    
+    private func getSafeAccountName(_ account: Account) -> String {
+        // NEUE STRATEGIE: ViewModel-basierte Namensauflösung
+        // Das vermeidet Core Data Objektreferenz-Probleme komplett
+        
+        // 1. Versuche über ViewModel (aktuellste Objektreferenzen)
+        let viewModelName = getAccountNameFromViewModel(account)
+        if !viewModelName.isEmpty && viewModelName != "Unbekanntes Konto" {
+            // Reset Fault-Counter bei erfolgreichem ViewModel-Abruf
+            UserDefaults.standard.set(0, forKey: "faultCounter")
+            return viewModelName
+        }
+        
+        // 2. Fallback: Direkter Zugriff
+        if let directName = account.name, !directName.isEmpty {
+            UserDefaults.standard.set(0, forKey: "faultCounter")
+            return directName
+        }
+        
+        // 3. Fallback: Value(forKey:) Zugriff
+        if let keyName = account.value(forKey: "name") as? String, !keyName.isEmpty {
+            return keyName
+        }
+        
+        print("🔍 FAULT: Account \(account.objectID) hat keinen Namen geladen")
+        
+        // Auto-Fix nach 3 aufeinanderfolgenden Faults
+        UserDefaults.standard.set((UserDefaults.standard.integer(forKey: "faultCounter") + 1), forKey: "faultCounter")
+        if UserDefaults.standard.integer(forKey: "faultCounter") >= 3 {
+            UserDefaults.standard.set(0, forKey: "faultCounter")
+            DispatchQueue.main.async {
+                // Trigger Auto-Fix über Notification
+                NotificationCenter.default.post(name: NSNotification.Name("AutoFixUIFaults"), object: nil)
+            }
+        }
+        
+        return "Unbekanntes Konto"
+    }
+    
+    private func getAccountNameFromViewModel(_ account: Account) -> String {
+        // Finde Account im ViewModel anhand ObjectID
+        for group in viewModel.accountGroups {
+            if let accounts = group.accounts?.allObjects as? [Account] {
+                for vmAccount in accounts {
+                    if vmAccount.objectID == account.objectID {
+                        return vmAccount.name ?? ""
+                    }
+                }
+            }
+        }
+        return ""
+    }
 
     var body: some View {
         NavigationStack {
@@ -283,7 +335,7 @@ struct AccountRowView: View {
                     .foregroundColor(accountIcon.color)
                     .font(.system(size: AppFontSize.contentIcon))
                     .frame(width: 30)
-                Text(account.name ?? "Unbekanntes Konto")
+                Text(getSafeAccountName(account))
                     .font(.system(size: (AppFontSize.bodyLarge + AppFontSize.bodyMedium) / 2))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -392,7 +444,20 @@ struct AccountGroupView: View {
     @State private var showEditSheet = false
 
     private var groupIcon: (systemName: String, color: Color) {
+        // Versuche gespeicherte Icon-Daten zu verwenden
+        let savedIcon = group.value(forKey: "icon") as? String
+        let savedColorHex = group.value(forKey: "iconColor") as? String
+        
+        if let icon = savedIcon, let colorHex = savedColorHex {
+            return (icon, Color(hex: colorHex) ?? .gray)
+        }
+        
+        // Fallback: Intelligente Icon-Auswahl basierend auf Namen (OHNE Auto-Save)
         let groupName = (group.name ?? "").lowercased()
+        return getDefaultIconForGroup(groupName)
+    }
+    
+    private func getDefaultIconForGroup(_ groupName: String) -> (String, Color) {
         if groupName.contains("kaffee") {
             return ("cup.and.saucer.fill", .brown)
         } else if groupName.contains("bank") || groupName.contains("giro") {
@@ -402,6 +467,54 @@ struct AccountGroupView: View {
         } else {
             return ("folder.fill", .gray)
         }
+    }
+    
+    private func getSafeGroupName(_ group: AccountGroup) -> String {
+        // NEUE STRATEGIE: ViewModel-basierte Namensauflösung
+        // Das vermeidet Core Data Objektreferenz-Probleme komplett
+        
+        // 1. Versuche über ViewModel (aktuellste Objektreferenzen)
+        let viewModelName = getGroupNameFromViewModel(group)
+        if !viewModelName.isEmpty && viewModelName != "Unbekannte Gruppe" {
+            // Reset Fault-Counter bei erfolgreichem ViewModel-Abruf
+            UserDefaults.standard.set(0, forKey: "faultCounter")
+            return viewModelName
+        }
+        
+        // 2. Fallback: Direkter Zugriff
+        if let directName = group.name, !directName.isEmpty {
+            UserDefaults.standard.set(0, forKey: "faultCounter")
+            return directName
+        }
+        
+        // 3. Fallback: Value(forKey:) Zugriff
+        if let keyName = group.value(forKey: "name") as? String, !keyName.isEmpty {
+            return keyName
+        }
+        
+        print("🔍 FAULT: AccountGroup \(group.objectID) hat keinen Namen geladen")
+        
+        // Auto-Fix nach 3 aufeinanderfolgenden Faults
+        UserDefaults.standard.set((UserDefaults.standard.integer(forKey: "faultCounter") + 1), forKey: "faultCounter")
+        if UserDefaults.standard.integer(forKey: "faultCounter") >= 3 {
+            UserDefaults.standard.set(0, forKey: "faultCounter")
+            DispatchQueue.main.async {
+                // Trigger Auto-Fix über Notification
+                NotificationCenter.default.post(name: NSNotification.Name("AutoFixUIFaults"), object: nil)
+            }
+        }
+        
+        return "Unbekannte Gruppe"
+    }
+    
+    private func getGroupNameFromViewModel(_ group: AccountGroup) -> String {
+        // Finde AccountGroup im ViewModel anhand ObjectID
+        for vmGroup in viewModel.accountGroups {
+            if vmGroup.objectID == group.objectID {
+                return vmGroup.name ?? ""
+            }
+        }
+        return ""
     }
 
     private var regularAccounts: [(account: Account, balance: Double)] {
@@ -451,7 +564,7 @@ struct AccountGroupView: View {
                         .foregroundColor(groupIcon.color)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(group.name ?? "Unbekannte Gruppe")
+                    Text(getSafeGroupName(group))
                         .font(.system(size: AppFontSize.groupTitle, weight: .semibold))
                     Text("\(regularAccounts.count + specialAccounts.count) Konten")
                         .font(.caption)
@@ -607,12 +720,30 @@ struct AccountGroupRowView: View {
     @Binding var selectedAccount: (account: Account, balance: Double)?
     @Binding var showAccountContextMenu: Bool
     @Binding var showEditSheet: Bool
+    
+    private func getSafeAccountNameInGroup(_ account: Account) -> String {
+        // NEUE STRATEGIE: Vereinfachter ViewModel-basierter Abruf für Gruppen-Konten
+        
+        // 1. Direkter Zugriff (meist erfolgreich in Gruppen-Kontext)
+        if let directName = account.name, !directName.isEmpty {
+            UserDefaults.standard.set(0, forKey: "faultCounter")
+            return directName
+        }
+        
+        // 2. Value(forKey:) Zugriff
+        if let keyName = account.value(forKey: "name") as? String, !keyName.isEmpty {
+            return keyName
+        }
+        
+        print("🔍 FAULT: Account \(account.objectID) in group hat keinen Namen geladen")
+        return "Unbekanntes Konto"
+    }
 
     var body: some View {
         let icon = item.account.value(forKey: "icon") as? String ?? "building.columns.fill"
         let colorHex = item.account.value(forKey: "iconColor") as? String ?? "#007AFF"
         let formattedBalance = formatBalance(item.balance)
-        let accountName = item.account.name ?? "Unbekanntes Konto"
+        let accountName = getSafeAccountNameInGroup(item.account)
         let isIncluded = isAccountIncludedInBalance(item.account)
         HStack(spacing: 12) {
             Image(systemName: icon)
@@ -982,21 +1113,49 @@ struct ContentView: View {
             .padding(.top, 8)
             .padding(.bottom, 20)
         }
+        .refreshable {
+            await refreshAllData()
+        }
+    }
+    
+    @MainActor
+    private func refreshAllData() async {
+        print("🔄 Pull-to-refresh triggered - NON-FAULT refresh...")
+        
+        // KRITISCH: KEIN context.reset() oder refreshAllObjects() - das macht Faults!
+        // Stattdessen: Sanfte Datenaktualisierung
+        
+        // 1. Fetch neue Daten ohne Context-Reset
+        viewModel.fetchAccountGroups()
+        viewModel.fetchCategories()
+        
+        // 2. Berechne Kontostände neu 
+        refreshBalances()
+        
+        // 3. UI-Update
+        viewModel.objectWillChange.send()
+        
+        print("✅ NON-FAULT pull-to-refresh completed")
     }
     
     private var mainView: some View {
-        ContentMainView(
-            accountGroups: viewModel.accountGroups,
-            balances: accountBalances,
-            viewModel: viewModel,
-            onAccountTapped: { account in selectedAccount = account },
-            showAddGroupSheet: $showAddAccountGroupSheet,
-            showSelectGroupSheet: $showGroupSelectionSheet,
-            showEditGroupSheet: $showEditGroupSheet,
-            groupToEdit: $groupToEdit,
-            newGroupName: $newGroupName
-        )
-        .padding(.bottom, 20)
+        ScrollView(.vertical, showsIndicators: true) {
+            ContentMainView(
+                accountGroups: viewModel.accountGroups,
+                balances: accountBalances,
+                viewModel: viewModel,
+                onAccountTapped: { account in selectedAccount = account },
+                showAddGroupSheet: $showAddAccountGroupSheet,
+                showSelectGroupSheet: $showGroupSelectionSheet,
+                showEditGroupSheet: $showEditGroupSheet,
+                groupToEdit: $groupToEdit,
+                newGroupName: $newGroupName
+            )
+            .padding(.bottom, 20)
+        }
+        .refreshable {
+            await refreshAllData()
+        }
     }
     
     var body: some View {

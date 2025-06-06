@@ -218,6 +218,8 @@ struct SideMenuSyncItem: View {
             return .red
         case .success:
             return .green
+        case .blocked:
+            return .orange
         }
     }
     
@@ -237,6 +239,8 @@ struct SideMenuSyncItem: View {
             return "Fehler"
         case .success:
             return "Aktuell"
+        case .blocked:
+            return "Pausiert"
         }
     }
 } 

@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import CoreData
 
+@MainActor
 class SynologyBackupSyncService: ObservableObject {
     @Published var isSyncing = false
     @Published var lastSyncDate: Date?
@@ -10,10 +11,15 @@ class SynologyBackupSyncService: ObservableObject {
     @Published var debugLogs: [String] = []
     
     private var syncTimer: Timer?
-    private let syncInterval: TimeInterval = 30 // Sync alle 30 Sekunden
+    private let syncInterval: TimeInterval = 60 // Sync alle 60 Sekunden
     private let viewModel: TransactionViewModel
     private let backupManager: BackupManager
     private let multiUserSyncManager: MultiUserSyncManager
+    
+    // Kritische Safeguards
+    private var lastSyncAttempt: Date?
+    private var consecutiveUploads: Int = 0
+    private let maxConsecutiveUploads = 2 // Maximale Anzahl aufeinanderfolgender Uploads
     
     enum SyncStatus {
         case idle
@@ -23,6 +29,7 @@ class SynologyBackupSyncService: ObservableObject {
         case syncing
         case error(String)
         case success
+        case blocked(String) // Neu: Für blockierte Sync-Versuche
     }
     
     struct BackupInfo: Identifiable, Codable {
@@ -51,12 +58,28 @@ class SynologyBackupSyncService: ObservableObject {
         // AUTO-SYNC: Verbesserte Logik mit Safeguards
         debugLog("🔄 Initializing Synology Drive sync service with improved safeguards")
         
+        // Auto-Fix Listener für UI-Faults
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("AutoFixUIFaults"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                self.debugLog("🔧 AUTO-FIX: Detected repeated UI faults - triggering automatic fix")
+                await self.fixUIDisplayProblem()
+            }
+        }
+        
         // Aktiviere Auto-Sync nur wenn konfiguriert und aktiviert
         enableAutoSyncIfConfigured()
     }
     
     deinit {
-        stopAutoSync()
+        Task { @MainActor [weak self] in
+            self?.stopAutoSync()
+        }
+        NotificationCenter.default.removeObserver(self)
     }
     
     private func debugLog(_ message: String) {
@@ -85,40 +108,148 @@ class SynologyBackupSyncService: ObservableObject {
     // MARK: - Public Methods
     
     func startAutoSync() {
-        guard syncTimer == nil else { return }
+        guard syncTimer == nil else {
+            debugLog("⚠️ Auto-sync already running")
+            return
+        }
         
         // Prüfe WebDAV-Konfiguration bevor Auto-Sync gestartet wird
         guard hasValidWebDAVConfiguration() else {
             debugLog("⚠️ Auto-sync not started: WebDAV configuration incomplete")
+            syncStatus = .error("WebDAV configuration incomplete")
             return
         }
         
         debugLog("🔄 Starting automatic Synology Drive sync with improved safeguards...")
-        syncTimer = Timer.scheduledTimer(withTimeInterval: syncInterval, repeats: true) { [weak self] _ in
-            Task {
+        
+        // Starte Timer auf dem Main Thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.syncTimer = Timer.scheduledTimer(withTimeInterval: self.syncInterval, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    
+                    // Prüfe ob ein Sync bereits läuft
+                    guard !self.isSyncing else {
+                        self.debugLog("⏳ Sync skipped: Another sync is in progress")
+                        return
+                    }
+                    
+                    // Prüfe ob der letzte Sync-Versuch zu kurz her ist
+                    if let lastAttempt = self.lastSyncAttempt {
+                        let timeSinceLastAttempt = Date().timeIntervalSince(lastAttempt)
+                        if timeSinceLastAttempt < 30 { // Mindestens 30 Sekunden zwischen Sync-Versuchen
+                            self.debugLog("⏳ Sync skipped: Too soon since last attempt (\(Int(timeSinceLastAttempt))s)")
+                            return
+                        }
+                    }
+                    
+                    self.lastSyncAttempt = Date()
+                    await self.performAutoSyncWithSafeguards()
+                }
+            }
+            
+            // Führe ersten Sync nach kurzer Verzögerung aus
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 Sekunden Verzögerung
                 await self?.performAutoSyncWithSafeguards()
             }
         }
-        
-        // Perform initial sync after a small delay to avoid startup conflicts
-        Task {
-            try await Task.sleep(nanoseconds: 2_000_000_000) // 2 second delay
-            await performAutoSyncWithSafeguards()
-        }
     }
     
+    @MainActor
     func stopAutoSync() {
         syncTimer?.invalidate()
         syncTimer = nil
         debugLog("⏹️ Stopped automatic sync")
     }
     
-    func performManualSync() async {
-        await performAutoSync(isManual: true)
+    func performManualSync(allowUpload: Bool = false) async {
+        debugLog("🔧 MANUAL SYNC started (allowUpload: \(allowUpload))")
+        
+        guard !isSyncing else {
+            debugLog("📋 Manual sync skipped: sync already in progress")
+            return
+        }
+        
+        await MainActor.run {
+            isSyncing = true
+            syncStatus = .checking
+        }
+        
+        do {
+            // 1. Check local and remote data
+            let localDataExists = await checkLocalDataExists()
+            let remoteBackups = try await fetchRemoteBackups()
+            
+            await MainActor.run {
+                availableBackups = remoteBackups.sorted { $0.timestamp > $1.timestamp }
+            }
+            
+            let hasRemoteData = !remoteBackups.isEmpty
+            debugLog("📊 Manual sync state: Local=\(localDataExists ? "YES" : "NO"), Remote=\(hasRemoteData ? "YES(\(remoteBackups.count))" : "NO")")
+            
+            // 2. Download logic (always safe)
+            if hasRemoteData, let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }) {
+                if await shouldDownloadConservatively(newestRemote) || allowUpload {
+                    await MainActor.run { syncStatus = .downloading }
+                    debugLog("📥 MANUAL DOWNLOAD → \(newestRemote.filename)")
+                    try await downloadAndRestoreBackup(newestRemote)
+                    consecutiveUploads = 0 // Reset on successful download
+                }
+            }
+            
+            // 3. Upload logic (only if explicitly allowed)
+            if allowUpload && localDataExists {
+                let shouldUpload: Bool
+                if !hasRemoteData {
+                    shouldUpload = true
+                } else {
+                    shouldUpload = await shouldUploadConservatively()
+                }
+                
+                if shouldUpload {
+                    await MainActor.run { syncStatus = .uploading }
+                    debugLog("📤 MANUAL UPLOAD → Starting upload")
+                    try await uploadCurrentState()
+                    consecutiveUploads += 1
+                }
+            }
+            
+            await MainActor.run {
+                syncStatus = .success
+                lastSyncDate = Date()
+                saveLastSyncDate()
+            }
+            
+            debugLog("✅ Manual sync completed")
+            
+        } catch {
+            debugLog("❌ Manual sync failed: \(error)")
+            await MainActor.run {
+                syncStatus = .error(error.localizedDescription)
+            }
+        }
+        
+        await MainActor.run {
+            isSyncing = false
+        }
     }
     
     func performDiagnosticSync() async {
-        debugLog("🩺 DIAGNOSTIC SYNC STARTED")
+        debugLog("🔍 Starting diagnostic sync...")
+        
+        // Get current user ID
+        let currentUserID = UserDefaults.standard.string(forKey: "currentUserID") ?? "unknown"
+        let deviceUUID = UIDevice.current.identifierForVendor?.uuidString ?? "unknown"
+        let prefixString = String(deviceUUID.prefix(8))
+        let currentDeviceID = prefixString.lowercased()
+        
+        debugLog("📱 Device Info:")
+        debugLog("  User ID: \(currentUserID)")
+        debugLog("  Device ID: \(currentDeviceID)")
+        
         debugLog("📋 Checking WebDAV configuration...")
         
         // Check WebDAV configuration
@@ -159,11 +290,96 @@ class SynologyBackupSyncService: ObservableObject {
                 }
             }
             
-            // Check if we should sync
+            // Use the new multi-user backup selection
             if !remoteBackups.isEmpty {
-                let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp })!
-                let shouldDownload = await shouldDownloadBackupWithConflictCheck(newestRemote)
-                debugLog("📋 Should download newest backup: \(shouldDownload ? "✅ Yes" : "❌ No")")
+                let bestBackup = await chooseBestBackupForMultiUser(remoteBackups)
+                if let selectedBackup = bestBackup {
+                    debugLog("🎯 Best backup selected: \(selectedBackup.filename)")
+                    debugLog("  👤 User: \(selectedBackup.userID ?? "unknown")")
+                    debugLog("  📱 Device: \(selectedBackup.deviceID)")
+                    
+                    let shouldDownload = await shouldDownloadConservatively(selectedBackup)
+                    debugLog("📋 Should download selected backup: \(shouldDownload ? "✅ Yes" : "❌ No")")
+                } else {
+                    debugLog("❌ No suitable backup found after multi-user filtering")
+                }
+            }
+            
+        } catch {
+            debugLog("❌ Failed to fetch remote backups: \(error)")
+        }
+        
+        debugLog("🩺 DIAGNOSTIC SYNC COMPLETED")
+    }
+    
+    /// Diagnostische Funktion zur Überprüfung der aktuellen Datenbank-Situation
+    func performDatabaseDiagnostic() async {
+        debugLog("🔍 Starting database diagnostic...")
+        
+        // Get current user ID
+        let currentUserID = UserDefaults.standard.string(forKey: "currentUserID") ?? "unknown"
+        let deviceUUID = UIDevice.current.identifierForVendor?.uuidString ?? "unknown"
+        let prefixString = String(deviceUUID.prefix(8))
+        let currentDeviceID = prefixString.lowercased()
+        
+        debugLog("🔍 Identity Check:")
+        debugLog("  Current User ID: \(currentUserID)")
+        debugLog("  Current Device ID: \(currentDeviceID)")
+        debugLog("  Full Device UUID: \(deviceUUID)")
+        
+        debugLog("📋 Checking WebDAV configuration...")
+        
+        // Check WebDAV configuration
+        let hasWebDAV = hasValidWebDAVConfiguration()
+        debugLog("📋 WebDAV configuration: \(hasWebDAV ? "✅ Valid" : "❌ Invalid")")
+        
+        if !hasWebDAV {
+            debugLog("❌ Cannot proceed without WebDAV configuration")
+            return
+        }
+        
+        // Check auto-sync status
+        debugLog("📋 Auto-sync enabled: \(isAutoSyncEnabled ? "✅ Yes" : "❌ No")")
+        debugLog("📋 Sync timer active: \(syncTimer != nil ? "✅ Yes" : "❌ No")")
+        
+        // Check last sync date
+        if let lastSync = lastSyncDate {
+            let timeSinceLastSync = Date().timeIntervalSince(lastSync)
+            debugLog("📋 Last sync: \(formatDate(lastSync)) (\(Int(timeSinceLastSync))s ago)")
+        } else {
+            debugLog("📋 Last sync: Never")
+        }
+        
+        // Check local data
+        let hasLocalData = await checkLocalDataExists()
+        debugLog("📋 Local data present: \(hasLocalData ? "✅ Yes" : "❌ No")")
+        
+        // Try to fetch remote backups
+        debugLog("📋 Attempting to fetch remote backups...")
+        do {
+            let remoteBackups = try await fetchRemoteBackups()
+            debugLog("📋 Remote backups found: \(remoteBackups.count)")
+            
+            for backup in remoteBackups.prefix(5) {
+                debugLog("  📄 \(backup.filename) - \(backup.size) bytes - \(formatDate(backup.timestamp))")
+                if let userID = backup.userID {
+                    debugLog("     👤 User: \(userID)")
+                }
+            }
+            
+            // Use the new multi-user backup selection
+            if !remoteBackups.isEmpty {
+                let bestBackup = await chooseBestBackupForMultiUser(remoteBackups)
+                if let selectedBackup = bestBackup {
+                    debugLog("🎯 Best backup selected: \(selectedBackup.filename)")
+                    debugLog("  👤 User: \(selectedBackup.userID ?? "unknown")")
+                    debugLog("  📱 Device: \(selectedBackup.deviceID)")
+                    
+                    let shouldDownload = await shouldDownloadConservatively(selectedBackup)
+                    debugLog("📋 Should download selected backup: \(shouldDownload ? "✅ Yes" : "❌ No")")
+                } else {
+                    debugLog("❌ No suitable backup found after multi-user filtering")
+                }
             }
             
         } catch {
@@ -208,11 +424,38 @@ class SynologyBackupSyncService: ObservableObject {
             
             debugLog("✅ Manual backup restore completed successfully")
             
-            // Force UI refresh on main thread after successful restore
+            // Force comprehensive UI refresh on main thread after successful restore
             await MainActor.run {
+                debugLog("🔄 Starting comprehensive UI refresh after restore...")
+                
+                // Refresh all data components
                 viewModel.fetchAccountGroups()
                 viewModel.fetchCategories()
-                debugLog("🔄 Manual restore - UI refreshed on main thread")
+                
+                // Force context refresh to ensure all relationships are loaded
+                viewModel.getContext().refreshAllObjects()
+                
+                // Force balance recalculation after restore
+                viewModel.objectWillChange.send()
+                
+                // Add additional UI refresh delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.viewModel.fetchAccountGroups()
+                    self.viewModel.objectWillChange.send()
+                    self.debugLog("🔄 Delayed UI refresh completed")
+                }
+                
+                debugLog("🔄 Manual restore - comprehensive UI refresh completed on main thread")
+            }
+            
+            // Add a small delay and then verify the data was properly restored
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            
+            await MainActor.run {
+                debugLog("🔍 Post-restore verification:")
+            }
+            Task {
+                await self.verifyRestoredData()
             }
             
         } catch {
@@ -340,30 +583,8 @@ class SynologyBackupSyncService: ObservableObject {
     }
     
     private func performAutoSyncWithSafeguards() async {
-        // Safeguard 1: Check if sync is already in progress
         guard !isSyncing else {
-            debugLog("📋 Sync already in progress, skipping auto-sync")
-            return
-        }
-        
-        // Safeguard 2: Rate limiting - don't sync too frequently
-        if let lastSync = lastSyncDate, Date().timeIntervalSince(lastSync) < 15 {
-            debugLog("⏰ Auto-sync skipped: too soon since last sync (< 15 seconds)")
-            return
-        }
-        
-        // Safeguard 3: Check WebDAV configuration
-        guard hasValidWebDAVConfiguration() else {
-            debugLog("⚠️ Auto-sync skipped: WebDAV configuration incomplete")
-            return
-        }
-        
-        await performAutoSync(isManual: false)
-    }
-    
-    private func performAutoSync(isManual: Bool = false) async {
-        guard !isSyncing else {
-            debugLog("📋 Sync already in progress, skipping...")
+            debugLog("⏳ Auto-sync skipped: sync already in progress")
             return
         }
         
@@ -373,13 +594,8 @@ class SynologyBackupSyncService: ObservableObject {
         }
         
         do {
-            debugLog("🔍 Checking for new backups on Synology Drive...")
-            
-            // 1. Check local data state first
+            // 1. Check local and remote data
             let localDataExists = await checkLocalDataExists()
-            debugLog("📊 Local data check: \(localDataExists ? "HAS DATA" : "EMPTY")")
-            
-            // 2. Check for remote backups
             let remoteBackups = try await fetchRemoteBackups()
             
             await MainActor.run {
@@ -387,69 +603,27 @@ class SynologyBackupSyncService: ObservableObject {
             }
             
             let hasRemoteData = !remoteBackups.isEmpty
-            debugLog("📊 Remote data check: \(hasRemoteData ? "HAS BACKUPS (\(remoteBackups.count))" : "EMPTY")")
+            debugLog("📊 Auto-sync state: Local=\(localDataExists ? "YES" : "NO"), Remote=\(hasRemoteData ? "YES(\(remoteBackups.count))" : "NO")")
             
-            // 3. Smart sync decision making with improved conflict detection
-            if !localDataExists && hasRemoteData {
-                // Case 1: Local empty, remote has data → Download newest
-                if let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }) {
-                    await MainActor.run {
-                        syncStatus = .downloading
-                    }
-                    
-                    debugLog("📥 LOCAL EMPTY → Downloading remote backup: \(newestRemote.filename)")
+            // 2. Download logic (always safe)
+            if hasRemoteData, let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }) {
+                if await shouldDownloadConservatively(newestRemote) {
+                    await MainActor.run { syncStatus = .downloading }
+                    debugLog("📥 AUTO DOWNLOAD → \(newestRemote.filename)")
                     try await downloadAndRestoreBackup(newestRemote)
+                    consecutiveUploads = 0 // Reset on successful download
                 }
-            } else if localDataExists && !hasRemoteData {
-                // Case 2: Local has data, remote empty → Upload (only if not manual sync to avoid endless uploads)
-                var shouldUpload = isManual
-                if !shouldUpload {
-                    shouldUpload = await shouldUploadLocalData()
-                }
-                
+            }
+            
+            // 3. Upload logic (only if local data exists and no recent uploads)
+            if localDataExists && consecutiveUploads < maxConsecutiveUploads {
+                let shouldUpload = await shouldUploadConservatively()
                 if shouldUpload {
-                    await MainActor.run {
-                        syncStatus = .uploading
-                    }
-                    
-                    debugLog("📤 REMOTE EMPTY → Uploading local data...")
+                    await MainActor.run { syncStatus = .uploading }
+                    debugLog("📤 AUTO UPLOAD → Starting upload")
                     try await uploadCurrentState()
-                } else {
-                    debugLog("⏭️ Upload skipped: recent upload or auto-sync upload prevention")
+                    consecutiveUploads += 1
                 }
-            } else if localDataExists && hasRemoteData {
-                // Case 3: Both have data → Advanced conflict resolution
-                if let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }) {
-                    let shouldDownload = await shouldDownloadBackupWithConflictCheck(newestRemote)
-                    
-                    if shouldDownload {
-                        await MainActor.run {
-                            syncStatus = .downloading
-                        }
-                        
-                        debugLog("📥 CONFLICT RESOLUTION → Downloading newer backup: \(newestRemote.filename)")
-                        try await downloadAndRestoreBackup(newestRemote)
-                    }
-                }
-                
-                // Check if we have local changes to upload (only for manual sync or significant changes)
-                var hasSignificantChanges = isManual
-                if !hasSignificantChanges {
-                    hasSignificantChanges = await hasSignificantLocalChanges()
-                }
-                
-                let hasLocalChanges = await backupManager.hasLocalChanges()
-                if hasSignificantChanges && hasLocalChanges {
-                    await MainActor.run {
-                        syncStatus = .uploading
-                    }
-                    
-                    debugLog("📤 LOCAL CHANGES → Uploading changes...")
-                    try await uploadCurrentState()
-                }
-            } else {
-                // Case 4: Both empty → Nothing to do
-                debugLog("⭕ Both local and remote are empty - nothing to sync")
             }
             
             await MainActor.run {
@@ -458,10 +632,24 @@ class SynologyBackupSyncService: ObservableObject {
                 saveLastSyncDate()
             }
             
-            debugLog("✅ Sync completed successfully at \(Date())")
+            debugLog("✅ Auto-sync completed successfully")
+            
+            // KRITISCH: SANFTER UI-Update nach Auto-Sync (ohne Fault-Erzeugung)
+            await MainActor.run {
+                debugLog("🔄 GENTLE UI refresh after auto-sync (no context operations)")
+                
+                // SANFTE UI-Updates - KEIN Context-Reset, KEINE refreshAllObjects()
+                // Nur Daten neu fetchen und UI informieren
+                viewModel.fetchAccountGroups()
+                viewModel.fetchCategories()
+                viewModel.objectWillChange.send()
+                NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+                
+                debugLog("✅ Gentle auto-sync UI refresh completed - objects should stay loaded")
+            }
             
         } catch {
-            debugLog("❌ Sync failed: \(error)")
+            debugLog("❌ Auto-sync failed: \(error)")
             await MainActor.run {
                 syncStatus = .error(error.localizedDescription)
             }
@@ -668,9 +856,9 @@ class SynologyBackupSyncService: ObservableObject {
                 let size = Int64(httpResponse.value(forHTTPHeaderField: "Content-Length") ?? "0") ?? 0
                 
                 // Get last modified from headers
-                var timestamp = Date()
-                if let lastModifiedString = httpResponse.value(forHTTPHeaderField: "Last-Modified") {
-                    timestamp = parseWebDAVDate(lastModifiedString) ?? Date()
+                            var timestamp = Date()
+            if let lastModifiedString = httpResponse.value(forHTTPHeaderField: "Last-Modified") {
+                timestamp = parseWebDAVDate(lastModifiedString) ?? timestamp
                 }
                 
                 debugLog("✅ Found direct file: \(filename) (\(size) bytes)")
@@ -852,7 +1040,7 @@ class SynologyBackupSyncService: ObservableObject {
             viewModel.getContext().perform {
                 // Prüfe Transaktionen der letzten 24 Stunden
                 let calendar = Calendar.current
-                let dayAgo = calendar.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+                let dayAgo = calendar.date(byAdding: .day, value: -1, to: Date())!
                 
                 let request: NSFetchRequest<Transaction> = Transaction.fetchRequest()
                 request.predicate = NSPredicate(format: "date >= %@", dayAgo as NSDate)
@@ -890,6 +1078,94 @@ class SynologyBackupSyncService: ObservableObject {
         // For now, return the newest, but we could add logic to prefer larger backups
         // that might contain more data
         return sortedBackups.first
+    }
+    
+    private func chooseBestBackupForMultiUser(_ backups: [BackupInfo]) async -> BackupInfo? {
+        guard !backups.isEmpty else { return nil }
+        
+        debugLog("🎯 MULTI-USER: Analyzing \(backups.count) available backups for best choice...")
+        
+        // Bestimme aktuelle User-ID und Device-ID
+        let currentUserID = UserDefaults.standard.string(forKey: "currentUserID") ?? "unknown"
+        let deviceUUID = UIDevice.current.identifierForVendor?.uuidString ?? "unknown"
+        let prefixString = String(deviceUUID.prefix(8))
+        let currentDeviceID = prefixString.lowercased()
+        
+        debugLog("🔍 Current context: User=\(currentUserID), Device=\(currentDeviceID)")
+        
+        // Separiere Backups nach Kategorien
+        var fromOtherUsers: [BackupInfo] = []
+        var fromCurrentUser: [BackupInfo] = []
+        var fromOtherDevices: [BackupInfo] = []
+        
+        for backup in backups {
+            let backupUserID = backup.userID ?? "unknown"
+            let backupDeviceID = backup.deviceID
+            
+            debugLog("📋 Analyzing backup: \(backup.filename)")
+            debugLog("  👤 User: \(backupUserID)")
+            debugLog("  📱 Device: \(backupDeviceID)")
+            debugLog("  📦 Size: \(backup.size) bytes")
+            debugLog("  📅 Date: \(formatDate(backup.timestamp))")
+            
+            // Skip backups from same device (prevent loops)
+            if backupDeviceID == currentDeviceID {
+                debugLog("  ⏭️ Skipping: same device")
+                continue
+            }
+            
+            // Kategorisiere Backup
+            if backupUserID != currentUserID && backupUserID != "unknown" {
+                fromOtherUsers.append(backup)
+                debugLog("  ✅ Added to OTHER USERS category")
+            } else if backupUserID == currentUserID {
+                fromCurrentUser.append(backup)
+                debugLog("  ✅ Added to CURRENT USER category")
+            } else {
+                fromOtherDevices.append(backup)
+                debugLog("  ✅ Added to OTHER DEVICES category")
+            }
+        }
+        
+        // PRIORITÄTEN für Multi-User Synchronisation:
+        // 1. Backups von anderen Usern (höchste Priorität - neue Daten!)
+        // 2. Backups vom gleichen User aber anderen Geräten (neueste zuerst)
+        // 3. Sonstige Backups von anderen Geräten
+        
+        debugLog("📊 Backup categories:")
+        debugLog("  👥 From other users: \(fromOtherUsers.count)")
+        debugLog("  👤 From current user: \(fromCurrentUser.count)")
+        debugLog("  📱 From other devices: \(fromOtherDevices.count)")
+        
+        // Priorisiere Backups von anderen Usern (neueste zuerst)
+        if !fromOtherUsers.isEmpty {
+            let newestFromOtherUser = fromOtherUsers.sorted { $0.timestamp > $1.timestamp }.first!
+            debugLog("🎯 SELECTED: Backup from other user (\(newestFromOtherUser.userID ?? "unknown"))")
+            debugLog("  📄 File: \(newestFromOtherUser.filename)")
+            debugLog("  📅 Date: \(formatDate(newestFromOtherUser.timestamp))")
+            return newestFromOtherUser
+        }
+        
+        // Als nächstes: Neueste Backups vom gleichen User aber anderen Geräten
+        if !fromCurrentUser.isEmpty {
+            let newestFromCurrentUser = fromCurrentUser.sorted { $0.timestamp > $1.timestamp }.first!
+            debugLog("🎯 SELECTED: Backup from current user, different device")
+            debugLog("  📄 File: \(newestFromCurrentUser.filename)")
+            debugLog("  📅 Date: \(formatDate(newestFromCurrentUser.timestamp))")
+            return newestFromCurrentUser
+        }
+        
+        // Als letztes: Sonstige Backups von anderen Geräten
+        if !fromOtherDevices.isEmpty {
+            let newestFromOtherDevice = fromOtherDevices.sorted { $0.timestamp > $1.timestamp }.first!
+            debugLog("🎯 SELECTED: Backup from other device")
+            debugLog("  📄 File: \(newestFromOtherDevice.filename)")
+            debugLog("  📅 Date: \(formatDate(newestFromOtherDevice.timestamp))")
+            return newestFromOtherDevice
+        }
+        
+        debugLog("❌ No suitable backup found after filtering")
+        return nil
     }
     
     private func formatDate(_ date: Date) -> String {
@@ -965,7 +1241,7 @@ class SynologyBackupSyncService: ObservableObject {
         
         // Restore using multi-user sync manager for conflict resolution
         debugLog("🔄 Starting restore with conflict resolution...")
-        let success = await multiUserSyncManager.restoreWithConflictResolution(from: tempURL, viewModel: viewModel)
+        let success: Bool = await multiUserSyncManager.restoreWithConflictResolution(from: tempURL, viewModel: viewModel)
         
         if !success {
             debugLog("❌ Restore with conflict resolution failed")
@@ -976,6 +1252,9 @@ class SynologyBackupSyncService: ObservableObject {
         
         // Clean up temp file
         try? FileManager.default.removeItem(at: tempURL)
+        
+        // After successful restore
+        refreshUIAfterSync()
     }
     
     private func uploadCurrentState() async throws {
@@ -989,6 +1268,9 @@ class SynologyBackupSyncService: ObservableObject {
         // Speichere Upload-Zeitstempel um redundante Uploads zu verhindern
         UserDefaults.standard.set(Date(), forKey: "lastUploadDate")
         debugLog("✅ Upload completed and timestamp saved")
+        
+        // After successful upload
+        refreshUIAfterSync()
     }
     
     private func loadLastSyncDate() {
@@ -1012,6 +1294,58 @@ class SynologyBackupSyncService: ObservableObject {
             debugLog("⚠️ Auto-sync is enabled but WebDAV configuration is incomplete")
         } else {
             debugLog("ℹ️ Auto-sync is disabled by user")
+        }
+        
+        // KRITISCH: Force-load Core Data nach App-Start
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            Task {
+                await self.forceCoreDataRefresh()
+            }
+        }
+    }
+    
+    /// Force-Load aller Core Data Objekte beim App-Start
+    private func forceCoreDataRefresh() async {
+        await MainActor.run {
+            debugLog("🔄 NON-FAULT Core Data refresh on app start")
+            
+            // KRITISCH: Fetch mit returnsObjectsAsFaults = false
+            // Das lädt alle Eigenschaften direkt und vermeidet Faults
+            viewModel.getContext().performAndWait {
+                let entities = ["AccountGroup", "Account"]
+                
+                for entityName in entities {
+                    let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                    fetchRequest.returnsObjectsAsFaults = false
+                    fetchRequest.includesPropertyValues = true
+                    fetchRequest.includesSubentities = true
+                    // KRITISCH: Force alle Eigenschaften zu laden
+                    fetchRequest.relationshipKeyPathsForPrefetching = []
+                    
+                    do {
+                        let objects = try viewModel.getContext().fetch(fetchRequest)
+                        debugLog("🔄 NON-FAULT loaded \(objects.count) \(entityName) objects")
+                        
+                        // Verifiziere dass Namen geladen sind
+                        for (index, object) in objects.prefix(3).enumerated() {
+                            if let name = object.value(forKey: "name") as? String {
+                                debugLog("  ✅ Object \(index + 1): \(name)")
+                            } else {
+                                debugLog("  ❌ Object \(index + 1): NO NAME")
+                            }
+                        }
+                    } catch {
+                        debugLog("❌ Error non-fault loading \(entityName): \(error)")
+                    }
+                }
+            }
+            
+            // UI-Refresh nach Force-Load
+            viewModel.fetchAccountGroups()
+            viewModel.fetchCategories()
+            viewModel.objectWillChange.send()
+            
+            debugLog("✅ Non-fault Core Data refresh completed")
         }
     }
     
@@ -1079,7 +1413,7 @@ class SynologyBackupSyncService: ObservableObject {
             
             // Restore using multi-user sync manager
             debugLog("🔄 Starting force restore with conflict resolution...")
-            let success = await multiUserSyncManager.restoreWithConflictResolution(from: tempURL, viewModel: viewModel)
+            let success: Bool = await multiUserSyncManager.restoreWithConflictResolution(from: tempURL, viewModel: viewModel)
             
             if success {
                 debugLog("✅ Force restore completed successfully!")
@@ -1130,6 +1464,423 @@ class SynologyBackupSyncService: ObservableObject {
         }
     }
     
+    private func shouldUploadConservatively() async -> Bool {
+        // SEHR KONSERVATIVE Upload-Prüfung
+        
+        // 1. Prüfe ob kürzlich schon hochgeladen wurde (mindestens 1 Minute)
+        if let lastUpload = UserDefaults.standard.object(forKey: "lastUploadDate") as? Date {
+            let timeSinceLastUpload = Date().timeIntervalSince(lastUpload)
+            if timeSinceLastUpload < 60 { // 1 Minute
+                debugLog("⏰ Conservative upload blocked: recent upload (\(Int(timeSinceLastUpload))s ago)")
+                return false
+            }
+        }
+        
+        // 2. Prüfe auf echte Datenänderungen (nicht nur Hash-Unterschiede)
+        let hasRealChanges = await hasRealDataChanges()
+        if !hasRealChanges {
+            debugLog("📊 Conservative upload blocked: no real data changes detected")
+            return false
+        }
+        
+        // 3. Prüfe auf zu viele aufeinanderfolgende Uploads
+        if consecutiveUploads >= maxConsecutiveUploads {
+            debugLog("🚫 Conservative upload blocked: too many consecutive uploads")
+            return false
+        }
+        
+        debugLog("✅ Conservative upload approved: all safety checks passed")
+        return true
+    }
+    
+    private func shouldDownloadConservatively(_ remoteBackup: BackupInfo) async -> Bool {
+        // INTELLIGENTE Multi-User Download-Prüfung
+        
+        // 1. Erstmaliger Sync ist immer erlaubt
+        guard let lastSync = lastSyncDate else {
+            debugLog("✅ Conservative download approved: first sync")
+            return true
+        }
+        
+        // 2. Prüfe ob das Backup von einem anderen Gerät/User stammt
+        let deviceUUID = UIDevice.current.identifierForVendor?.uuidString ?? "unknown"
+        let prefixString = String(deviceUUID.prefix(8))
+        let currentDeviceID = prefixString.lowercased()
+        
+        // Bestimme aktuelle User-ID
+        let currentUserID = UserDefaults.standard.string(forKey: "currentUserID") ?? "unknown"
+        let backupUserID = remoteBackup.userID ?? "unknown"
+        
+        debugLog("🔍 Backup analysis:")
+        debugLog("  Current User: \(currentUserID)")
+        debugLog("  Backup User: \(backupUserID)")
+        debugLog("  Current Device: \(currentDeviceID)")
+        debugLog("  Backup Device: \(remoteBackup.deviceID)")
+        
+        // 3. Skip backups from same device (avoid loops)
+        if remoteBackup.deviceID == currentDeviceID {
+            debugLog("📱 Conservative download skipped: backup from same device")
+            return false
+        }
+        
+        // 4. WICHTIG: Backups von anderen Usern IMMER prioritisieren
+        if backupUserID != currentUserID && backupUserID != "unknown" {
+            debugLog("👥 Conservative download APPROVED: backup from different user (\(backupUserID))")
+            return true
+        }
+        
+        // 5. Für Backups vom gleichen User - prüfe ob es signifikant neuer ist
+        let timeDifference = remoteBackup.timestamp.timeIntervalSince(lastSync)
+        if timeDifference < 60 { // 1 Minute minimum
+            debugLog("⏰ Conservative download skipped: backup not significantly newer (\(Int(timeDifference))s)")
+            return false
+        }
+        
+        // 6. Prüfe ob das Backup größer ist (mehr Daten)
+        let localDataSize = await getLocalDataSize()
+        if remoteBackup.size <= localDataSize {
+            debugLog("📊 Conservative download skipped: remote backup not larger than local data")
+            return false
+        }
+        
+        debugLog("✅ Conservative download approved: backup is newer and larger")
+        return true
+    }
+    
+    private func getLocalDataSize() async -> Int64 {
+        return await withCheckedContinuation { continuation in
+            viewModel.getContext().perform {
+                let request: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+                do {
+                    let count = try self.viewModel.getContext().count(for: request)
+                    continuation.resume(returning: Int64(count))
+                } catch {
+                    self.debugLog("❌ Error counting local transactions: \(error)")
+                    continuation.resume(returning: 0)
+                }
+            }
+        }
+    }
+    
+    private func hasRealDataChanges() async -> Bool {
+        // Prüfe auf echte Datenänderungen, nicht nur Hash-Unterschiede
+        return await withCheckedContinuation { continuation in
+            viewModel.getContext().perform {
+                // Prüfe auf neue Transaktionen in den letzten 2 Stunden
+                let twoHoursAgo = Calendar.current.date(byAdding: .hour, value: -2, to: Date())!
+                
+                let request: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+                request.predicate = NSPredicate(format: "date >= %@", twoHoursAgo as NSDate)
+                
+                do {
+                    let recentTransactions = try self.viewModel.getContext().fetch(request)
+                    let hasRecentChanges = recentTransactions.count > 0
+                    
+                    self.debugLog("📊 Real data changes check: \(recentTransactions.count) transactions in last 2 hours")
+                    continuation.resume(returning: hasRecentChanges)
+                } catch {
+                    self.debugLog("❌ Error checking real data changes: \(error)")
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+    
+    /// Reset der Upload-Zähler für Notfälle
+    func resetUploadCounter() {
+        consecutiveUploads = 0
+        debugLog("🔄 Upload counter reset to 0")
+    }
+    
+    /// DEBUG-Tool für Benutzer: UI-Problem fixen
+    @MainActor
+    func fixUIDisplayProblem() async {
+        debugLog("🔧 USER TOOL: Fixing UI display problem with GENTLE strategy...")
+        
+        // NEUE STRATEGIE: Versuche ZUERST ohne Context-Reset
+        debugLog("🔧 Phase 1: Gentle refresh attempt...")
+        
+        // 1. Fetch Daten neu OHNE Context-Reset
+        viewModel.fetchAccountGroups()
+        viewModel.fetchCategories()
+        
+        // 2. UI-Update
+        viewModel.objectWillChange.send()
+        NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+        
+        // 3. Warte und prüfe ob das gereicht hat
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+        
+        // 4. Nur wenn immer noch Probleme - dann Context-Reset
+        let stillHasProblems = await checkForUIFaults()
+        if stillHasProblems {
+            debugLog("🔧 Phase 2: Gentle refresh didn't work, using context reset...")
+            viewModel.getContext().reset()
+            await forceCoreDataRefresh()
+            viewModel.objectWillChange.send()
+            NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+        }
+        
+        debugLog("🔧 USER TOOL: GENTLE UI fix completed")
+    }
+    
+    /// Prüft ob noch UI-Faults vorhanden sind
+    private func checkForUIFaults() async -> Bool {
+        // Einfache Prüfung: Sind alle Gruppen-Namen verfügbar?
+        let groupNames = viewModel.accountGroups.compactMap { $0.name }
+        let hasEmptyNames = groupNames.contains { $0.isEmpty }
+        return hasEmptyNames || groupNames.count < viewModel.accountGroups.count
+    }
+    
+    /// Manueller SUPER UI-Refresh für Notfälle
+    @MainActor
+    func forceCompleteUIRefresh() async {
+        debugLog("🔧 FORCE COMPLETE UI REFRESH STARTED - THIS IS THE NUCLEAR OPTION")
+        
+        // 1. Comprehensive context reset
+        debugLog("🔄 Phase 1: Context reset")
+        viewModel.getContext().reset()
+        viewModel.getBackgroundContext().reset()
+        
+        // 2. Force refresh all contexts
+        debugLog("🔄 Phase 2: Refreshing all objects")
+        viewModel.getContext().refreshAllObjects()
+        
+        // 3. Multiple data fetches
+        debugLog("🔄 Phase 3: Multiple data fetches")
+        for i in 1...3 {
+            viewModel.fetchAccountGroups()
+            viewModel.fetchCategories()
+            debugLog("🔄 Data fetch round \(i) completed")
+        }
+        
+        // 3.5. CRITICAL: Force balance recalculation 
+        debugLog("🔄 Phase 3.5: Force balance recalculation")
+        let _ = viewModel.calculateAllBalances()
+        
+        // 4. Force UI updates
+        debugLog("🔄 Phase 4: UI notifications")
+        viewModel.objectWillChange.send()
+        NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("TransactionDataChanged"), object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
+        
+        // 5. Additional delayed refreshes with balance recalculation
+        debugLog("🔄 Phase 5: Delayed refreshes")
+        for i in 1...5 {
+            let delay = Double(i) * 0.2 // 0.2, 0.4, 0.6, 0.8, 1.0 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self.viewModel.fetchAccountGroups()
+                self.viewModel.fetchCategories()
+                
+                // Force balance recalculation in each wave
+                let _ = self.viewModel.calculateAllBalances()
+                
+                self.viewModel.objectWillChange.send()
+                NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+                NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
+                self.debugLog("🔄 Delayed refresh wave \(i) completed with balance recalc")
+            }
+        }
+        
+        // 6. Final verification after 2 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            Task {
+                await self.debugCurrentDatabaseState()
+                self.debugLog("🔧 FORCE COMPLETE UI REFRESH COMPLETED - Check if data is now visible")
+            }
+        }
+    }
+    
+    /// Zeigt den aktuellen Zustand der Datenbank für Debugging
+    @MainActor
+    func debugCurrentDatabaseState() async {
+        debugLog("🔍 DATABASE STATE DIAGNOSTIC:")
+        
+        await withCheckedContinuation { continuation in
+            viewModel.getContext().perform {
+                // Check each entity type
+                let entities = ["AccountGroup", "Account", "Transaction", "Category"]
+                
+                for entityName in entities {
+                    let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                    do {
+                        let objects = try self.viewModel.getContext().fetch(fetchRequest)
+                        self.debugLog("📊 \(entityName): \(objects.count) objects")
+                        
+                        // Show details for first few objects
+                        for (index, object) in objects.prefix(3).enumerated() {
+                            if entityName == "Transaction" {
+                                // Transaction has different attributes
+                                if let type = object.value(forKey: "type") as? String,
+                                   let amount = object.value(forKey: "amount") as? Double {
+                                    self.debugLog("  \(index + 1). Transaction: \(type) \(amount)€")
+                                } else {
+                                    self.debugLog("  \(index + 1). Transaction object")
+                                }
+                            } else {
+                                // Other entities have name attribute
+                                if let name = object.value(forKey: "name") as? String {
+                                    self.debugLog("  \(index + 1). \(name)")
+                                } else {
+                                    self.debugLog("  \(index + 1). Object without name")
+                                }
+                            }
+                        }
+                    } catch {
+                        self.debugLog("❌ Error fetching \(entityName): \(error)")
+                    }
+                }
+                
+                // Check viewModel state
+                DispatchQueue.main.async {
+                    self.debugLog("📊 ViewModel state:")
+                    self.debugLog("  Account Groups: \(self.viewModel.accountGroups.count)")
+                    self.debugLog("  Categories: \(self.viewModel.categories.count)")
+                    
+                    for (index, group) in self.viewModel.accountGroups.prefix(3).enumerated() {
+                        self.debugLog("  Group \(index + 1): \(group.name ?? "unnamed")")
+                    }
+                    
+                    // CRITICAL: Force balance calculation to show current state
+                    self.debugLog("🔄 Forcing balance recalculation for diagnostic...")
+                    let balanceDict = self.viewModel.calculateAllBalances()
+                    self.debugLog("📊 Current Balance Dictionary has \(balanceDict.count) entries")
+                    
+                    // Show balances for first few accounts
+                    let accountGroups = self.viewModel.accountGroups
+                    for group in accountGroups.prefix(2) {
+                        let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+                        for account in accounts.prefix(2) {
+                            let balance = self.viewModel.getBalance(for: account)
+                            self.debugLog("  💰 \(account.name ?? "unnamed"): \(balance)€")
+                        }
+                    }
+                    
+                    continuation.resume()
+                }
+            }
+        }
+    }
+    
+    /// Verifiziert die wiederhergestellten Daten nach einer Backup-Wiederherstellung
+    private func verifyRestoredData() async {
+        debugLog("🔍 Verifying restored data...")
+        
+        // 1. Hole alle Kontogruppen
+        let accountGroups = viewModel.accountGroups
+        debugLog("📊 Verification - Account Groups: \(accountGroups.count)")
+        
+        // 2. Prüfe jede Gruppe und ihre Konten
+        for group in accountGroups {
+            debugLog("  📁 Group '\(group.name ?? "unnamed")': \(group.accounts?.count ?? 0) accounts")
+            
+            // 3. Prüfe jedes Konto
+            for account in group.accounts?.allObjects as? [Account] ?? [] {
+                debugLog("    💳 Account '\(account.name ?? "unnamed")'")
+                
+                // 4. Hole alle Transaktionen für das Konto
+                let transactions = account.transactions?.allObjects as? [Transaction] ?? []
+                debugLog("      💰 Transactions: \(transactions.count)")
+                
+                // 5. Zeige Details für jede Transaktion
+                for (index, transaction) in transactions.enumerated() {
+                    debugLog("        🔍 Transaction \(index + 1):")
+                    debugLog("          💰 Amount: \(transaction.amount)")
+                    debugLog("          📝 Type: '\(transaction.type ?? "unknown")'")
+                    debugLog("          🏦 Account: '\(transaction.account?.name ?? "unknown")'")
+                    debugLog("          🎯 Target: '\(transaction.targetAccount?.name ?? "nil")'")
+                    debugLog("          📅 Date: \(transaction.date.description)")
+                    debugLog("          📋 Usage: '\(transaction.usage ?? "")'")
+                }
+                
+                // 6. Berechne und zeige den Kontostand
+                var balance: Double = 0
+                for transaction in transactions {
+                    if transaction.type == "einnahme" {
+                        balance += transaction.amount
+                        debugLog("        ➕ Adding income: \(transaction.amount)")
+                    } else if transaction.type == "ausgabe" {
+                        balance -= transaction.amount
+                        debugLog("        ➖ Subtracting expense: \(transaction.amount)")
+                    }
+                }
+                debugLog("      💵 Calculated balance: \(balance)")
+            }
+        }
+        
+        // 7. Hole und zeige alle Kategorien
+        let categories = viewModel.categories
+        debugLog("📊 Verification - Categories: \(categories.count)")
+        
+        // 8. Zeige Gesamtzahl der Transaktionen
+        let fetchRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+        do {
+            let allTransactions = try viewModel.getContext().fetch(fetchRequest)
+            debugLog("📊 Verification - Total Transactions: \(allTransactions.count)")
+        } catch {
+            debugLog("❌ Error fetching transactions: \(error)")
+        }
+        
+        debugLog("✅ Verification completed")
+    }
+    
+    private func refreshUIAfterSync() {
+        debugLog("🔄 Starting GENTLE UI refresh after data sync...")
+        
+        // KRITISCH: SANFTER UI-Refresh OHNE Context-Reset
+        // Context-Reset nur bei echten Restore-Operationen, nicht bei normalen Syncs
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            // 1. Fetch neue Daten OHNE Context-Reset
+            self.viewModel.fetchAccountGroups()
+            self.viewModel.fetchCategories()
+            
+            // 2. UI-Update
+            self.viewModel.objectWillChange.send()
+            NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+            
+            self.debugLog("🔄 GENTLE UI refresh completed - no faults created")
+        }
+    }
+    
+    /// Einmalige UI-State Verifikation ohne Endlosschleife
+    private func verifyUIState() async {
+        // Verhindere mehrfache gleichzeitige Ausführung
+        guard !UserDefaults.standard.bool(forKey: "verificationRunning") else {
+            debugLog("⏭️ UI verification skipped - already running")
+            return
+        }
+        
+        UserDefaults.standard.set(true, forKey: "verificationRunning")
+        defer { UserDefaults.standard.set(false, forKey: "verificationRunning") }
+        
+        await MainActor.run {
+            debugLog("🔍 SINGLE UI STATE VERIFICATION:")
+            debugLog("📊 ViewModel Account Groups: \(viewModel.accountGroups.count)")
+            
+            for (index, group) in viewModel.accountGroups.enumerated() {
+                let groupName = group.name ?? "unnamed"
+                let accountCount = group.accounts?.count ?? 0
+                debugLog("  📁 Group \(index + 1): \(groupName) (\(accountCount) accounts)")
+                
+                // Kurze Account-Verifikation
+                if let accounts = group.accounts?.allObjects as? [Account] {
+                    for (accountIndex, account) in accounts.prefix(1).enumerated() {
+                        let accountName = account.name ?? "unnamed"
+                        let balance = viewModel.getBalance(for: account)
+                        debugLog("    💳 Account \(accountIndex + 1): \(accountName) = \(balance)€")
+                    }
+                    if accounts.count > 1 {
+                        debugLog("    💳 ... and \(accounts.count - 1) more accounts")
+                    }
+                }
+            }
+            
+            debugLog("✅ Single UI State verification completed")
+        }
+    }
+    
     enum SyncError: LocalizedError {
         case missingCredentials
         case invalidURL
@@ -1149,4 +1900,4 @@ class SynologyBackupSyncService: ObservableObject {
             }
         }
     }
-} 
+}

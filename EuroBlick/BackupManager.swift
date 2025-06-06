@@ -21,6 +21,8 @@ class BackupManager: ObservableObject {
         
         struct AccountGroupData: Codable {
             let name: String
+            let icon: String?
+            let iconColor: String?
             let accounts: [String]
         }
         
@@ -28,6 +30,9 @@ class BackupManager: ObservableObject {
             let name: String
             let group: String
             let type: String?
+            let icon: String?
+            let iconColor: String?
+            let order: Int16?
             let includeInBalance: Bool
             let transactions: [String] // UUIDs
         }
@@ -208,6 +213,8 @@ class BackupManager: ObservableObject {
         let groupsData = groups.map { group in
             EnhancedBackupData.AccountGroupData(
                 name: group.name ?? "",
+                icon: group.value(forKey: "icon") as? String,
+                iconColor: group.value(forKey: "iconColor") as? String,
                 accounts: (group.accounts?.allObjects as? [Account])?.compactMap { $0.name } ?? []
             )
         }
@@ -217,6 +224,9 @@ class BackupManager: ObservableObject {
                 name: account.name ?? "",
                 group: account.group?.name ?? "",
                 type: account.value(forKey: "type") as? String,
+                icon: account.value(forKey: "icon") as? String,
+                iconColor: account.value(forKey: "iconColor") as? String,
+                order: account.value(forKey: "order") as? Int16,
                 includeInBalance: account.value(forKey: "includeInBalance") as? Bool ?? true,
                 transactions: (account.transactions?.allObjects as? [Transaction])?.map { $0.id.uuidString } ?? []
             )
@@ -281,7 +291,7 @@ class BackupManager: ObservableObject {
     }
     
     private func calculateDataHash(_ backup: EnhancedBackupData) -> String {
-        // Create a deterministic hash from the core data
+        // Create a deterministic hash from the core data - EXCLUDE timestamps to prevent loops
         var hashComponents: [String] = []
         
         // Sort and hash categories
@@ -305,15 +315,16 @@ class BackupManager: ObservableObject {
             hashComponents.append("acc:\(account.name):\(account.group):\(account.includeInBalance)")
         }
         
-        // Sort and hash transactions (excluding timestamps to avoid constant changes)
+        // Sort and hash transactions - EXCLUDE timestamps and lastModified to prevent constant changes
         let sortedTransactions = backup.transactions.sorted { $0.id < $1.id }
         hashComponents.append("transactions:\(sortedTransactions.count)")
         for transaction in sortedTransactions {
-            hashComponents.append("txn:\(transaction.id):\(transaction.amount):\(transaction.category):\(transaction.account)")
+            // Only include core transaction data, not timestamps
+            hashComponents.append("txn:\(transaction.id):\(transaction.amount):\(transaction.category):\(transaction.account):\(transaction.type):\(transaction.usage)")
         }
         
         let combinedString = hashComponents.joined(separator:"|")
-        print("📊 Hash calculation base: \(combinedString.prefix(200))...")
+        print("📊 STABLE Hash calculation (no timestamps): \(combinedString.prefix(200))...")
         
         return String(combinedString.hashValue)
     }
@@ -338,6 +349,8 @@ class BackupManager: ObservableObject {
             for groupData in backup.accountGroups {
                 let group = AccountGroup(context: context)
                 group.name = groupData.name
+                group.setValue(groupData.icon, forKey: "icon")
+                group.setValue(groupData.iconColor, forKey: "iconColor")
                 groupMap[groupData.name] = group
             }
             
@@ -348,6 +361,9 @@ class BackupManager: ObservableObject {
                 account.name = accountData.name
                 account.group = groupMap[accountData.group]
                 account.setValue(accountData.type, forKey: "type")
+                account.setValue(accountData.icon, forKey: "icon")
+                account.setValue(accountData.iconColor, forKey: "iconColor")
+                account.setValue(accountData.order, forKey: "order")
                 account.setValue(accountData.includeInBalance, forKey: "includeInBalance")
                 accountMap[accountData.name] = account
             }
