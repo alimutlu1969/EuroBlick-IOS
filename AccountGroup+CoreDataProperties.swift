@@ -18,6 +18,7 @@ extension AccountGroup {
 
     @NSManaged public var name: String?
     @NSManaged public var accounts: NSSet?
+    @NSManaged public var id: UUID?
 
 }
 

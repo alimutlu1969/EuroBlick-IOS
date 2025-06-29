@@ -11,7 +11,7 @@ class SynologyBackupSyncService: ObservableObject {
     @Published var debugLogs: [String] = []
     
     private var syncTimer: Timer?
-    private let syncInterval: TimeInterval = 60 // Sync alle 60 Sekunden
+    private let syncInterval: TimeInterval = 600 // Sync alle 10 Minuten
     private let viewModel: TransactionViewModel
     private let backupManager: BackupManager
     private let multiUserSyncManager: MultiUserSyncManager
@@ -1009,6 +1009,12 @@ class SynologyBackupSyncService: ObservableObject {
                 debugLog("⏰ Upload skipped: recent upload (< 5 minutes ago)")
                 return false
             }
+        }
+        // Prüfe, ob es bedeutende lokale Änderungen gibt
+        let significantChanges = await hasSignificantLocalChanges()
+        if !significantChanges {
+            debugLog("⏭️ Upload skipped: no significant local changes detected")
+            return false
         }
         return true
     }

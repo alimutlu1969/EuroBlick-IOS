@@ -3,7 +3,7 @@
     <entity name="Account" representedClassName="Account" syncable="YES">
         <attribute name="icon" optional="YES" attributeType="String" defaultValueString="building.columns.fill"/>
         <attribute name="iconColor" optional="YES" attributeType="String" defaultValueString="#007AFF"/>
-        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="includeInBalance" optional="YES" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="order" optional="YES" attributeType="Integer 16" defaultValueString="0"/>

@@ -22,6 +22,9 @@ class TransactionViewModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.initializeData()
         }
+        
+        // Initialisiere fehlende UUIDs für AccountGroups und Accounts (Migration)
+        initializeMissingUUIDs()
     }
     
     // Öffentliche Methode, um den Kontext bereitzustellen
@@ -889,8 +892,8 @@ class TransactionViewModel: ObservableObject {
             // Kontogruppen
             let groupsData = groups.map { group -> [String: Any] in
                 return [
-                    "name": group.name ?? "",
-                    "accounts": (group.accounts?.allObjects as? [Account])?.map { $0.name ?? "" } ?? []
+                    "id": group.id?.uuidString ?? UUID().uuidString,
+                    "name": group.name ?? ""
                 ]
             }
             backupData["accountGroups"] = groupsData
@@ -898,8 +901,9 @@ class TransactionViewModel: ObservableObject {
             // Konten
             let accountsData = accounts.map { account -> [String: Any] in
                 return [
+                    "id": account.id?.uuidString ?? UUID().uuidString,
                     "name": account.name ?? "",
-                    "group": account.group?.name ?? "",
+                    "groupId": account.group?.id?.uuidString ?? "",
                     "transactions": (account.transactions?.allObjects as? [Transaction])?.map { $0.id.uuidString } ?? []
                 ]
             }
@@ -1050,14 +1054,14 @@ class TransactionViewModel: ObservableObject {
                 var groupMap: [String: AccountGroup] = [:]
                 print("Wiederherstelle \(groupsData.count) Kontogruppen")
                 for groupDict in groupsData {
-                    guard let name = groupDict["name"] as? String else {
-                        print("Kontogruppe ohne Namen übersprungen: \(groupDict)")
-                        continue
-                    }
+                    let idString = groupDict["id"] as? String
+                    let groupId = idString.flatMap { UUID(uuidString: $0) } ?? UUID()
+                    let name = groupDict["name"] as? String ?? ("Unbenannt-" + groupId.uuidString)
                     let group = AccountGroup(context: context)
+                    group.id = groupId
                     group.name = name
-                    groupMap[name] = group
-                    print("Kontogruppe \(name) wiederhergestellt")
+                    groupMap[groupId.uuidString] = group
+                    print("Kontogruppe \(name) (id: \(groupId)) wiederhergestellt")
                 }
 
                 // Wiederherstellung der Konten
@@ -1069,13 +1073,17 @@ class TransactionViewModel: ObservableObject {
                 var accountMap: [String: Account] = [:]
                 print("Wiederherstelle \(accountsData.count) Konten")
                 for accountDict in accountsData {
-                    guard let name = accountDict["name"] as? String,
-                          let groupName = accountDict["group"] as? String,
-                          let group = groupMap[groupName] else {
-                        print("Konto ohne Namen oder Gruppe übersprungen: \(accountDict)")
+                    let idString = accountDict["id"] as? String
+                    let accountId = idString.flatMap { UUID(uuidString: $0) } ?? UUID()
+                    let name = accountDict["name"] as? String ?? ("Unbenannt-" + accountId.uuidString)
+                    let groupIdString = accountDict["groupId"] as? String ?? ""
+                    let group = groupMap[groupIdString]
+                    if group == nil {
+                        print("Konto ohne gültige Gruppe übersprungen: \(accountDict)")
                         continue
                     }
                     let account = Account(context: context)
+                    account.id = accountId
                     account.name = name
                     account.group = group
                     
@@ -1138,8 +1146,8 @@ class TransactionViewModel: ObservableObject {
                         account.setValue(Int16(accountMap.count), forKey: "order")
                     }
                     
-                    accountMap[name] = account
-                    print("✅ Konto \(name) wiederhergestellt (Gruppe: \(groupName), Typ: \(account.value(forKey: "type") as? String ?? "unknown"))")
+                    accountMap[accountId.uuidString] = account
+                    print("✅ Konto \(name) (id: \(accountId)) wiederhergestellt (Gruppe: \(group?.name ?? "unbekannt"), Typ: \(account.value(forKey: "type") as? String ?? "unknown"))")
                 }
 
                 // Wiederherstellung der Transaktionen
@@ -3062,6 +3070,38 @@ class TransactionViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     completion?()
                 }
+            }
+        }
+    }
+
+    // Initialisiere fehlende UUIDs für AccountGroups und Accounts (Migration)
+    func initializeMissingUUIDs() {
+        context.performAndWait {
+            let groupRequest: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
+            let accountRequest: NSFetchRequest<Account> = Account.fetchRequest()
+            do {
+                let groups = try context.fetch(groupRequest)
+                var updatedGroups = 0
+                for group in groups {
+                    if group.id == nil {
+                        group.id = UUID()
+                        updatedGroups += 1
+                    }
+                }
+                let accounts = try context.fetch(accountRequest)
+                var updatedAccounts = 0
+                for account in accounts {
+                    if account.id == nil {
+                        account.id = UUID()
+                        updatedAccounts += 1
+                    }
+                }
+                if updatedGroups > 0 || updatedAccounts > 0 {
+                    try context.save()
+                    print("Migration: \(updatedGroups) Gruppen und \(updatedAccounts) Konten mit neuer UUID versehen.")
+                }
+            } catch {
+                print("Fehler bei der Initialisierung der UUIDs: \(error)")
             }
         }
     }

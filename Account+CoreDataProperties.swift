@@ -20,6 +20,7 @@ extension Account {
     @NSManaged public var transactions: NSSet?
     @NSManaged public var group: AccountGroup?
     @NSManaged public var targetedTransactions: NSSet?
+    @NSManaged public var id: UUID?
 
 }
 
