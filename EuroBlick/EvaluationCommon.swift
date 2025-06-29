@@ -276,6 +276,14 @@ struct TransactionSheet: View {
     
     @State private var editingTransaction: Transaction?
     
+    // DateFormatter für deutsches Langformat
+    static let germanLongDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.dateFormat = "d. MMMM yyyy"
+        return formatter
+    }()
+    
     private func formatAmount(_ amount: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -308,12 +316,12 @@ struct TransactionSheet: View {
                     .padding()
                     .background(Color.black.opacity(0.3))
                     
-                    // Transactions List - Changed from ScrollView to List
+                    // Transactions List - Sortiert absteigend nach Datum
                     List {
-                        ForEach(transactions, id: \.self) { transaction in
+                        ForEach(transactions.sorted(by: { $0.date > $1.date }), id: \.self) { transaction in
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack {
-                                    Text(transaction.date, style: .date)
+                                    Text(Self.germanLongDateFormatter.string(from: transaction.date))
                                         .foregroundColor(.white)
                                         .font(.caption)
                                     Spacer()
