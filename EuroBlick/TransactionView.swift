@@ -1072,38 +1072,49 @@ struct TransactionListView: View {
             if isSelectionMode {
                 HStack {
                     Button(action: {
-                        isSelectionMode = false
                         selectedTransactions.removeAll()
+                        isSelectionMode = false
                     }) {
                         Text("Abbrechen")
-                            .foregroundColor(.red)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(6)
                     }
                     
-                    Spacer()
+                    Button(action: {
+                        let selectedTrans = filteredTransactions.filter { selectedTransactions.contains($0.id) }
+                        onToggleExcludeFromBalance(selectedTrans)
+                        selectedTransactions.removeAll()
+                        isSelectionMode = false
+                    }) {
+                        let hasExcluded = filteredTransactions.filter { selectedTransactions.contains($0.id) }.contains { $0.excludeFromBalance }
+                        Text(hasExcluded ? "Einschließen" : "Ausschließen")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.orange.opacity(0.2))
+                            .cornerRadius(6)
+                    }
                     
-                    if !selectedTransactions.isEmpty {
-                        Button(action: {
-                            let selectedTrans = filteredTransactions.filter { selectedTransactions.contains($0.id) }
-                            onToggleExcludeFromBalance(selectedTrans)
-                            selectedTransactions.removeAll()
-                            isSelectionMode = false
-                        }) {
-                            let hasExcluded = filteredTransactions.filter { selectedTransactions.contains($0.id) }.contains { $0.excludeFromBalance }
-                            Text(hasExcluded ? "Einschließen" : "Ausschließen")
-                                .foregroundColor(.orange)
-                        }
-                        
-                        Button(action: {
-                            let indexSet = IndexSet(filteredTransactions.enumerated()
-                                .filter { selectedTransactions.contains($0.element.id) }
-                                .map { $0.offset })
-                            onDelete(indexSet)
-                            selectedTransactions.removeAll()
-                            isSelectionMode = false
-                        }) {
-                            Text("Löschen (\(selectedTransactions.count))")
-                                .foregroundColor(.red)
-                        }
+                    Button(action: {
+                        let indexSet = IndexSet(filteredTransactions.enumerated()
+                            .filter { selectedTransactions.contains($0.element.id) }
+                            .map { $0.offset })
+                        onDelete(indexSet)
+                        selectedTransactions.removeAll()
+                        isSelectionMode = false
+                    }) {
+                        Text("Löschen (\(selectedTransactions.count))")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.red.opacity(0.2))
+                            .cornerRadius(6)
                     }
                 }
                 .padding(.horizontal)
