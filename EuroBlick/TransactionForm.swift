@@ -12,21 +12,12 @@ struct AutoCompleteTextField: View {
     @FocusState private var isFocused: Bool
     
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .foregroundColor(.gray)
-                .font(.system(size: 18))
-            
-            ZStack(alignment: .leading) {
-                // Vorschlag (grau, hinter der Eingabe)
-                if showSuggestion && !suggestion.isEmpty {
-                    Text(text + suggestion)
-                        .foregroundColor(.gray.opacity(0.6))
-                        .font(.system(size: 16))
-                        .padding(.leading, 0)
-                }
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .foregroundColor(.gray)
+                    .font(.system(size: 18))
                 
-                // Eingabefeld
                 TextField(placeholder, text: $text)
                     .foregroundColor(.white)
                     .font(.system(size: 16))
@@ -41,20 +32,34 @@ struct AutoCompleteTextField: View {
                             showSuggestion = false
                         }
                     }
-                    .onTapGesture {
-                        if !suggestion.isEmpty {
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.gray.opacity(0.6))
+            .cornerRadius(8)
+            .frame(height: 32)
+            
+            // Vorschlag unter dem Eingabefeld (besser sichtbar)
+            if showSuggestion && !suggestion.isEmpty {
+                HStack {
+                    Text("Vorschlag: \(text + suggestion)")
+                        .foregroundColor(.blue)
+                        .font(.caption)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.2))
+                        .cornerRadius(4)
+                        .onTapGesture {
                             text += suggestion
                             suggestion = ""
                             showSuggestion = false
                         }
-                    }
+                    
+                    Spacer()
+                }
+                .padding(.top, 2)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color.gray.opacity(0.6))
-        .cornerRadius(8)
-        .frame(height: 32)
     }
     
     private func updateSuggestion(for input: String) {
@@ -63,6 +68,10 @@ struct AutoCompleteTextField: View {
             showSuggestion = false
             return
         }
+        
+        // Debug: Zeige verfügbare Vorschläge
+        print("🔍 Suche Vorschlag für: '\(input)'")
+        print("📋 Verfügbare Vorschläge: \(suggestions.prefix(5))")
         
         // Finde passenden Vorschlag
         let matchingSuggestion = suggestions.first { suggestion in
@@ -73,9 +82,11 @@ struct AutoCompleteTextField: View {
             let remainingPart = String(match.dropFirst(input.count))
             suggestion = remainingPart
             showSuggestion = true
+            print("✅ Vorschlag gefunden: '\(match)' -> '\(remainingPart)'")
         } else {
             suggestion = ""
             showSuggestion = false
+            print("❌ Kein Vorschlag gefunden")
         }
     }
 }
