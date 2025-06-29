@@ -430,7 +430,7 @@ struct AutoCompleteTextField: View {
             
             if showSuggestions && !filteredSuggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(filteredSuggestions, id: \.self) { suggestion in
+                    ForEach(filteredSuggestions, id: \.self) { suggestion in
                         Button(action: {
                             text = suggestion
                             showSuggestions = false
