@@ -167,11 +167,8 @@ struct TransactionView: View {
         let sortedGroups = grouped.sorted { $0.key < $1.key }
         var result: [TransactionGroup] = []
         for (date, transactions) in sortedGroups {
-            // Berechne die tägliche Bilanz mit ALLEN Transaktionen (für physischen Kassenstand)
-            // Nur Reservierungen werden ausgeschlossen
-            let dailyBalance = transactions
-                .filter { $0.type != "reservierung" }
-                .reduce(0.0) { $0 + $1.amount }
+            // Tagesbilanz: ALLE Transaktionen (inkl. Reservierung)
+            let dailyBalance = transactions.reduce(0.0) { $0 + $1.amount }
             cumulativeBalance += dailyBalance
             let group = TransactionGroup(
                 date: date,
