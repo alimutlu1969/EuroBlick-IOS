@@ -281,8 +281,10 @@ struct TransactionView: View {
                         }
                         TextField("", text: $searchText)
                             .font(.system(size: 16))
+                            .multilineTextAlignment(.center)
                             .padding(8)
                             .frame(height: 40)
+                            .frame(maxWidth: .infinity, alignment: .center)
                             .background(Color.gray.opacity(0.6))
                             .foregroundColor(.white)
                             .cornerRadius(8)
