@@ -1,5 +1,85 @@
 import SwiftUI
 
+// MARK: - AutoComplete TextField Component
+struct AutoCompleteTextField: View {
+    @Binding var text: String
+    let suggestions: [String]
+    let placeholder: String
+    let icon: String
+    
+    @State private var suggestion: String = ""
+    @State private var showSuggestion = false
+    @FocusState private var isFocused: Bool
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundColor(.gray)
+                .font(.system(size: 18))
+            
+            ZStack(alignment: .leading) {
+                // Vorschlag (grau, hinter der Eingabe)
+                if showSuggestion && !suggestion.isEmpty {
+                    Text(text + suggestion)
+                        .foregroundColor(.gray.opacity(0.6))
+                        .font(.system(size: 16))
+                        .padding(.leading, 0)
+                }
+                
+                // Eingabefeld
+                TextField(placeholder, text: $text)
+                    .foregroundColor(.white)
+                    .font(.system(size: 16))
+                    .focused($isFocused)
+                    .onChange(of: text) { oldValue, newValue in
+                        updateSuggestion(for: newValue)
+                    }
+                    .onSubmit {
+                        if !suggestion.isEmpty {
+                            text += suggestion
+                            suggestion = ""
+                            showSuggestion = false
+                        }
+                    }
+                    .onTapGesture {
+                        if !suggestion.isEmpty {
+                            text += suggestion
+                            suggestion = ""
+                            showSuggestion = false
+                        }
+                    }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.gray.opacity(0.6))
+        .cornerRadius(8)
+        .frame(height: 32)
+    }
+    
+    private func updateSuggestion(for input: String) {
+        guard !input.isEmpty else {
+            suggestion = ""
+            showSuggestion = false
+            return
+        }
+        
+        // Finde passenden Vorschlag
+        let matchingSuggestion = suggestions.first { suggestion in
+            suggestion.lowercased().hasPrefix(input.lowercased()) && suggestion != input
+        }
+        
+        if let match = matchingSuggestion {
+            let remainingPart = String(match.dropFirst(input.count))
+            suggestion = remainingPart
+            showSuggestion = true
+        } else {
+            suggestion = ""
+            showSuggestion = false
+        }
+    }
+}
+
 struct TransactionForm: View {
     @Binding var amount: String
     @Binding var category: String
@@ -18,6 +98,19 @@ struct TransactionForm: View {
     @FocusState private var newCategoryFieldFocused: Bool
     @FocusState private var usageFieldFocused: Bool
     @State private var showTargetAccountPicker = false
+    
+    // Sammle alle Verwendungszwecke für Auto-Vervollständigung
+    private var usageSuggestions: [String] {
+        let allTransactions = accountGroups.flatMap { group in
+            (group.accounts?.allObjects as? [Account] ?? []).flatMap { account in
+                (account.transactions?.allObjects as? [Transaction] ?? [])
+            }
+        }
+        
+        let usages = allTransactions.compactMap { $0.usage }.filter { !$0.isEmpty }
+        let uniqueUsages = Array(Set(usages)).sorted()
+        return uniqueUsages
+    }
 
     var body: some View {
         VStack(spacing: 35) {
@@ -147,38 +240,18 @@ struct TransactionForm: View {
                 }
             }
 
-            // Verwendungszweck Eingabefeld
-            HStack(spacing: 10) {
-                Image(systemName: "text.alignleft")
-                    .foregroundColor(.gray)
-                    .font(.system(size: 18))
-                CustomTextField(text: $usage, placeholder: "Verwendungszweck", isSecure: false)
-                    .foregroundColor(.white)
-                    .focused($usageFieldFocused)
-                    .id(AddTransactionView.Field.usage)
-                    .frame(height: 32)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.gray.opacity(0.6))
-            .cornerRadius(8)
+            // Verwendungszweck Eingabefeld mit Auto-Vervollständigung
+            AutoCompleteTextField(
+                text: $usage,
+                suggestions: usageSuggestions,
+                placeholder: "Verwendungszweck",
+                icon: "text.alignleft"
+            )
             .onChange(of: usageFieldFocused) { oldValue, newValue in
                 if newValue {
                     focusedField = .usage
                 } else if focusedField == .usage {
                     focusedField = nil
-                }
-            }
-            .onChange(of: usage) { oldValue, newValue in
-                let filtered = newValue.unicodeScalars
-                    .filter { scalar in
-                        let isAllowed = scalar.isASCII && CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,").contains(scalar)
-                        return isAllowed
-                    }
-                    .map { String($0) }
-                    .joined()
-                if filtered != newValue {
-                    self.usage = filtered
                 }
             }
 
