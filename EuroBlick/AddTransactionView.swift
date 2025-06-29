@@ -131,12 +131,11 @@ struct AddTransactionView: View {
                             }
 
                             // Usage Field
-                            InputField(
-                                icon: "text.alignleft",
-                                placeholder: "Verwendungszweck",
+                            AutoCompleteTextField(
                                 text: $usage,
-                                field: .usage,
-                                focusedField: $focusedField
+                                suggestions: usageSuggestions,
+                                placeholder: "Verwendungszweck",
+                                icon: "text.alignleft"
                             )
 
                             // Date Picker
@@ -297,6 +296,18 @@ struct AddTransactionView: View {
             }
         }
     }
+
+    // Vorschlagsliste für Verwendungszwecke generieren
+    private var usageSuggestions: [String] {
+        let allTransactions = viewModel.accountGroups.flatMap { group in
+            (group.accounts?.allObjects as? [Account] ?? []).flatMap { account in
+                (account.transactions?.allObjects as? [Transaction] ?? [])
+            }
+        }
+        let usages = allTransactions.compactMap { $0.usage }.filter { !$0.isEmpty }
+        let uniqueUsages = Array(Set(usages)).sorted()
+        return uniqueUsages
+    }
 }
 
 // MARK: - Supporting Views
@@ -379,6 +390,84 @@ struct AccountPickerView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - AutoComplete TextField Component
+struct AutoCompleteTextField: View {
+    @Binding var text: String
+    let suggestions: [String]
+    let placeholder: String
+    let icon: String
+    
+    @State private var filteredSuggestions: [String] = []
+    @State private var showSuggestions = false
+    @FocusState private var isFocused: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .foregroundColor(.gray)
+                    .font(.system(size: 18))
+                TextField(placeholder, text: $text)
+                    .foregroundColor(.white)
+                    .font(.system(size: 16))
+                    .focused($isFocused)
+                    .onChange(of: text) { _, newValue in
+                        updateSuggestions(for: newValue)
+                    }
+                    .onTapGesture {
+                        updateSuggestions(for: text)
+                        showSuggestions = true
+                    }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.gray.opacity(0.6))
+            .cornerRadius(8)
+            .frame(height: 32)
+            
+            if showSuggestions && !filteredSuggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(filteredSuggestions, id: \.self) { suggestion in
+                        Button(action: {
+                            text = suggestion
+                            showSuggestions = false
+                        }) {
+                            Text(suggestion)
+                                .foregroundColor(.blue)
+                                .padding(.vertical, 6)
+                                .padding(.horizontal, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .background(Color.white.opacity(0.08))
+                    }
+                }
+                .background(Color.black)
+                .cornerRadius(8)
+                .shadow(radius: 2)
+                .padding(.horizontal, 2)
+                .zIndex(1)
+            }
+        }
+        .onChange(of: isFocused) { _, focused in
+            if !focused {
+                showSuggestions = false
+            }
+        }
+    }
+    
+    private func updateSuggestions(for input: String) {
+        if input.count < 2 {
+            filteredSuggestions = []
+            showSuggestions = false
+            return
+        }
+        filteredSuggestions = suggestions.filter {
+            $0.lowercased().contains(input.lowercased()) && $0 != input
+        }.prefix(5).map { $0 }
+        showSuggestions = !filteredSuggestions.isEmpty
     }
 }
 
