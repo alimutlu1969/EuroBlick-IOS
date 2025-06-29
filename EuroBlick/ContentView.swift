@@ -1009,15 +1009,9 @@ struct ContentView: View {
     @State private var showGroupSelectionSheet = false
     @State private var selectedAnalysisGroup: AccountGroup? = nil
     @State private var selectedAccount: Account? = nil
-    @State private var showBackupAlert = false
-    @State private var showRestoreAlert = false
-    @State private var showFileExporter = false
-    @State private var backupData: Data? = nil
-    @State private var showFileImporter = false
     @State private var showEditGroupSheet = false
     @State private var groupToEdit: AccountGroup? = nil
     @State private var newGroupName = ""
-    @State private var showExportErrorAlert = false
     @AppStorage("selectedColorScheme") private var selectedColorScheme: String = "system"
     @AppStorage("accentColor") private var accentColor: String = "orange"
     @State private var showWebDAVAlert = false
@@ -1221,61 +1215,7 @@ struct ContentView: View {
                     TransactionView(account: account, viewModel: viewModel)
                 }
                 .toolbar {
-                    ToolbarItem(placement: .bottomBar) {
-                        HStack {
-                            // Restore Button
-                            Button(action: {
-                                showFileImporter = true
-                            }) {
-                                Image(systemName: "clock.arrow.circlepath")
-                                    .foregroundColor(.gray)
-                                    .padding(8)
-                            }
-                            // Backup Button
-                            Button(action: {
-                                if let url = viewModel.backupData(), let data = try? Data(contentsOf: url) {
-                                    backupData = data
-                                    showFileExporter = true
-                                } else {
-                                    showExportErrorAlert = true
-                                }
-                            }) {
-                                Image(systemName: "arrow.clockwise")
-                                    .foregroundColor(.gray)
-                                    .padding(8)
-                            }
-                            Spacer()
-                        }
-                    }
-                }
-                .fileExporter(
-                    isPresented: $showFileExporter,
-                    document: backupData != nil ? BackupDocument(data: backupData!) : nil,
-                    contentType: .json,
-                    defaultFilename: "EuroBlickBackup.json"
-                ) { result in
-                    switch result {
-                    case .success:
-                        print("Backup erfolgreich exportiert")
-                    case .failure(let error):
-                        print("Fehler beim Export: \(error)")
-                    }
-                }
-                .fileImporter(
-                    isPresented: $showFileImporter,
-                    allowedContentTypes: [.json],
-                    allowsMultipleSelection: false
-                ) { result in
-                    switch result {
-                    case .success(let urls):
-                        if let url = urls.first {
-                            let restored = viewModel.restoreData(from: url)
-                            print(restored ? "Wiederherstellung erfolgreich" : "Wiederherstellung fehlgeschlagen")
-                            refreshBalances()
-                        }
-                    case .failure(let error):
-                        print("Fehler beim Import: \(error)")
-                    }
+                    // Sync-Buttons entfernt - Backup/Restore wird über andere Wege gehandhabt
                 }
                 .onChange(of: viewModel.transactionsUpdated) { _, _ in
                     refreshBalances()
@@ -1377,11 +1317,6 @@ struct ContentView: View {
         // Farbschema und Akzentfarbe global anwenden
         .preferredColorScheme(selectedColorScheme == "light" ? .light : selectedColorScheme == "dark" ? .dark : nil)
         .accentColor(colorFromString(accentColor))
-        .alert("Export nicht möglich", isPresented: $showExportErrorAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Das Backup konnte nicht erstellt werden.")
-        }
         .alert(isPresented: $showWebDAVAlert) {
             Alert(
                 title: Text(webDAVAlertIsError ? "WebDAV Fehler" : "WebDAV Backup"),
