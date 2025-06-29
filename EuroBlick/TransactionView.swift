@@ -79,6 +79,8 @@ struct TransactionView: View {
     @State private var pendingCSVImport: URL?
     @State private var showSuspiciousTransactionSheet = false
     @State private var suspiciousTransaction: TransactionViewModel.ImportResult.TransactionInfo?
+    @State private var selectedBookingType: String? = nil
+    @State private var showBookingSheet: Bool = false
 
     private var isCSVImportEnabled: Bool {
         return account.value(forKey: "type") as? String == "bankkonto"
@@ -320,6 +322,55 @@ struct TransactionView: View {
                         onAddTransaction: { showAddTransactionSheet = true }
                     )
                     .padding(.bottom, 5)
+                    
+                    // Drei Buchungsbuttons: Umbuchung links, Einnahme Mitte, Ausgabe rechts. Alle gleich groß.
+                    HStack(spacing: 24) {
+                        Button(action: {
+                            selectedBookingType = "umbuchung"
+                            showBookingSheet = true
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.blue)
+                                    .frame(width: 60, height: 60)
+                                    .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 30, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        Button(action: {
+                            selectedBookingType = "einnahme"
+                            showBookingSheet = true
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.green)
+                                    .frame(width: 60, height: 60)
+                                    .shadow(color: .green.opacity(0.7), radius: showBookingSheet && selectedBookingType == "einnahme" ? 16 : 8, x: 0, y: 0)
+                                    .scaleEffect(showBookingSheet && selectedBookingType == "einnahme" ? 1.12 : 1.0)
+                                    .animation(.easeInOut(duration: 0.25), value: showBookingSheet && selectedBookingType == "einnahme")
+                                Image(systemName: "plus")
+                                    .font(.system(size: 32, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        Button(action: {
+                            selectedBookingType = "ausgabe"
+                            showBookingSheet = true
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 60, height: 60)
+                                    .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
+                                Image(systemName: "minus")
+                                    .font(.system(size: 32, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 16)
                 }
             }
             .navigationTitle(account.name ?? "Unbekanntes Konto")
@@ -452,6 +503,50 @@ struct TransactionView: View {
                 DocumentPicker { url in
                     print("CSV-Datei ausgewählt: \(url.path)")
                     handleCSVImport(url: url)
+                }
+            }
+            // Sheet für neue Buchung
+            .sheet(isPresented: $showBookingSheet) {
+                if let bookingType = selectedBookingType {
+                    VStack(spacing: 0) {
+                        TransactionForm(
+                            amount: .constant(""),
+                            category: .constant(""),
+                            newCategory: .constant(""),
+                            account: .constant(account),
+                            targetAccount: .constant(nil),
+                            usage: .constant(""),
+                            date: .constant(Date()),
+                            type: bookingType,
+                            categories: viewModel.categories,
+                            accountGroups: viewModel.accountGroups
+                        )
+                        Spacer()
+                        HStack(spacing: 20) {
+                            Button("Abbrechen") {
+                                showBookingSheet = false
+                                selectedBookingType = nil
+                            }
+                            .frame(minWidth: 0, maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.red)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                            Button("Speichern") {
+                                // TODO: Speichern-Logik einbauen
+                                showBookingSheet = false
+                                selectedBookingType = nil
+                            }
+                            .frame(minWidth: 0, maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 18)
+                    }
+                    .presentationDetents([.medium, .large])
                 }
             }
         }
@@ -1171,18 +1266,6 @@ struct BottomBarView: View {
                     label: "Datum",
                     color: .orange,
                     accessibilityLabel: "Datum Filter"
-                )
-                .frame(width: geometry.size.width / (isCSVImportEnabled ? 4 : 2))
-                
-                // Neue Buchung Button
-                TransactionActionButton(
-                    action: onAddTransaction,
-                    systemIcon: "plus.circle.fill",
-                    label: "Neu",
-                    color: .green,
-                    isProminent: true,
-                    accessibilityLabel: "Neue Buchung hinzufügen",
-                    bounceEffect: true
                 )
                 .frame(width: geometry.size.width / (isCSVImportEnabled ? 4 : 2))
             }
