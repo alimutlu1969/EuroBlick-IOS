@@ -4,8 +4,9 @@ struct AddTransactionView: View {
     @ObservedObject var viewModel: TransactionViewModel
     @Environment(\.dismiss) var dismiss
     let account: Account
+    let initialType: String?
 
-    @State private var type: String = "einnahme"
+    @State private var type: String
     @State private var amount: String = ""
     @State private var category: String = ""
     @State private var newCategory: String = ""
@@ -37,6 +38,13 @@ struct AddTransactionView: View {
     
     private let inputBackground = Color(white: 0.15)
     private let spacing: CGFloat = 20 // 0.5cm spacing
+
+    init(viewModel: TransactionViewModel, account: Account, initialType: String? = nil) {
+        self.viewModel = viewModel
+        self.account = account
+        self.initialType = initialType
+        self._type = State(initialValue: initialType ?? "einnahme")
+    }
 
     var body: some View {
         NavigationStack {
@@ -379,5 +387,5 @@ struct AccountPickerView: View {
     let viewModel = TransactionViewModel(context: context)
     let account = Account(context: context)
     account.name = "Test-Konto"
-    return AddTransactionView(viewModel: viewModel, account: account)
+    return AddTransactionView(viewModel: viewModel, account: account, initialType: "einnahme")
 }

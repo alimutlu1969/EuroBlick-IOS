@@ -81,6 +81,7 @@ struct TransactionView: View {
     @State private var suspiciousTransaction: TransactionViewModel.ImportResult.TransactionInfo?
     @State private var selectedBookingType: String? = nil
     @State private var showBookingSheet: Bool = false
+    @State private var addTransactionType: String = "einnahme"
 
     private var isCSVImportEnabled: Bool {
         return account.value(forKey: "type") as? String == "bankkonto"
@@ -506,42 +507,11 @@ struct TransactionView: View {
             .sheet(isPresented: $showBookingSheet) {
                 if let bookingType = selectedBookingType {
                     VStack(spacing: 0) {
-                        TransactionForm(
-                            amount: .constant(""),
-                            category: .constant(""),
-                            newCategory: .constant(""),
-                            account: .constant(account),
-                            targetAccount: .constant(nil),
-                            usage: .constant(""),
-                            date: .constant(Date()),
-                            type: bookingType,
-                            categories: viewModel.categories,
-                            accountGroups: viewModel.accountGroups
-                        )
-                        Spacer()
-                        HStack(spacing: 20) {
-                            Button("Abbrechen") {
-                                showBookingSheet = false
-                                selectedBookingType = nil
+                        AddTransactionView(viewModel: viewModel, account: account, initialType: bookingType)
+                            .onDisappear {
+                                fetchTransactions()
+                                print("AddTransactionSheet geschlossen")
                             }
-                            .frame(minWidth: 0, maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.red)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                            Button("Speichern") {
-                                // TODO: Speichern-Logik einbauen
-                                showBookingSheet = false
-                                selectedBookingType = nil
-                            }
-                            .frame(minWidth: 0, maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 18)
                     }
                     .presentationDetents([.medium, .large])
                 }
