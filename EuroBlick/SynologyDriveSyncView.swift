@@ -87,6 +87,45 @@ struct SynologyDriveSyncView: View {
                         .cornerRadius(12)
                     }
                     
+                    // MANUELLE BACKUP-FUNKTIONEN
+                    VStack(spacing: 12) {
+                        Button("Backup erstellen") {
+                            Task {
+                                do {
+                                    try await syncService.createBackup()
+                                } catch {
+                                    // Fehlerbehandlung (optional Toast)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("Verfügbare Backups anzeigen") {
+                            Task {
+                                await syncService.fetchAvailableBackups()
+                                showAvailableBackups = true
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("Backup wiederherstellen") {
+                            showAvailableBackups = true
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                    
                     // Action Buttons - NEUES KONSERVATIVES SYNC-SYSTEM
                     VStack(spacing: 12) {
                         // Status Warning wenn zu viele Uploads
@@ -222,15 +261,6 @@ struct SynologyDriveSyncView: View {
                         .background(Color(.systemGray5))
                         .foregroundColor(.primary)
                         .cornerRadius(12)
-                        
-                        Button("Verfügbare Backups anzeigen") {
-                            showAvailableBackups = true
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Color.orange)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
                         
                         Button("Backup-Analyse durchführen") {
                             Task {

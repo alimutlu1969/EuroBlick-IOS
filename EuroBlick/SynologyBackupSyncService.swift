@@ -2,6 +2,57 @@ import Foundation
 import SwiftUI
 import CoreData
 
+// MARK: - Export Data Structures
+
+struct ExportData: Codable {
+    let version: String
+    let userID: String
+    let deviceName: String
+    let timestamp: TimeInterval
+    let appVersion: String
+    let deviceID: String
+    let accountGroups: [AccountGroupExport]
+    let accounts: [AccountExport]
+    let transactions: [TransactionExport]
+    let categories: [CategoryExport]
+}
+
+struct AccountGroupExport: Codable {
+    let id: UUID
+    let name: String
+    let color: String
+    let icon: String
+    let order: Int
+}
+
+struct AccountExport: Codable {
+    let id: UUID
+    let name: String
+    let balance: Double
+    let accountGroupID: UUID
+    let icon: String
+    let iconColor: String
+    let order: Int
+}
+
+struct TransactionExport: Codable {
+    let id: UUID
+    let amount: Double
+    let date: Date
+    let note: String
+    let accountID: UUID
+    let categoryID: UUID
+    let type: String
+}
+
+struct CategoryExport: Codable {
+    let id: UUID
+    let name: String
+    let color: String
+    let icon: String
+    let order: Int
+}
+
 @MainActor
 class SynologyBackupSyncService: ObservableObject {
     @Published var isSyncing = false
@@ -20,6 +71,15 @@ class SynologyBackupSyncService: ObservableObject {
     private var lastSyncAttempt: Date?
     private var consecutiveUploads: Int = 0
     private let maxConsecutiveUploads = 2 // Maximale Anzahl aufeinanderfolgender Uploads
+    
+    // Backup-spezifische Eigenschaften
+    private var userID: String {
+        return UserDefaults.standard.string(forKey: "userID") ?? "default"
+    }
+    
+    private var deviceID: String {
+        return UIDevice.current.identifierForVendor?.uuidString ?? "unknown"
+    }
     
     enum SyncStatus {
         case idle
@@ -779,6 +839,9 @@ class SynologyBackupSyncService: ObservableObject {
         request.httpMethod = "PROPFIND"
         request.setValue("1", forHTTPHeaderField: "Depth")
         
+        // Verbesserte Timeout-Konfiguration
+        request.timeoutInterval = 30.0 // 30 Sekunden Timeout
+        
         let authString = "\(user):\(password)"
         let authData = authString.data(using: .utf8)!
         let base64Auth = authData.base64EncodedString()
@@ -797,8 +860,15 @@ class SynologyBackupSyncService: ObservableObject {
         """
         request.httpBody = propfindBody.data(using: .utf8)
         
+        // Erstelle eine URLSession mit verbesserter Konfiguration
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30.0
+        config.timeoutIntervalForResource = 60.0
+        config.waitsForConnectivity = true
+        let session = URLSession(configuration: config)
+        
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 debugLog("❌ Invalid response type")
@@ -826,6 +896,12 @@ class SynologyBackupSyncService: ObservableObject {
             if let urlError = error as? URLError {
                 debugLog("  URLError code: \(urlError.code)")
                 debugLog("  URLError description: \(urlError.localizedDescription)")
+                
+                // Spezifische Behandlung für Timeout-Fehler
+                if urlError.code == .timedOut {
+                    debugLog("⏰ Network timeout detected - this might be a temporary issue")
+                    throw SyncError.networkError("Connection timeout - please check your internet connection and try again")
+                }
             }
             throw SyncError.networkError("Network error: \(error.localizedDescription)")
         }
@@ -1263,7 +1339,7 @@ class SynologyBackupSyncService: ObservableObject {
         refreshUIAfterSync()
     }
     
-    private func uploadCurrentState() async throws {
+    public func uploadCurrentState() async throws {
         guard let backup = await backupManager.createEnhancedBackup() else {
             throw SyncError.restoreError("Failed to create backup data")
         }
@@ -1312,27 +1388,27 @@ class SynologyBackupSyncService: ObservableObject {
     
     /// Force-Load aller Core Data Objekte beim App-Start
     private func forceCoreDataRefresh() async {
-        await MainActor.run {
-            debugLog("🔄 NON-FAULT Core Data refresh on app start")
+        debugLog("🔄 NON-FAULT Core Data refresh on app start")
+        
+        // KRITISCH: Fetch mit returnsObjectsAsFaults = false
+        // Das lädt alle Eigenschaften direkt und vermeidet Faults
+        viewModel.getContext().performAndWait {
+            let entities = ["AccountGroup", "Account", "Transaction", "Category"]
             
-            // KRITISCH: Fetch mit returnsObjectsAsFaults = false
-            // Das lädt alle Eigenschaften direkt und vermeidet Faults
-            viewModel.getContext().performAndWait {
-                let entities = ["AccountGroup", "Account"]
+            for entityName in entities {
+                let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                fetchRequest.returnsObjectsAsFaults = false
+                fetchRequest.includesPropertyValues = true
+                fetchRequest.includesSubentities = true
+                // KRITISCH: Force alle Eigenschaften zu laden
+                fetchRequest.relationshipKeyPathsForPrefetching = []
                 
-                for entityName in entities {
-                    let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
-                    fetchRequest.returnsObjectsAsFaults = false
-                    fetchRequest.includesPropertyValues = true
-                    fetchRequest.includesSubentities = true
-                    // KRITISCH: Force alle Eigenschaften zu laden
-                    fetchRequest.relationshipKeyPathsForPrefetching = []
+                do {
+                    let objects = try viewModel.getContext().fetch(fetchRequest)
+                    debugLog("🔄 NON-FAULT loaded \(objects.count) \(entityName) objects")
                     
-                    do {
-                        let objects = try viewModel.getContext().fetch(fetchRequest)
-                        debugLog("🔄 NON-FAULT loaded \(objects.count) \(entityName) objects")
-                        
-                        // Verifiziere dass Namen geladen sind
+                    // Verifiziere dass Namen geladen sind (nur für AccountGroup und Account)
+                    if entityName == "AccountGroup" || entityName == "Account" {
                         for (index, object) in objects.prefix(3).enumerated() {
                             if let name = object.value(forKey: "name") as? String {
                                 debugLog("  ✅ Object \(index + 1): \(name)")
@@ -1340,19 +1416,31 @@ class SynologyBackupSyncService: ObservableObject {
                                 debugLog("  ❌ Object \(index + 1): NO NAME")
                             }
                         }
-                    } catch {
-                        debugLog("❌ Error non-fault loading \(entityName): \(error)")
                     }
+                } catch {
+                    debugLog("❌ Error non-fault loading \(entityName): \(error)")
                 }
             }
-            
-            // UI-Refresh nach Force-Load
+        }
+        
+        // UI-Refresh nach Force-Load mit mehreren Versuchen
+        for attempt in 1...3 {
+            debugLog("🔄 UI refresh attempt \(attempt)")
             viewModel.fetchAccountGroups()
             viewModel.fetchCategories()
             viewModel.objectWillChange.send()
             
-            debugLog("✅ Non-fault Core Data refresh completed")
+            // Kurze Pause zwischen Versuchen
+            if attempt < 3 {
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 Sekunden
+            }
         }
+        
+        // Zusätzlich: Force balance recalculation
+        debugLog("🔄 Force balance recalculation")
+        let _ = viewModel.calculateAllBalances()
+        
+        debugLog("✅ Non-fault Core Data refresh completed")
     }
     
     func setAutoSyncEnabled(_ enabled: Bool) {
@@ -1572,21 +1660,33 @@ class SynologyBackupSyncService: ObservableObject {
         // Prüfe auf echte Datenänderungen, nicht nur Hash-Unterschiede
         return await withCheckedContinuation { continuation in
             viewModel.getContext().perform {
-                // Prüfe auf neue Transaktionen in den letzten 2 Stunden
-                let twoHoursAgo = Calendar.current.date(byAdding: .hour, value: -2, to: Date())!
+                // Prüfe auf neue Transaktionen in den letzten 24 Stunden (statt 2 Stunden)
+                let twentyFourHoursAgo = Calendar.current.date(byAdding: .hour, value: -24, to: Date())!
                 
                 let request: NSFetchRequest<Transaction> = Transaction.fetchRequest()
-                request.predicate = NSPredicate(format: "date >= %@", twoHoursAgo as NSDate)
+                request.predicate = NSPredicate(format: "date >= %@", twentyFourHoursAgo as NSDate)
                 
                 do {
                     let recentTransactions = try self.viewModel.getContext().fetch(request)
                     let hasRecentChanges = recentTransactions.count > 0
                     
-                    self.debugLog("📊 Real data changes check: \(recentTransactions.count) transactions in last 2 hours")
-                    continuation.resume(returning: hasRecentChanges)
+                    // Zusätzlich prüfe auf Änderungen in den letzten 7 Tagen für konservativere Erkennung
+                    let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
+                    let request7Days: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+                    request7Days.predicate = NSPredicate(format: "date >= %@", sevenDaysAgo as NSDate)
+                    let weekTransactions = try self.viewModel.getContext().fetch(request7Days)
+                    
+                    // Erlaube Upload wenn es Änderungen in 24h gibt ODER wenn es mehr als 10 Transaktionen in der Woche gibt
+                    let shouldAllowUpload = hasRecentChanges || weekTransactions.count > 10
+                    
+                    self.debugLog("📊 Real data changes check: \(recentTransactions.count) transactions in last 24h, \(weekTransactions.count) in last 7 days")
+                    self.debugLog("📊 Upload decision: \(shouldAllowUpload ? "ALLOWED" : "BLOCKED")")
+                    
+                    continuation.resume(returning: shouldAllowUpload)
                 } catch {
                     self.debugLog("❌ Error checking real data changes: \(error)")
-                    continuation.resume(returning: false)
+                    // Bei Fehlern erlaube Upload für Sicherheit
+                    continuation.resume(returning: true)
                 }
             }
         }
@@ -1596,6 +1696,20 @@ class SynologyBackupSyncService: ObservableObject {
     func resetUploadCounter() {
         consecutiveUploads = 0
         debugLog("🔄 Upload counter reset to 0")
+    }
+    
+    /// Force Upload - umgeht alle Sicherheitsprüfungen
+    func forceUpload() async {
+        debugLog("🚀 FORCE UPLOAD: Bypassing all safety checks")
+        
+        // Reset Upload-Zähler
+        consecutiveUploads = 0
+        
+        // Entferne Upload-Zeitstempel
+        UserDefaults.standard.removeObject(forKey: "lastUploadDate")
+        
+        // Führe Upload durch
+        await performManualSync(allowUpload: true)
     }
     
     /// DEBUG-Tool für Benutzer: UI-Problem fixen
@@ -1621,10 +1735,26 @@ class SynologyBackupSyncService: ObservableObject {
         let stillHasProblems = await checkForUIFaults()
         if stillHasProblems {
             debugLog("🔧 Phase 2: Gentle refresh didn't work, using context reset...")
+            
+            // Sanfter Context-Reset
             viewModel.getContext().reset()
+            
+            // Force reload aller Objekte
             await forceCoreDataRefresh()
+            
+            // Zusätzliche UI-Updates
             viewModel.objectWillChange.send()
             NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+            NotificationCenter.default.post(name: NSNotification.Name("TransactionDataChanged"), object: nil)
+            NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
+            
+            // Finale Verifikation
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            let finalCheck = await checkForUIFaults()
+            if finalCheck {
+                debugLog("🔧 Phase 3: Context reset didn't work, using nuclear option...")
+                await forceCompleteUIRefresh()
+            }
         }
         
         debugLog("🔧 USER TOOL: GENTLE UI fix completed")
@@ -1841,7 +1971,7 @@ class SynologyBackupSyncService: ObservableObject {
             // 1. Fetch neue Daten OHNE Context-Reset
             self.viewModel.fetchAccountGroups()
             self.viewModel.fetchCategories()
-            
+        
             // 2. UI-Update
             self.viewModel.objectWillChange.send()
             NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
@@ -1869,7 +1999,7 @@ class SynologyBackupSyncService: ObservableObject {
                 let groupName = group.name ?? "unnamed"
                 let accountCount = group.accounts?.count ?? 0
                 debugLog("  📁 Group \(index + 1): \(groupName) (\(accountCount) accounts)")
-                
+        
                 // Kurze Account-Verifikation
                 if let accounts = group.accounts?.allObjects as? [Account] {
                     for (accountIndex, account) in accounts.prefix(1).enumerated() {
@@ -1880,9 +2010,9 @@ class SynologyBackupSyncService: ObservableObject {
                     if accounts.count > 1 {
                         debugLog("    💳 ... and \(accounts.count - 1) more accounts")
                     }
-                }
             }
-            
+        }
+        
             debugLog("✅ Single UI State verification completed")
         }
     }
@@ -1904,6 +2034,233 @@ class SynologyBackupSyncService: ObservableObject {
             case .restoreError(let message):
                 return "Wiederherstellungsfehler: \(message)"
             }
+        }
+    }
+    
+    static let shared = SynologyBackupSyncService(viewModel: TransactionViewModel.shared)
+    
+    /// Einfache Backup-Erstellung
+    func createBackup() async throws {
+        debugLog("📦 Erstelle neues Backup...")
+        let backupData = try await exportCurrentData()
+        let timestamp = Date()
+        let filename = "EuroBlick_Backup_\(formatDateForFilename(timestamp)).json"
+        try await uploadBackupToSynology(backupData: backupData, filename: filename)
+        debugLog("✅ Backup erfolgreich erstellt: \(filename)")
+        await fetchAvailableBackups()
+    }
+    /// Backup wiederherstellen
+    func restoreBackup(_ backup: BackupInfo) async throws {
+        debugLog("🔄 Wiederherstellung von Backup: \(backup.filename)")
+        try await downloadAndRestoreBackup(backup)
+        debugLog("✅ Backup erfolgreich wiederhergestellt: \(backup.filename)")
+    }
+    /// Verfügbare Backups abrufen
+    func fetchAvailableBackups() async {
+        do {
+            let backups = try await fetchRemoteBackups()
+            await MainActor.run {
+                self.availableBackups = backups.sorted { $0.timestamp > $1.timestamp }
+            }
+            debugLog("📋 Verfügbare Backups aktualisiert: \(backups.count)")
+        } catch {
+            debugLog("❌ Fehler beim Laden der Backups: \(error)")
+        }
+    }
+    /// Hilfsfunktion für Dateinamen
+    private func formatDateForFilename(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        return formatter.string(from: date)
+    }
+    /// Exportiert aktuelle Daten als JSON
+    private func exportCurrentData() async throws -> Data {
+        return try await withCheckedThrowingContinuation { continuation in
+            viewModel.getContext().performAndWait {
+                do {
+                    let exportData = ExportData(
+                        version: "2.0",
+                        userID: self.userID,
+                        deviceName: UIDevice.current.name,
+                        timestamp: Date().timeIntervalSince1970,
+                        appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0",
+                        deviceID: self.deviceID,
+                        accountGroups: self.fetchAccountGroupsForExport(),
+                        accounts: self.fetchAccountsForExport(),
+                        transactions: self.fetchTransactionsForExport(),
+                        categories: self.fetchCategoriesForExport()
+                    )
+                    let data = try JSONEncoder().encode(exportData)
+                    continuation.resume(returning: data)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Data Fetching for Export
+    
+    private func fetchAccountGroupsForExport() -> [AccountGroupExport] {
+        let request: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
+        
+        do {
+            let accountGroups = try viewModel.getContext().fetch(request)
+            return accountGroups.map { group in
+                AccountGroupExport(
+                    id: group.id ?? UUID(),
+                    name: group.name ?? "",
+                    color: "#000000", // Standardfarbe
+                    icon: "folder", // Standardicon
+                    order: 0 // Standardreihenfolge
+                )
+            }
+        } catch {
+            debugLog("❌ Fehler beim Exportieren der Kontogruppen: \(error)")
+            return []
+        }
+    }
+    
+    private func fetchAccountsForExport() -> [AccountExport] {
+        let request: NSFetchRequest<Account> = Account.fetchRequest()
+        
+        do {
+            let accounts = try viewModel.getContext().fetch(request)
+            return accounts.map { account in
+                AccountExport(
+                    id: account.id ?? UUID(),
+                    name: account.name ?? "",
+                    balance: 0.0, // Balance wird aus Transaktionen berechnet
+                    accountGroupID: account.group?.id ?? UUID(),
+                    icon: "wallet.pass", // Standardicon
+                    iconColor: "#000000", // Standardfarbe
+                    order: 0 // Standardreihenfolge
+                )
+            }
+        } catch {
+            debugLog("❌ Fehler beim Exportieren der Konten: \(error)")
+            return []
+        }
+    }
+    
+    private func fetchTransactionsForExport() -> [TransactionExport] {
+        let request: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+        
+        do {
+            let transactions = try viewModel.getContext().fetch(request)
+            return transactions.map { transaction in
+                TransactionExport(
+                    id: transaction.id,
+                    amount: transaction.amount,
+                    date: transaction.date,
+                    note: transaction.usage ?? "",
+                    accountID: transaction.account?.id ?? UUID(),
+                    categoryID: UUID(), // Neue UUID für Category, da Category keine ID hat
+                    type: transaction.type ?? "expense"
+                )
+            }
+        } catch {
+            debugLog("❌ Fehler beim Exportieren der Transaktionen: \(error)")
+            return []
+        }
+    }
+    
+    private func fetchCategoriesForExport() -> [CategoryExport] {
+        let request: NSFetchRequest<Category> = Category.fetchRequest()
+        
+        do {
+            let categories = try viewModel.getContext().fetch(request)
+            return categories.map { category in
+                CategoryExport(
+                    id: UUID(), // Neue UUID für Category
+                    name: category.name ?? "",
+                    color: "#000000", // Standardfarbe
+                    icon: "tag", // Standardicon
+                    order: 0 // Standardreihenfolge
+                )
+            }
+        } catch {
+            debugLog("❌ Fehler beim Exportieren der Kategorien: \(error)")
+            return []
+        }
+    }
+    
+    // MARK: - Data Importing
+    
+    private func importAccountGroups(_ accountGroups: [AccountGroupExport]) {
+        for groupData in accountGroups {
+            let group = AccountGroup(context: viewModel.getContext())
+            group.id = groupData.id
+            group.name = groupData.name
+        }
+    }
+    
+    private func importAccounts(_ accounts: [AccountExport]) {
+        for accountData in accounts {
+            let account = Account(context: viewModel.getContext())
+            account.id = accountData.id
+            account.name = accountData.name
+            
+            // AccountGroup verknüpfen
+            let groupRequest: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
+            groupRequest.predicate = NSPredicate(format: "id == %@", accountData.accountGroupID as CVarArg)
+            if let group = try? viewModel.getContext().fetch(groupRequest).first {
+                account.group = group
+            }
+        }
+    }
+    
+    private func importCategories(_ categories: [CategoryExport]) {
+        for categoryData in categories {
+            let category = Category(context: viewModel.getContext())
+            category.name = categoryData.name
+        }
+    }
+    
+    private func importTransactions(_ transactions: [TransactionExport]) {
+        for transactionData in transactions {
+            let transaction = Transaction(context: viewModel.getContext())
+            transaction.id = transactionData.id
+            transaction.amount = transactionData.amount
+            transaction.date = transactionData.date
+            transaction.usage = transactionData.note
+            transaction.type = transactionData.type
+            
+            // Account verknüpfen
+            let accountRequest: NSFetchRequest<Account> = Account.fetchRequest()
+            accountRequest.predicate = NSPredicate(format: "id == %@", transactionData.accountID as CVarArg)
+            if let account = try? viewModel.getContext().fetch(accountRequest).first {
+                transaction.account = account
+            }
+            
+            // Category verknüpfen
+            let categoryRequest: NSFetchRequest<Category> = Category.fetchRequest()
+            categoryRequest.predicate = NSPredicate(format: "name == %@", transactionData.note)
+            if let category = try? viewModel.getContext().fetch(categoryRequest).first {
+                transaction.categoryRelationship = category
+            }
+        }
+    }
+    
+    private func uploadBackupToSynology(backupData: Data, filename: String) async throws {
+        guard let webdavURL = UserDefaults.standard.string(forKey: "webdavURL"),
+              let webdavUser = UserDefaults.standard.string(forKey: "webdavUser"),
+              let webdavPassword = UserDefaults.standard.string(forKey: "webdavPassword") else {
+            throw SyncError.networkError("WebDAV-Konfiguration fehlt")
+        }
+        let url = URL(string: webdavURL)!.appendingPathComponent(filename)
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = backupData
+        let authString = "\(webdavUser):\(webdavPassword)"
+        let authData = authString.data(using: .utf8)!
+        let base64Auth = authData.base64EncodedString()
+        request.setValue("Basic \(base64Auth)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 201 || httpResponse.statusCode == 200 else {
+            throw SyncError.networkError("Upload fehlgeschlagen")
         }
     }
 }
