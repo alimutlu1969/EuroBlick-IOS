@@ -18,7 +18,7 @@ struct TransactionForm: View {
     @FocusState private var newCategoryFieldFocused: Bool
     @FocusState private var usageFieldFocused: Bool
     @State private var showTargetAccountPicker = false
-    
+
     // Sammle alle Verwendungszwecke für Auto-Vervollständigung
     private var usageSuggestions: [String] {
         let allTransactions = accountGroups.flatMap { group in

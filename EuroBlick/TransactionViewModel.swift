@@ -5,6 +5,7 @@ import Charts
 import os.log
 
 class TransactionViewModel: ObservableObject {
+    static let shared = TransactionViewModel()
     @Published var accountGroups: [AccountGroup] = []
     @Published var categories: [Category] = []
     @Published var transactionsUpdated: Bool = false // Neue Property für Benachrichtigungen
@@ -600,6 +601,14 @@ class TransactionViewModel: ObservableObject {
                     self.cleanupInvalidTransactions()
                     self.fetchAccountGroups()
                     print("Transaktion hinzugefügt: type=\(finalType), amount=\(amount), Kategorie=\(category), usage=\(usage ?? "nil")")
+                    // Backup-Upload nach jeder neuen Transaktion
+                    Task {
+                        do {
+                            try await SynologyBackupSyncService.shared.uploadCurrentState()
+                        } catch {
+                            print("Fehler beim automatischen Backup-Upload: \(error)")
+                        }
+                    }
                     completion?(nil)
                 }
             }
@@ -1116,9 +1125,9 @@ class TransactionViewModel: ObservableObject {
                         account.setValue(icon, forKey: "icon")
                     } else {
                         let accountNameLower = name.lowercased()
-                        if accountNameLower.contains("bargeld") || accountNameLower.contains("kasse") || accountNameLower.contains("bar") {
+                        if accountNameLower.contains("bargeld") || accountNameLower.contains("kasse") || name.contains("bar") {
                             account.setValue("banknote.fill", forKey: "icon")
-                        } else if accountNameLower.contains("giro") || accountNameLower.contains("bank") {
+                        } else if accountNameLower.contains("giro") || name.contains("bank") {
                             account.setValue("building.columns.fill", forKey: "icon")
                         } else {
                             account.setValue("wallet.pass.fill", forKey: "icon")
@@ -1130,9 +1139,9 @@ class TransactionViewModel: ObservableObject {
                         account.setValue(iconColor, forKey: "iconColor")
                     } else {
                         let accountNameLower = name.lowercased()
-                        if accountNameLower.contains("bargeld") || accountNameLower.contains("kasse") || accountNameLower.contains("bar") {
+                        if accountNameLower.contains("bargeld") || accountNameLower.contains("kasse") || name.contains("bar") {
                             account.setValue("#22C55E", forKey: "iconColor") // Grün für Bargeld
-                        } else if accountNameLower.contains("giro") || accountNameLower.contains("bank") {
+                        } else if accountNameLower.contains("giro") || name.contains("bank") {
                             account.setValue("#3B82F6", forKey: "iconColor") // Blau für Bankkonten
                         } else {
                             account.setValue("#6B7280", forKey: "iconColor") // Grau für andere
