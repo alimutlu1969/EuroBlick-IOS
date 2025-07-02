@@ -72,6 +72,20 @@ struct LoginView: View {
                             .foregroundColor(.blue)
                             .padding()
 
+                            // Passwort vergessen? Button
+                            Button("Passwort vergessen?") {
+                                if let email = authManager.getEmail(for: username), !email.isEmpty {
+                                    let subject = "EuroBlick Passwort zurücksetzen"
+                                    let body = "Hallo, bitte setzen Sie mein Passwort für den Benutzer \(username) zurück."
+                                    let urlString = "mailto:\(email)?subject=\(subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&body=\(body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+                                    if let url = URL(string: urlString) {
+                                        UIApplication.shared.open(url)
+                                    }
+                                }
+                            }
+                            .foregroundColor(.blue)
+                            .padding(.bottom, 8)
+
                             // Registrieren-Button
                             Button("Registrieren") {
                                 resignKeyboard()

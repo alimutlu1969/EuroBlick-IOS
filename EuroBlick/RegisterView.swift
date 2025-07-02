@@ -5,6 +5,8 @@ struct RegisterView: View {
     let authManager: AuthenticationManager
     @State private var username = ""
     @State private var password = ""
+    @State private var email = ""
+    @State private var passwordRepeat = ""
     @State private var showError = false
 
     var body: some View {
@@ -14,19 +16,39 @@ struct RegisterView: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
 
+                TextField("E-Mail", text: $email)
+                    .keyboardType(.emailAddress)
+                    .autocapitalization(.none)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding(.horizontal, 16)
+
                 SecureField("Passwort", text: $password)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding()
+                    .padding(.horizontal, 16)
+
+                SecureField("Passwort wiederholen", text: $passwordRepeat)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding(.horizontal, 16)
 
                 if showError {
-                    Text("Benutzername existiert bereits!")
+                    Text("Bitte alle Felder korrekt ausfüllen und Passwörter müssen übereinstimmen!")
                         .foregroundColor(.red)
-                        .padding()
+                        .padding(.horizontal, 16)
                 }
 
                 Button(action: {
-                    if authManager.register(username: username, password: password) {
-                        dismiss()
+                    resignKeyboard()
+                    if !username.isEmpty && !email.isEmpty && !password.isEmpty && !passwordRepeat.isEmpty {
+                        if password == passwordRepeat {
+                            if authManager.register(username: username, email: email, password: password) {
+                                showError = false
+                                dismiss()
+                            } else {
+                                showError = true
+                            }
+                        } else {
+                            showError = true
+                        }
                     } else {
                         showError = true
                     }
@@ -48,6 +70,10 @@ struct RegisterView: View {
             }
         }
         .background(Color(hex: "#000000"))
+    }
+
+    private func resignKeyboard() {
+        // Implementation of resignKeyboard function
     }
 }
 

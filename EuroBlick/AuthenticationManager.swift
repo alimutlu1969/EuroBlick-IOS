@@ -24,9 +24,10 @@ class AuthenticationManager: ObservableObject {
         print("UserDefaults isAuthenticated: \(userDefaults.bool(forKey: isAuthenticatedKey))")
     }
 
-    // Struktur für Benutzerdaten (nur Benutzername)
+    // Struktur für Benutzerdaten (Benutzername + E-Mail)
     struct User: Codable {
         let username: String
+        let email: String
     }
 
     // Hash-Funktion für Passwörter
@@ -37,7 +38,7 @@ class AuthenticationManager: ObservableObject {
     }
 
     // Speichere einen neuen Benutzer
-    func register(username: String, password: String) -> Bool {
+    func register(username: String, email: String, password: String) -> Bool {
         var users = getUsers()
         // Überprüfe, ob der Benutzername bereits existiert
         if users.contains(where: { $0.username == username }) {
@@ -50,11 +51,13 @@ class AuthenticationManager: ObservableObject {
         do {
             try keychain.set(hashedPassword, key: username)
             // Füge neuen Benutzer hinzu (nur Benutzername)
-            users.append(User(username: username))
+            users.append(User(username: username, email: email))
             // Speichere Benutzer in UserDefaults
             if let encoded = try? JSONEncoder().encode(users) {
                 userDefaults.set(encoded, forKey: usersKey)
                 print("Registration successful: \(username)")
+                let userID = String(SHA256.hash(data: Data(username.utf8)).compactMap { String(format: "%02x", $0) }.joined().prefix(8))
+                userDefaults.set(userID, forKey: "currentUserID")
                 return true
             }
             print("Registration failed: Could not encode users")
@@ -76,6 +79,8 @@ class AuthenticationManager: ObservableObject {
             isAuthenticated = true
             userDefaults.set(username, forKey: lastAuthenticatedUserKey)
             print("Login successful: \(username)")
+            let userID = String(SHA256.hash(data: Data(username.utf8)).compactMap { String(format: "%02x", $0) }.joined().prefix(8))
+            userDefaults.set(userID, forKey: "currentUserID")
             return true
         }
         print("Login failed: Invalid username or password")
@@ -213,5 +218,10 @@ class AuthenticationManager: ObservableObject {
             print("Authentifizierung nicht verfügbar: \(errorMsg)")
             completion(false, errorMsg)
         }
+    }
+
+    // Hole E-Mail zu Username
+    func getEmail(for username: String) -> String? {
+        return getUsers().first(where: { $0.username == username })?.email
     }
 }

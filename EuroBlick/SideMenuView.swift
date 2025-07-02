@@ -18,6 +18,10 @@ struct SideMenuView: View {
         authManager.getLastAuthenticatedUser() ?? "Benutzer"
     }
     
+    private var userID: String {
+        UserDefaults.standard.string(forKey: "currentUserID") ?? "-"
+    }
+    
     private var userInitials: String {
         let name = userName
         let components = name.components(separatedBy: " ")
@@ -53,7 +57,9 @@ struct SideMenuView: View {
                 .alert("Abmelden", isPresented: $showLogoutAlert) {
                     Button("Abbrechen", role: .cancel) { }
                     Button("Abmelden", role: .destructive) {
-                        NotificationCenter.default.post(name: NSNotification.Name("SideMenuLogout"), object: nil)
+                        authManager.logout()
+                        UserDefaults.standard.removeObject(forKey: "currentUserID")
+                        // Optional: Navigation zur Login-View, z.B. Notification oder State setzen
                     }
                 } message: {
                     Text("Möchten Sie sich wirklich abmelden?")
@@ -62,7 +68,7 @@ struct SideMenuView: View {
                     Text(userName)
                         .font(.headline)
                         .foregroundColor(Color.primary)
-                    Text("EuroBlick Benutzer")
+                    Text("ID: \(userID)")
                         .font(.subheadline)
                         .foregroundColor(Color.secondary)
                 }

@@ -1366,19 +1366,21 @@ class SynologyBackupSyncService: ObservableObject {
     }
     
     func enableAutoSyncIfConfigured() {
-        // Prüfe ob Auto-Sync aktiviert werden soll
         let autoSyncEnabled = UserDefaults.standard.bool(forKey: "autoSyncEnabled")
-        
         if autoSyncEnabled && hasValidWebDAVConfiguration() {
             debugLog("✅ Auto-sync is enabled and configured - starting auto-sync")
             startAutoSync()
+            // Setze Sync-Status auf bereit/grün, wenn WebDAV erreichbar
+            if hasValidWebDAVConfiguration() {
+                syncStatus = .success
+            }
         } else if autoSyncEnabled {
             debugLog("⚠️ Auto-sync is enabled but WebDAV configuration is incomplete")
+            syncStatus = .error("WebDAV-Konfiguration unvollständig")
         } else {
             debugLog("ℹ️ Auto-sync is disabled by user")
+            syncStatus = .idle
         }
-        
-        // KRITISCH: Force-load Core Data nach App-Start
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             Task {
                 await self.forceCoreDataRefresh()
