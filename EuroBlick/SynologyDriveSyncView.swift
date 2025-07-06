@@ -17,6 +17,8 @@ struct SynologyDriveSyncView: View {
     @State private var isCapturingLogs = false
     @State private var showForceRestore = false
     @State private var forceRestoreJSON = ""
+    @State private var showCleanupResult = false
+    @State private var cleanupResult: (deletedCount: Int, errorCount: Int) = (0, 0)
     
     var body: some View {
         NavigationView {
@@ -102,6 +104,18 @@ struct SynologyDriveSyncView: View {
                         .padding()
                         .background(Color.green)
                         .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("Alte Backups bereinigen (1+ Tag)") {
+                            Task {
+                                cleanupResult = await syncService.cleanupOldBackupsManually()
+                                showCleanupResult = true
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.yellow)
+                        .foregroundColor(.black)
                         .cornerRadius(12)
                         
                         Button("Verfügbare Backups anzeigen") {
@@ -410,6 +424,11 @@ struct SynologyDriveSyncView: View {
                 Button("OK") { }
             } message: {
                 Text(testResult)
+            }
+            .alert("Backup-Bereinigung", isPresented: $showCleanupResult) {
+                Button("OK") { }
+            } message: {
+                Text("Bereinigung abgeschlossen:\n\n✅ \(cleanupResult.deletedCount) alte Backups gelöscht\n❌ \(cleanupResult.errorCount) Fehler aufgetreten")
             }
         }
     }

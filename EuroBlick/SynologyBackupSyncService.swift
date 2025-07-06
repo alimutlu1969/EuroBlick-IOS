@@ -2044,6 +2044,10 @@ class SynologyBackupSyncService: ObservableObject {
     /// Einfache Backup-Erstellung
     func createBackup() async throws {
         debugLog("📦 Erstelle neues Backup...")
+        
+        // Lösche alte Backups vor der Erstellung eines neuen Backups
+        await cleanupOldBackups()
+        
         let backupData = try await exportCurrentData()
         let timestamp = Date()
         let filename = "EuroBlick_Backup_\(formatDateForFilename(timestamp)).json"
@@ -2051,6 +2055,85 @@ class SynologyBackupSyncService: ObservableObject {
         debugLog("✅ Backup erfolgreich erstellt: \(filename)")
         await fetchAvailableBackups()
     }
+    
+    /// Löscht automatisch Backups, die älter als 1 Tag sind
+    private func cleanupOldBackups() async {
+        debugLog("🧹 Starte automatische Bereinigung alter Backups...")
+        
+        do {
+            let allBackups = try await fetchRemoteBackups()
+            let oneDayAgo = Date().addingTimeInterval(-24 * 60 * 60) // 24 Stunden zurück
+            
+            let oldBackups = allBackups.filter { backup in
+                backup.timestamp < oneDayAgo
+            }
+            
+            debugLog("📊 Gefundene Backups: \(allBackups.count)")
+            debugLog("🗑️ Zu löschende alte Backups: \(oldBackups.count)")
+            
+            for backup in oldBackups {
+                do {
+                    try await deleteBackup(backup)
+                    debugLog("✅ Altes Backup gelöscht: \(backup.filename)")
+                } catch {
+                    debugLog("❌ Fehler beim Löschen von \(backup.filename): \(error)")
+                }
+            }
+            
+            if oldBackups.isEmpty {
+                debugLog("✅ Keine alten Backups zum Löschen gefunden")
+            } else {
+                debugLog("✅ Bereinigung abgeschlossen: \(oldBackups.count) alte Backups gelöscht")
+            }
+            
+        } catch {
+            debugLog("❌ Fehler bei der Backup-Bereinigung: \(error)")
+        }
+    }
+    
+    /// Löscht eine spezifische Backup-Datei vom Synology Drive
+    private func deleteBackup(_ backup: BackupInfo) async throws {
+        guard let webdavURL = UserDefaults.standard.string(forKey: "webdavURL"),
+              let webdavUser = UserDefaults.standard.string(forKey: "webdavUser"),
+              let webdavPassword = UserDefaults.standard.string(forKey: "webdavPassword") else {
+            throw SyncError.networkError("WebDAV-Konfiguration fehlt")
+        }
+        
+        // Konstruiere die vollständige URL für die zu löschende Datei
+        let baseURL: String
+        if webdavURL.hasSuffix(".json") {
+            // URL zeigt auf eine spezifische Datei, verwende das Verzeichnis
+            guard let url = URL(string: webdavURL) else {
+                throw SyncError.invalidURL
+            }
+            baseURL = url.deletingLastPathComponent().absoluteString
+        } else {
+            // URL ist ein Verzeichnis, verwende es direkt
+            baseURL = webdavURL
+        }
+        
+        let fileURL = URL(string: baseURL)!.appendingPathComponent(backup.filename)
+        
+        var request = URLRequest(url: fileURL)
+        request.httpMethod = "DELETE"
+        
+        let authString = "\(webdavUser):\(webdavPassword)"
+        let authData = authString.data(using: .utf8)!
+        let base64Auth = authData.base64EncodedString()
+        request.setValue("Basic \(base64Auth)", forHTTPHeaderField: "Authorization")
+        
+        let (_, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SyncError.networkError("Ungültige Antwort beim Löschen")
+        }
+        
+        // WebDAV DELETE sollte 204 (No Content) oder 200 (OK) zurückgeben
+        guard httpResponse.statusCode == 204 || httpResponse.statusCode == 200 else {
+            throw SyncError.networkError("Löschen fehlgeschlagen: HTTP \(httpResponse.statusCode)")
+        }
+    }
+    
     /// Backup wiederherstellen
     func restoreBackup(_ backup: BackupInfo) async throws {
         debugLog("🔄 Wiederherstellung von Backup: \(backup.filename)")
@@ -2264,5 +2347,48 @@ class SynologyBackupSyncService: ObservableObject {
               httpResponse.statusCode == 201 || httpResponse.statusCode == 200 else {
             throw SyncError.networkError("Upload fehlgeschlagen")
         }
+    }
+    
+    /// Manuelle Bereinigung alter Backups (öffentliche Funktion für UI)
+    func cleanupOldBackupsManually() async -> (deletedCount: Int, errorCount: Int) {
+        debugLog("🧹 Manuelle Bereinigung alter Backups gestartet...")
+        
+        var deletedCount = 0
+        var errorCount = 0
+        
+        do {
+            let allBackups = try await fetchRemoteBackups()
+            let oneDayAgo = Date().addingTimeInterval(-24 * 60 * 60) // 24 Stunden zurück
+            
+            let oldBackups = allBackups.filter { backup in
+                backup.timestamp < oneDayAgo
+            }
+            
+            debugLog("📊 Gefundene Backups: \(allBackups.count)")
+            debugLog("🗑️ Zu löschende alte Backups: \(oldBackups.count)")
+            
+            for backup in oldBackups {
+                do {
+                    try await deleteBackup(backup)
+                    deletedCount += 1
+                    debugLog("✅ Altes Backup gelöscht: \(backup.filename)")
+                } catch {
+                    errorCount += 1
+                    debugLog("❌ Fehler beim Löschen von \(backup.filename): \(error)")
+                }
+            }
+            
+            if oldBackups.isEmpty {
+                debugLog("✅ Keine alten Backups zum Löschen gefunden")
+            } else {
+                debugLog("✅ Manuelle Bereinigung abgeschlossen: \(deletedCount) Backups gelöscht, \(errorCount) Fehler")
+            }
+            
+        } catch {
+            debugLog("❌ Fehler bei der manuellen Backup-Bereinigung: \(error)")
+            errorCount += 1
+        }
+        
+        return (deletedCount, errorCount)
     }
 }
