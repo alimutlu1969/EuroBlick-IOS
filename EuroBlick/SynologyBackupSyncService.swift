@@ -2059,18 +2059,14 @@ class SynologyBackupSyncService: ObservableObject {
     /// Löscht automatisch Backups, die älter als 1 Tag sind
     private func cleanupOldBackups() async {
         debugLog("🧹 Starte automatische Bereinigung alter Backups...")
-        
+        let calendar = Calendar.current
         do {
             let allBackups = try await fetchRemoteBackups()
-            let oneDayAgo = Date().addingTimeInterval(-24 * 60 * 60) // 24 Stunden zurück
-            
             let oldBackups = allBackups.filter { backup in
-                backup.timestamp < oneDayAgo
+                !calendar.isDateInToday(backup.timestamp)
             }
-            
             debugLog("📊 Gefundene Backups: \(allBackups.count)")
             debugLog("🗑️ Zu löschende alte Backups: \(oldBackups.count)")
-            
             for backup in oldBackups {
                 do {
                     try await deleteBackup(backup)
@@ -2079,13 +2075,11 @@ class SynologyBackupSyncService: ObservableObject {
                     debugLog("❌ Fehler beim Löschen von \(backup.filename): \(error)")
                 }
             }
-            
             if oldBackups.isEmpty {
                 debugLog("✅ Keine alten Backups zum Löschen gefunden")
             } else {
                 debugLog("✅ Bereinigung abgeschlossen: \(oldBackups.count) alte Backups gelöscht")
             }
-            
         } catch {
             debugLog("❌ Fehler bei der Backup-Bereinigung: \(error)")
         }
@@ -2352,21 +2346,16 @@ class SynologyBackupSyncService: ObservableObject {
     /// Manuelle Bereinigung alter Backups (öffentliche Funktion für UI)
     func cleanupOldBackupsManually() async -> (deletedCount: Int, errorCount: Int) {
         debugLog("🧹 Manuelle Bereinigung alter Backups gestartet...")
-        
+        let calendar = Calendar.current
         var deletedCount = 0
         var errorCount = 0
-        
         do {
             let allBackups = try await fetchRemoteBackups()
-            let oneDayAgo = Date().addingTimeInterval(-24 * 60 * 60) // 24 Stunden zurück
-            
             let oldBackups = allBackups.filter { backup in
-                backup.timestamp < oneDayAgo
+                !calendar.isDateInToday(backup.timestamp)
             }
-            
             debugLog("📊 Gefundene Backups: \(allBackups.count)")
             debugLog("🗑️ Zu löschende alte Backups: \(oldBackups.count)")
-            
             for backup in oldBackups {
                 do {
                     try await deleteBackup(backup)
@@ -2377,18 +2366,15 @@ class SynologyBackupSyncService: ObservableObject {
                     debugLog("❌ Fehler beim Löschen von \(backup.filename): \(error)")
                 }
             }
-            
             if oldBackups.isEmpty {
                 debugLog("✅ Keine alten Backups zum Löschen gefunden")
             } else {
                 debugLog("✅ Manuelle Bereinigung abgeschlossen: \(deletedCount) Backups gelöscht, \(errorCount) Fehler")
             }
-            
         } catch {
             debugLog("❌ Fehler bei der manuellen Backup-Bereinigung: \(error)")
             errorCount += 1
         }
-        
         return (deletedCount, errorCount)
     }
 }
