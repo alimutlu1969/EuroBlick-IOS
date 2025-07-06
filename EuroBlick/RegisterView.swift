@@ -42,7 +42,7 @@ struct RegisterView: View {
                         if password == passwordRepeat {
                             if authManager.register(username: username, email: email, password: password) {
                                 showError = false
-                                dismiss()
+                        dismiss()
                             } else {
                                 showError = true
                             }
