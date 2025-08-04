@@ -108,12 +108,88 @@ struct SynologyDriveSyncView: View {
                         .foregroundColor(.white)
                         .cornerRadius(12)
                         
-                        Button("Backup wiederherstellen") {
-                            showAvailableBackups = true
+                        Button("Alte Backups bereinigen (1+ Tag)") {
+                            Task {
+                                cleanupResult = await syncService.cleanupOldBackupsManually()
+                                showCleanupResult = true
+                            }
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.red)
+                        .background(Color.yellow)
+                        .foregroundColor(.black)
+                        .cornerRadius(12)
+                        
+                        Button("Verfügbare Backups anzeigen") {
+                            Task {
+                                await syncService.fetchAvailableBackups()
+                                showAvailableBackups = true
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("Backup-Analyse durchführen") {
+                            Task {
+                                await analyzeBackups()
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.purple)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("🚀 Erweiterte Synchronisation") {
+                            Task {
+                                await syncService.performEnhancedSync(allowUpload: false)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.purple)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("📊 Erweiterte Backup-Analyse") {
+                            Task {
+                                let report = await syncService.performEnhancedBackupAnalysis()
+                                await MainActor.run {
+                                    showEnhancedAnalysis = true
+                                    enhancedAnalysisReport = report
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.indigo)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("WebDAV-Verbindung testen") {
+                            Task {
+                                await testWebDAVConnection()
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("Diagnose") {
+                            Task {
+                                syncService.clearDebugLogs()
+                                await syncService.performDiagnosticSync()
+                                showDebugLogs = true
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.cyan)
                         .foregroundColor(.white)
                         .cornerRadius(12)
                     }

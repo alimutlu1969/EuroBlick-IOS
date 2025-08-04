@@ -2454,11 +2454,21 @@ class SynologyBackupSyncService: ObservableObject {
         var errorCount = 0
         do {
             let allBackups = try await fetchRemoteBackups()
-            let oldBackups = allBackups.filter { backup in
+            
+            // Sortiere Backups nach Datum (neueste zuerst)
+            let sortedBackups = allBackups.sorted { $0.timestamp > $1.timestamp }
+            
+            // Das neueste Backup darf NIE gelöscht werden
+            let backupsToCheck = sortedBackups.dropFirst() // Alle außer dem neuesten
+            
+            let oldBackups = backupsToCheck.filter { backup in
                 !calendar.isDateInToday(backup.timestamp)
             }
+            
             debugLog("📊 Gefundene Backups: \(allBackups.count)")
+            debugLog("🛡️ Neuestes Backup wird geschützt: \(sortedBackups.first?.filename ?? "keines")")
             debugLog("🗑️ Zu löschende alte Backups: \(oldBackups.count)")
+            
             for backup in oldBackups {
                 do {
                     try await deleteBackup(backup)
@@ -2469,10 +2479,12 @@ class SynologyBackupSyncService: ObservableObject {
                     debugLog("❌ Fehler beim Löschen von \(backup.filename): \(error)")
                 }
             }
+            
             if oldBackups.isEmpty {
                 debugLog("✅ Keine alten Backups zum Löschen gefunden")
             } else {
                 debugLog("✅ Manuelle Bereinigung abgeschlossen: \(deletedCount) Backups gelöscht, \(errorCount) Fehler")
+                debugLog("🛡️ Neuestes Backup wurde geschützt und bleibt erhalten")
             }
         } catch {
             debugLog("❌ Fehler bei der manuellen Backup-Bereinigung: \(error)")
