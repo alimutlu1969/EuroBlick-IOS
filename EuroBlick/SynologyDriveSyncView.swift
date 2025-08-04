@@ -539,21 +539,37 @@ struct SynologyDriveSyncView: View {
         await MainActor.run {
             print("🔄 Starting comprehensive UI refresh after restore...")
             
-            // Refresh all data components
+            // Step 1: Force context refresh to ensure all relationships are loaded
+            viewModel.getContext().refreshAllObjects()
+            
+            // Step 2: Refresh all data components
             viewModel.fetchAccountGroups()
             viewModel.fetchCategories()
             
-            // Force context refresh to ensure all relationships are loaded
-            viewModel.getContext().refreshAllObjects()
-            
-            // Force balance recalculation after restore
+            // Step 3: Force balance recalculation after restore
             viewModel.objectWillChange.send()
             
-            // Add additional UI refresh delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Step 4: Add multiple delayed refreshes to ensure data is properly loaded
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                print("🔄 First delayed refresh...")
+                self.viewModel.getContext().refreshAllObjects()
                 self.viewModel.fetchAccountGroups()
                 self.viewModel.objectWillChange.send()
-                print("🔄 Delayed UI refresh completed")
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                print("🔄 Second delayed refresh...")
+                self.viewModel.getContext().refreshAllObjects()
+                self.viewModel.fetchAccountGroups()
+                self.viewModel.objectWillChange.send()
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                print("🔄 Final delayed refresh...")
+                self.viewModel.getContext().refreshAllObjects()
+                self.viewModel.fetchAccountGroups()
+                self.viewModel.objectWillChange.send()
+                print("🔄 All refresh cycles completed")
             }
             
             print("🔄 Manual restore - comprehensive UI refresh completed on main thread")
