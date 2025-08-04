@@ -591,23 +591,23 @@ class SynologyBackupSyncService: ObservableObject {
             await MainActor.run {
                 debugLog("🔄 Starting comprehensive UI refresh after restore...")
                 
-                // Use the new comprehensive refresh method
-                viewModel.performComprehensiveRefresh()
+                // Use the nuclear refresh method for maximum reliability
+                viewModel.performNuclearRefresh()
                 
                 // Step 4: Add multiple delayed refreshes to ensure data is properly loaded
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     self.debugLog("🔄 First delayed refresh...")
-                    self.viewModel.performComprehensiveRefresh()
+                    self.viewModel.performNuclearRefresh()
                 }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     self.debugLog("🔄 Second delayed refresh...")
-                    self.viewModel.performComprehensiveRefresh()
+                    self.viewModel.performNuclearRefresh()
                 }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     self.debugLog("🔄 Final delayed refresh...")
-                    self.viewModel.performComprehensiveRefresh()
+                    self.viewModel.performNuclearRefresh()
                     self.debugLog("🔄 All refresh cycles completed")
                 }
                 

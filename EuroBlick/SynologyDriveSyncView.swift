@@ -539,23 +539,23 @@ struct SynologyDriveSyncView: View {
         await MainActor.run {
             print("🔄 Starting comprehensive UI refresh after restore...")
             
-            // Use the new comprehensive refresh method
-            viewModel.performComprehensiveRefresh()
+            // Use the nuclear refresh method for maximum reliability
+            viewModel.performNuclearRefresh()
             
             // Step 4: Add multiple delayed refreshes to ensure data is properly loaded
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 print("🔄 First delayed refresh...")
-                self.viewModel.performComprehensiveRefresh()
+                self.viewModel.performNuclearRefresh()
             }
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 print("🔄 Second delayed refresh...")
-                self.viewModel.performComprehensiveRefresh()
+                self.viewModel.performNuclearRefresh()
             }
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 print("🔄 Final delayed refresh...")
-                self.viewModel.performComprehensiveRefresh()
+                self.viewModel.performNuclearRefresh()
                 print("🔄 All refresh cycles completed")
             }
             

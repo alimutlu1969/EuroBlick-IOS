@@ -94,6 +94,48 @@ class TransactionViewModel: ObservableObject {
         }
     }
     
+    // NUCLEAR OPTION: Complete data reload after restore
+    func performNuclearRefresh() {
+        print("☢️ NUCLEAR REFRESH: Complete data reload...")
+        
+        context.perform {
+            // Step 1: Complete context reset
+            self.context.reset()
+            print("☢️ Step 1: Context completely reset")
+            
+            // Step 2: Force reload from persistent store
+            let entities = ["AccountGroup", "Account", "Transaction", "Category"]
+            
+            for entityName in entities {
+                let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                fetchRequest.returnsObjectsAsFaults = false
+                
+                do {
+                    let objects = try self.context.fetch(fetchRequest)
+                    print("☢️ FORCED RELOAD: \(entityName) = \(objects.count) objects")
+                    
+                    // Touch each object to ensure it's loaded
+                    for object in objects {
+                        _ = object.objectID
+                    }
+                } catch {
+                    print("❌ Error reloading \(entityName): \(error)")
+                }
+            }
+            
+            // Step 3: Fetch fresh data
+            self.fetchAccountGroups()
+            self.fetchCategories()
+            print("☢️ Step 3: Fresh data fetched")
+            
+            // Step 4: Force UI update
+            DispatchQueue.main.async {
+                self.objectWillChange.send()
+                print("☢️ Step 4: UI update triggered")
+            }
+        }
+    }
+    
     // Initialisiere die Daten (nur Kategorien, keine Kontogruppen/Konten)
     func initializeData() {
         context.perform {
