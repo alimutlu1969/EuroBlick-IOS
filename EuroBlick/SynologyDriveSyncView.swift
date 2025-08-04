@@ -19,6 +19,8 @@ struct SynologyDriveSyncView: View {
     @State private var forceRestoreJSON = ""
     @State private var showCleanupResult = false
     @State private var cleanupResult: (deletedCount: Int, errorCount: Int) = (0, 0)
+    @State private var showEnhancedAnalysis = false
+    @State private var enhancedAnalysisReport: BackupAnalysisReport?
     
     var body: some View {
         NavigationView {
@@ -140,7 +142,28 @@ struct SynologyDriveSyncView: View {
                         .cornerRadius(12)
                     }
                     
-                    // Action Buttons - NEUES KONSERVATIVES SYNC-SYSTEM
+                    // Enhanced Sync Progress Display
+                    if syncService.isSyncing {
+                        VStack(spacing: 8) {
+                            HStack {
+                                ProgressView(value: syncService.syncProgress)
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                Text("\(Int(syncService.syncProgress * 100))%")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Text(syncService.syncDetails)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding()
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(12)
+                    }
+                    
+                    // Action Buttons - ENHANCED SYNC SYSTEM
                     VStack(spacing: 12) {
                         // Status Warning wenn zu viele Uploads
                         if case .blocked(let reason) = syncService.syncStatus {
@@ -255,6 +278,32 @@ struct SynologyDriveSyncView: View {
                             .foregroundColor(.white)
                             .cornerRadius(12)
                         }
+                        
+                        Button("🚀 Erweiterte Synchronisation") {
+                            Task {
+                                await syncService.performEnhancedSync(allowUpload: false)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.purple)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        
+                        Button("📊 Erweiterte Backup-Analyse") {
+                            Task {
+                                let report = await syncService.performEnhancedBackupAnalysis()
+                                await MainActor.run {
+                                    showEnhancedAnalysis = true
+                                    enhancedAnalysisReport = report
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.indigo)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
                         
                         Button("WebDAV-Verbindung testen") {
                             Task {
@@ -419,6 +468,9 @@ struct SynologyDriveSyncView: View {
             }
             .sheet(isPresented: $showForceRestore) {
                 ForceRestoreView(syncService: syncService)
+            }
+            .sheet(isPresented: $showEnhancedAnalysis) {
+                EnhancedAnalysisView(report: enhancedAnalysisReport)
             }
             .alert("WebDAV-Test", isPresented: $showTestAlert) {
                 Button("OK") { }
@@ -1118,6 +1170,175 @@ struct ForceRestoreView: View {
   "categories": []
 }
 """
+    }
+}
+
+// MARK: - Enhanced Analysis View
+
+struct EnhancedAnalysisView: View {
+    let report: BackupAnalysisReport?
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let report = report {
+                        // Summary Section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("📊 Backup-Analyse Zusammenfassung")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Gesamtanzahl Backups:")
+                                    Spacer()
+                                    Text("\(report.totalBackups)")
+                                        .fontWeight(.semibold)
+                                }
+                                
+                                HStack {
+                                    Text("Durchschnittliche Größe:")
+                                    Spacer()
+                                    Text(formatFileSize(report.averageSize))
+                                        .fontWeight(.semibold)
+                                }
+                                
+                                HStack {
+                                    Text("Größtes Backup:")
+                                    Spacer()
+                                    Text(formatFileSize(report.largestBackup))
+                                        .fontWeight(.semibold)
+                                }
+                                
+                                HStack {
+                                    Text("Kleinstes Backup:")
+                                    Spacer()
+                                    Text(formatFileSize(report.smallestBackup))
+                                        .fontWeight(.semibold)
+                                }
+                                
+                                if let oldest = report.oldestBackup {
+                                    HStack {
+                                        Text("Ältestes Backup:")
+                                        Spacer()
+                                        Text(formatDate(oldest))
+                                            .fontWeight(.semibold)
+                                    }
+                                }
+                                
+                                if let newest = report.newestBackup {
+                                    HStack {
+                                        Text("Neuestes Backup:")
+                                        Spacer()
+                                        Text(formatDate(newest))
+                                            .fontWeight(.semibold)
+                                    }
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                        
+                        // Detailed Analysis Section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("📋 Detaillierte Analyse")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            
+                            ForEach(report.backupAnalyses, id: \.filename) { analysis in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(analysis.filename)
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                        Spacer()
+                                        Text(formatFileSize(analysis.size))
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Text(analysis.analysis)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                    
+                                    HStack {
+                                        if let userID = analysis.userID {
+                                            Text("👤 \(userID)")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        
+                                        Text("📱 \(analysis.deviceID)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        
+                                        Spacer()
+                                        
+                                        Text(formatDate(analysis.timestamp))
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .background(Color(.systemGray6).opacity(0.5))
+                                .cornerRadius(8)
+                            }
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                        
+                    } else {
+                        VStack(spacing: 16) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 50))
+                                .foregroundColor(.orange)
+                            
+                            Text("Keine Analyse-Daten verfügbar")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            
+                            Text("Die Backup-Analyse konnte nicht durchgeführt werden oder es sind keine Daten vorhanden.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding()
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Erweiterte Backup-Analyse")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Schließen") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        formatter.locale = Locale(identifier: "de_DE")
+        return formatter.string(from: date)
     }
 }
 

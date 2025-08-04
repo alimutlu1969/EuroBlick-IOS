@@ -2,6 +2,133 @@ import Foundation
 import SwiftUI
 import CoreData
 
+// MARK: - Enhanced Error Handling & Retry Mechanism
+
+enum SyncError: Error, LocalizedError {
+    case networkError(String)
+    case authenticationError(String)
+    case serverError(String)
+    case dataCorruptionError(String)
+    case timeoutError(String)
+    case configurationError(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .networkError(let message):
+            return "Netzwerkfehler: \(message)"
+        case .authenticationError(let message):
+            return "Authentifizierungsfehler: \(message)"
+        case .serverError(let message):
+            return "Serverfehler: \(message)"
+        case .dataCorruptionError(let message):
+            return "Datenfehler: \(message)"
+        case .timeoutError(let message):
+            return "Zeitüberschreitung: \(message)"
+        case .configurationError(let message):
+            return "Konfigurationsfehler: \(message)"
+        }
+    }
+}
+
+class RetryManager {
+    private let maxRetries: Int
+    private let baseDelay: TimeInterval
+    private let maxDelay: TimeInterval
+    
+    init(maxRetries: Int = 3, baseDelay: TimeInterval = 1.0, maxDelay: TimeInterval = 10.0) {
+        self.maxRetries = maxRetries
+        self.baseDelay = baseDelay
+        self.maxDelay = maxDelay
+    }
+    
+    func executeWithRetry<T>(_ operation: @escaping () async throws -> T) async throws -> T {
+        var lastError: Error?
+        
+        for attempt in 1...maxRetries {
+            do {
+                return try await operation()
+            } catch {
+                lastError = error
+                
+                if attempt < maxRetries {
+                    let delay = min(baseDelay * pow(2.0, Double(attempt - 1)), maxDelay)
+                    print("🔄 Retry attempt \(attempt)/\(maxRetries) after \(String(format: "%.1f", delay))s delay")
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+            }
+        }
+        
+        throw lastError ?? SyncError.networkError("Unknown error after \(maxRetries) retries")
+    }
+}
+
+// MARK: - Enhanced Logging System
+
+class SyncLogger {
+    static let shared = SyncLogger()
+    private var logs: [LogEntry] = []
+    private let maxLogEntries = 200
+    
+    struct LogEntry {
+        let timestamp: Date
+        let level: LogLevel
+        let message: String
+        let context: String?
+        
+        var formattedMessage: String {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss.SSS"
+            let timeString = formatter.string(from: timestamp)
+            let levelString = level.emoji
+            let contextString = context != nil ? "[\(context!)]" : ""
+            return "[\(timeString)] \(levelString) \(contextString) \(message)"
+        }
+    }
+    
+    enum LogLevel: String, CaseIterable {
+        case debug = "DEBUG"
+        case info = "INFO"
+        case warning = "WARNING"
+        case error = "ERROR"
+        case critical = "CRITICAL"
+        
+        var emoji: String {
+            switch self {
+            case .debug: return "🔍"
+            case .info: return "ℹ️"
+            case .warning: return "⚠️"
+            case .error: return "❌"
+            case .critical: return "🚨"
+            }
+        }
+    }
+    
+    func log(_ message: String, level: LogLevel = .info, context: String? = nil) {
+        let entry = LogEntry(timestamp: Date(), level: level, message: message, context: context)
+        logs.append(entry)
+        
+        // Keep only the last maxLogEntries
+        if logs.count > maxLogEntries {
+            logs = Array(logs.suffix(maxLogEntries))
+        }
+        
+        // Also print to console for debugging
+        print(entry.formattedMessage)
+    }
+    
+    func getLogs() -> [String] {
+        return logs.map { $0.formattedMessage }
+    }
+    
+    func clearLogs() {
+        logs.removeAll()
+    }
+    
+    func getLogsByLevel(_ level: LogLevel) -> [String] {
+        return logs.filter { $0.level == level }.map { $0.formattedMessage }
+    }
+}
+
 // MARK: - Export Data Structures
 
 struct ExportData: Codable {
@@ -60,6 +187,8 @@ class SynologyBackupSyncService: ObservableObject {
     @Published var syncStatus: SyncStatus = .idle
     @Published var availableBackups: [BackupInfo] = []
     @Published var debugLogs: [String] = []
+    @Published var syncProgress: Double = 0.0
+    @Published var syncDetails: String = ""
     
     private var syncTimer: Timer?
     private let syncInterval: TimeInterval = 600 // Sync alle 10 Minuten
@@ -67,10 +196,18 @@ class SynologyBackupSyncService: ObservableObject {
     private let backupManager: BackupManager
     private let multiUserSyncManager: MultiUserSyncManager
     
+    // Enhanced Components
+    private let retryManager = RetryManager(maxRetries: 3, baseDelay: 2.0, maxDelay: 15.0)
+    private let logger = SyncLogger.shared
+    
     // Kritische Safeguards
     private var lastSyncAttempt: Date?
     private var consecutiveUploads: Int = 0
     private let maxConsecutiveUploads = 2 // Maximale Anzahl aufeinanderfolgender Uploads
+    
+    // Performance Tracking
+    private var syncStartTime: Date?
+    private var syncMetrics: [String: TimeInterval] = [:]
     
     // Backup-spezifische Eigenschaften
     private var userID: String {
@@ -142,24 +279,16 @@ class SynologyBackupSyncService: ObservableObject {
         NotificationCenter.default.removeObserver(self)
     }
     
-    private func debugLog(_ message: String) {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        let timestamp = formatter.string(from: Date())
-        let logMessage = "[\(timestamp)] \(message)"
-        
-        print(logMessage) // Still print to console
+    private func debugLog(_ message: String, level: SyncLogger.LogLevel = .info, context: String? = nil) {
+        logger.log(message, level: level, context: context)
         
         DispatchQueue.main.async { [weak self] in
-            self?.debugLogs.append(logMessage)
-            // Keep only last 100 logs to prevent memory issues
-            if let logs = self?.debugLogs, logs.count > 100 {
-                self?.debugLogs = Array(logs.suffix(100))
-            }
+            self?.debugLogs = self?.logger.getLogs() ?? []
         }
     }
     
     func clearDebugLogs() {
+        logger.clearLogs()
         DispatchQueue.main.async { [weak self] in
             self?.debugLogs.removeAll()
         }
@@ -2377,4 +2506,241 @@ class SynologyBackupSyncService: ObservableObject {
         }
         return (deletedCount, errorCount)
     }
+    
+    // MARK: - Enhanced Sync Methods
+    
+    /// Enhanced sync with retry mechanism and detailed progress tracking
+    func performEnhancedSync(allowUpload: Bool = false) async {
+        syncStartTime = Date()
+        syncMetrics.removeAll()
+        
+        debugLog("🚀 ENHANCED SYNC started", level: .info, context: "EnhancedSync")
+        
+        await MainActor.run {
+            isSyncing = true
+            syncStatus = .checking
+            syncProgress = 0.0
+            syncDetails = "Initializing enhanced sync..."
+        }
+        
+        do {
+            // Phase 1: Configuration Check (10%)
+            await updateProgress(0.1, "Checking configuration...")
+            guard hasValidWebDAVConfiguration() else {
+                throw SyncError.configurationError("WebDAV configuration incomplete")
+            }
+            
+            // Phase 2: Network Connectivity Test (20%)
+            await updateProgress(0.2, "Testing network connectivity...")
+            try await testNetworkConnectivity()
+            
+            // Phase 3: Fetch Remote Backups with Retry (30%)
+            await updateProgress(0.3, "Fetching remote backups...")
+            let remoteBackups = try await retryManager.executeWithRetry {
+                try await self.fetchRemoteBackups()
+            }
+            
+            await MainActor.run {
+                availableBackups = remoteBackups.sorted { $0.timestamp > $1.timestamp }
+            }
+            
+            // Phase 4: Local Data Analysis (40%)
+            await updateProgress(0.4, "Analyzing local data...")
+            let localDataExists = await checkLocalDataExists()
+            
+            // Phase 5: Download Logic (60%)
+            if !remoteBackups.isEmpty, let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }) {
+                await updateProgress(0.5, "Checking for newer remote data...")
+                
+                if await shouldDownloadConservatively(newestRemote) || allowUpload {
+                    await updateProgress(0.6, "Downloading backup...")
+                    await MainActor.run { syncStatus = .downloading }
+                    
+                    try await retryManager.executeWithRetry {
+                        try await self.downloadAndRestoreBackup(newestRemote)
+                    }
+                    
+                    consecutiveUploads = 0 // Reset on successful download
+                    await updateProgress(0.8, "Download completed")
+                }
+            }
+            
+            // Phase 6: Upload Logic (80%)
+            if allowUpload && localDataExists {
+                await updateProgress(0.8, "Preparing upload...")
+                
+                let shouldUpload = await shouldUploadConservatively()
+                if shouldUpload {
+                    await updateProgress(0.9, "Uploading backup...")
+                    await MainActor.run { syncStatus = .uploading }
+                    
+                    try await retryManager.executeWithRetry {
+                        try await self.uploadCurrentState()
+                    }
+                    
+                    consecutiveUploads += 1
+                }
+            }
+            
+            // Phase 7: Completion (100%)
+            await updateProgress(1.0, "Sync completed successfully")
+            
+            await MainActor.run {
+                syncStatus = .success
+                lastSyncDate = Date()
+                saveLastSyncDate()
+            }
+            
+            // Log sync metrics
+            if let startTime = syncStartTime {
+                let duration = Date().timeIntervalSince(startTime)
+                debugLog("📊 Enhanced sync completed in \(String(format: "%.2f", duration))s", level: .info, context: "Metrics")
+            }
+            
+        } catch {
+            debugLog("❌ Enhanced sync failed: \(error)", level: .error, context: "EnhancedSync")
+            await MainActor.run {
+                syncStatus = .error(error.localizedDescription)
+            }
+        }
+        
+        await MainActor.run {
+            isSyncing = false
+            syncProgress = 0.0
+            syncDetails = ""
+        }
+    }
+    
+    /// Test network connectivity with detailed diagnostics
+    private func testNetworkConnectivity() async throws {
+        debugLog("🌐 Testing network connectivity...", level: .info, context: "NetworkTest")
+        
+        guard let webdavURL = UserDefaults.standard.string(forKey: "webdavURL"),
+              let webdavUser = UserDefaults.standard.string(forKey: "webdavUser"),
+              let webdavPassword = UserDefaults.standard.string(forKey: "webdavPassword") else {
+            throw SyncError.configurationError("WebDAV credentials missing")
+        }
+        
+        // Test 1: Basic URL reachability
+        guard let url = URL(string: webdavURL) else {
+            throw SyncError.configurationError("Invalid WebDAV URL")
+        }
+        
+        // Test 2: Authentication test
+        var request = URLRequest(url: url)
+        request.httpMethod = "PROPFIND"
+        request.setValue("0", forHTTPHeaderField: "Depth")
+        
+        let authString = "\(webdavUser):\(webdavPassword)"
+        let authData = authString.data(using: .utf8)!
+        let base64Auth = authData.base64EncodedString()
+        request.setValue("Basic \(base64Auth)", forHTTPHeaderField: "Authorization")
+        
+        let (_, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SyncError.networkError("Invalid server response")
+        }
+        
+        guard 200...299 ~= httpResponse.statusCode else {
+            throw SyncError.authenticationError("Authentication failed: HTTP \(httpResponse.statusCode)")
+        }
+        
+        debugLog("✅ Network connectivity test passed", level: .info, context: "NetworkTest")
+    }
+    
+    /// Update sync progress with detailed information
+    private func updateProgress(_ progress: Double, _ details: String) async {
+        await MainActor.run {
+            syncProgress = progress
+            syncDetails = details
+        }
+        
+        debugLog("📊 Progress: \(Int(progress * 100))% - \(details)", level: .debug, context: "Progress")
+    }
+    
+    /// Enhanced backup analysis with detailed metrics
+    func performEnhancedBackupAnalysis() async -> BackupAnalysisReport {
+        debugLog("🔍 Starting enhanced backup analysis...", level: .info, context: "Analysis")
+        
+        var report = BackupAnalysisReport()
+        
+        do {
+            let backups = try await fetchRemoteBackups()
+            report.totalBackups = backups.count
+            
+            for backup in backups {
+                let analysis = await analyzeBackupContent(backup)
+                report.backupAnalyses.append(BackupAnalysis(
+                    filename: backup.filename,
+                    timestamp: backup.timestamp,
+                    size: backup.size,
+                    analysis: analysis,
+                    userID: backup.userID,
+                    deviceID: backup.deviceID
+                ))
+            }
+            
+            // Calculate metrics
+            if !backups.isEmpty {
+                let sizes = backups.map { $0.size }
+                report.averageSize = sizes.reduce(0, +) / Int64(sizes.count)
+                report.largestBackup = sizes.max() ?? 0
+                report.smallestBackup = sizes.min() ?? 0
+                
+                let timestamps = backups.map { $0.timestamp }
+                report.oldestBackup = timestamps.min()
+                report.newestBackup = timestamps.max()
+            }
+            
+            debugLog("✅ Enhanced backup analysis completed", level: .info, context: "Analysis")
+            
+        } catch {
+            debugLog("❌ Enhanced backup analysis failed: \(error)", level: .error, context: "Analysis")
+            report.error = error.localizedDescription
+        }
+        
+        return report
+    }
+    
+    /// Get sync performance metrics
+    func getSyncMetrics() -> [String: TimeInterval] {
+        return syncMetrics
+    }
+    
+    /// Clear sync metrics
+    func clearSyncMetrics() {
+        syncMetrics.removeAll()
+    }
+}
+
+// MARK: - Enhanced Data Structures
+
+struct BackupAnalysisReport {
+    var totalBackups: Int = 0
+    var averageSize: Int64 = 0
+    var largestBackup: Int64 = 0
+    var smallestBackup: Int64 = 0
+    var oldestBackup: Date?
+    var newestBackup: Date?
+    var backupAnalyses: [BackupAnalysis] = []
+    var error: String?
+}
+
+struct BackupAnalysis {
+    let filename: String
+    let timestamp: Date
+    let size: Int64
+    let analysis: String
+    let userID: String?
+    let deviceID: String
+}
+
+// MARK: - Enhanced Error Extensions
+
+extension SyncError {
+    static let missingCredentials = SyncError.configurationError("WebDAV credentials missing")
+    static let invalidURL = SyncError.configurationError("Invalid WebDAV URL")
+    static let serverUnreachable = SyncError.networkError("Server unreachable")
+    static let authenticationFailed = SyncError.authenticationError("Authentication failed")
 }
