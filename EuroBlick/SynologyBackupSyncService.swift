@@ -4,32 +4,6 @@ import CoreData
 
 // MARK: - Enhanced Error Handling & Retry Mechanism
 
-enum SyncError: Error, LocalizedError {
-    case networkError(String)
-    case authenticationError(String)
-    case serverError(String)
-    case dataCorruptionError(String)
-    case timeoutError(String)
-    case configurationError(String)
-    
-    var errorDescription: String? {
-        switch self {
-        case .networkError(let message):
-            return "Netzwerkfehler: \(message)"
-        case .authenticationError(let message):
-            return "Authentifizierungsfehler: \(message)"
-        case .serverError(let message):
-            return "Serverfehler: \(message)"
-        case .dataCorruptionError(let message):
-            return "Datenfehler: \(message)"
-        case .timeoutError(let message):
-            return "Zeitüberschreitung: \(message)"
-        case .configurationError(let message):
-            return "Konfigurationsfehler: \(message)"
-        }
-    }
-}
-
 class RetryManager {
     private let maxRetries: Int
     private let baseDelay: TimeInterval
@@ -58,7 +32,7 @@ class RetryManager {
             }
         }
         
-        throw lastError ?? SyncError.networkError("Unknown error after \(maxRetries) retries")
+        throw lastError ?? NSError(domain: "SyncError", code: 5, userInfo: [NSLocalizedDescriptionKey: "Unknown error after \(maxRetries) retries"])
     }
 }
 
@@ -2526,9 +2500,9 @@ class SynologyBackupSyncService: ObservableObject {
         do {
             // Phase 1: Configuration Check (10%)
             await updateProgress(0.1, "Checking configuration...")
-            guard hasValidWebDAVConfiguration() else {
-                throw SyncError.configurationError("WebDAV configuration incomplete")
-            }
+                    guard hasValidWebDAVConfiguration() else {
+            throw NSError(domain: "SyncError", code: 1, userInfo: [NSLocalizedDescriptionKey: "WebDAV configuration incomplete"])
+        }
             
             // Phase 2: Network Connectivity Test (20%)
             await updateProgress(0.2, "Testing network connectivity...")
@@ -2618,12 +2592,12 @@ class SynologyBackupSyncService: ObservableObject {
         guard let webdavURL = UserDefaults.standard.string(forKey: "webdavURL"),
               let webdavUser = UserDefaults.standard.string(forKey: "webdavUser"),
               let webdavPassword = UserDefaults.standard.string(forKey: "webdavPassword") else {
-            throw SyncError.configurationError("WebDAV credentials missing")
+            throw NSError(domain: "SyncError", code: 2, userInfo: [NSLocalizedDescriptionKey: "WebDAV credentials missing"])
         }
         
         // Test 1: Basic URL reachability
         guard let url = URL(string: webdavURL) else {
-            throw SyncError.configurationError("Invalid WebDAV URL")
+            throw NSError(domain: "SyncError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid WebDAV URL"])
         }
         
         // Test 2: Authentication test
@@ -2643,7 +2617,7 @@ class SynologyBackupSyncService: ObservableObject {
         }
         
         guard 200...299 ~= httpResponse.statusCode else {
-            throw SyncError.authenticationError("Authentication failed: HTTP \(httpResponse.statusCode)")
+            throw NSError(domain: "SyncError", code: 4, userInfo: [NSLocalizedDescriptionKey: "Authentication failed: HTTP \(httpResponse.statusCode)"])
         }
         
         debugLog("✅ Network connectivity test passed", level: .info, context: "NetworkTest")
@@ -2736,11 +2710,4 @@ struct BackupAnalysis {
     let deviceID: String
 }
 
-// MARK: - Enhanced Error Extensions
 
-extension SyncError {
-    static let missingCredentials = SyncError.configurationError("WebDAV credentials missing")
-    static let invalidURL = SyncError.configurationError("Invalid WebDAV URL")
-    static let serverUnreachable = SyncError.networkError("Server unreachable")
-    static let authenticationFailed = SyncError.authenticationError("Authentication failed")
-}
