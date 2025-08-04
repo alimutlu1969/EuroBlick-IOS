@@ -591,36 +591,23 @@ class SynologyBackupSyncService: ObservableObject {
             await MainActor.run {
                 debugLog("🔄 Starting comprehensive UI refresh after restore...")
                 
-                // Step 1: Force context refresh to ensure all relationships are loaded
-                viewModel.getContext().refreshAllObjects()
-                
-                // Step 2: Refresh all data components
-                viewModel.fetchAccountGroups()
-                viewModel.fetchCategories()
-                
-                // Step 3: Force balance recalculation after restore
-                viewModel.objectWillChange.send()
+                // Use the new comprehensive refresh method
+                viewModel.performComprehensiveRefresh()
                 
                 // Step 4: Add multiple delayed refreshes to ensure data is properly loaded
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     self.debugLog("🔄 First delayed refresh...")
-                    self.viewModel.getContext().refreshAllObjects()
-                    self.viewModel.fetchAccountGroups()
-                    self.viewModel.objectWillChange.send()
-                }
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    self.debugLog("🔄 Second delayed refresh...")
-                    self.viewModel.getContext().refreshAllObjects()
-                    self.viewModel.fetchAccountGroups()
-                    self.viewModel.objectWillChange.send()
+                    self.viewModel.performComprehensiveRefresh()
                 }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.debugLog("🔄 Second delayed refresh...")
+                    self.viewModel.performComprehensiveRefresh()
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     self.debugLog("🔄 Final delayed refresh...")
-                    self.viewModel.getContext().refreshAllObjects()
-                    self.viewModel.fetchAccountGroups()
-                    self.viewModel.objectWillChange.send()
+                    self.viewModel.performComprehensiveRefresh()
                     self.debugLog("🔄 All refresh cycles completed")
                 }
                 

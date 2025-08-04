@@ -72,6 +72,28 @@ class TransactionViewModel: ObservableObject {
         }
     }
     
+    // Umfassende Refresh-Methode nach Backup-Restore
+    func performComprehensiveRefresh() {
+        print("🔄 Starting comprehensive refresh...")
+        
+        context.perform {
+            // Step 1: Force context refresh
+            self.context.refreshAllObjects()
+            print("🔄 Step 1: Context refreshed")
+            
+            // Step 2: Fetch fresh data
+            self.fetchAccountGroups()
+            self.fetchCategories()
+            print("🔄 Step 2: Data fetched")
+            
+            // Step 3: Force UI update
+            DispatchQueue.main.async {
+                self.objectWillChange.send()
+                print("🔄 Step 3: UI update triggered")
+            }
+        }
+    }
+    
     // Initialisiere die Daten (nur Kategorien, keine Kontogruppen/Konten)
     func initializeData() {
         context.perform {
@@ -181,6 +203,10 @@ class TransactionViewModel: ObservableObject {
     func fetchAccountGroups() {
         context.perform {
             print("DEBUG: fetchAccountGroups gestartet")
+            
+            // Force context refresh first
+            self.context.refreshAllObjects()
+            
             let request: NSFetchRequest<AccountGroup> = AccountGroup.fetchRequest()
             request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
             request.returnsObjectsAsFaults = false
@@ -190,6 +216,8 @@ class TransactionViewModel: ObservableObject {
                 print("DEBUG: Core Data hat \(fetchedGroups.count) Kontogruppen zurückgegeben")
                 for group in fetchedGroups {
                     print("DEBUG: - Gruppe: \(group.name ?? "nil") mit \(group.accounts?.count ?? 0) Konten")
+                    // Force load relationships
+                    _ = group.accounts?.allObjects
                 }
                 DispatchQueue.main.async {
                     self.accountGroups = fetchedGroups
