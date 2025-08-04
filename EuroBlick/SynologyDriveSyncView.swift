@@ -468,9 +468,19 @@ struct SynologyDriveSyncView: View {
             throw NSError(domain: "TestError", code: 1, userInfo: [NSLocalizedDescriptionKey: "WebDAV-Zugangsdaten fehlen"])
         }
         
-        // Vereinfachte URL-Behandlung
-        guard let serverURL = URL(string: webdavURL) else {
-            throw NSError(domain: "TestError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Ungültige WebDAV-URL"])
+        // URL-Behandlung für spezifische Datei-URLs
+        var serverURL: URL
+        if webdavURL.hasSuffix(".json") {
+            // URL zeigt auf eine spezifische Datei, teste das Verzeichnis
+            guard let url = URL(string: webdavURL) else {
+                throw NSError(domain: "TestError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Ungültige WebDAV-URL"])
+            }
+            serverURL = url.deletingLastPathComponent() // Gehe zum Verzeichnis
+        } else {
+            guard let url = URL(string: webdavURL) else {
+                throw NSError(domain: "TestError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Ungültige WebDAV-URL"])
+            }
+            serverURL = url
         }
         
         var request = URLRequest(url: serverURL)
@@ -524,6 +534,30 @@ struct SynologyDriveSyncView: View {
         
         // Download and restore the selected backup
         await syncService.restoreSpecificBackup(backup)
+        
+        // Force comprehensive UI refresh after restore
+        await MainActor.run {
+            print("🔄 Starting comprehensive UI refresh after restore...")
+            
+            // Refresh all data components
+            viewModel.fetchAccountGroups()
+            viewModel.fetchCategories()
+            
+            // Force context refresh to ensure all relationships are loaded
+            viewModel.getContext().refreshAllObjects()
+            
+            // Force balance recalculation after restore
+            viewModel.objectWillChange.send()
+            
+            // Add additional UI refresh delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.viewModel.fetchAccountGroups()
+                self.viewModel.objectWillChange.send()
+                print("🔄 Delayed UI refresh completed")
+            }
+            
+            print("🔄 Manual restore - comprehensive UI refresh completed on main thread")
+        }
         
         // Restart auto sync
         syncService.startAutoSync()
