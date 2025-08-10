@@ -571,8 +571,8 @@ struct AccountGroupView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(formatBalance(groupBalance))
-                        .foregroundColor(groupBalance >= 0 ? .green : .red)
+                    Text(formatBalance(calculateGroupBalance()))
+                        .foregroundColor(calculateGroupBalance() >= 0 ? .green : .red)
                         .font(.system(size: AppFontSize.bodyMedium))
                 }
                 Button(action: { expanded.toggle() }) {
@@ -731,6 +731,22 @@ struct AccountGroupView: View {
         }
         
         print("🔄 Group: \(group.name ?? "-") | Included accounts: \(includedAccounts.map { $0.account.name ?? "-" }) | GroupBalance: \(groupBalance)")
+    }
+    
+    private func calculateGroupBalance() -> Double {
+        let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+        var totalBalance: Double = 0.0
+        
+        for account in accounts {
+            let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
+            let includeInBalance = account.value(forKey: "includeInBalance") as? Bool ?? true
+            
+            if includeInBalance {
+                totalBalance += balance
+            }
+        }
+        
+        return totalBalance
     }
 }
 
