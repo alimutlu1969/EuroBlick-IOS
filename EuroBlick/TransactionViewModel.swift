@@ -244,7 +244,7 @@ class TransactionViewModel: ObservableObject {
     // Hole alle Kontogruppen aus Core Data mit Beziehungen
     func fetchAccountGroups() {
         context.perform {
-            print("DEBUG: fetchAccountGroups gestartet")
+            print("🔄 DEBUG: fetchAccountGroups gestartet")
             
             // Force context refresh first
             self.context.refreshAllObjects()
@@ -256,16 +256,20 @@ class TransactionViewModel: ObservableObject {
             
             do {
                 let fetchedGroups = try self.context.fetch(request)
-                print("DEBUG: Core Data hat \(fetchedGroups.count) Kontogruppen zurückgegeben")
+                print("🔄 DEBUG: Core Data hat \(fetchedGroups.count) Kontogruppen zurückgegeben")
                 
                 // Force load all relationships to prevent faults
                 for group in fetchedGroups {
-                    print("DEBUG: - Gruppe: \(group.name ?? "nil") mit \(group.accounts?.count ?? 0) Konten")
+                    print("🔄 DEBUG: - Gruppe: \(group.name ?? "nil") mit \(group.accounts?.count ?? 0) Konten")
                     // Force load relationships
                     if let accounts = group.accounts?.allObjects as? [Account] {
                         for account in accounts {
                             _ = account.name // Force load account properties
-                            _ = account.transactions?.allObjects // Force load transactions
+                            let transactions = account.transactions?.allObjects as? [Transaction] ?? []
+                            print("🔄 DEBUG:   - Konto: \(account.name ?? "nil") mit \(transactions.count) Transaktionen")
+                            for transaction in transactions.prefix(3) {
+                                print("🔄 DEBUG:     - Transaktion: \(transaction.amount) \(transaction.type ?? "nil")")
+                            }
                         }
                     }
                 }
@@ -273,11 +277,11 @@ class TransactionViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     self.accountGroups = fetchedGroups
                     self.objectWillChange.send()
-                    print("Fetched \(self.accountGroups.count) account groups: \(self.accountGroups.map { $0.name ?? "Unnamed" })")
+                    print("🔄 Fetched \(self.accountGroups.count) account groups: \(self.accountGroups.map { $0.name ?? "Unnamed" })")
                 }
             } catch {
-                print("FEHLER beim Abrufen der Kontogruppen: \(error)")
-                print("Fetch account groups error: \(error)")
+                print("❌ FEHLER beim Abrufen der Kontogruppen: \(error)")
+                print("❌ Fetch account groups error: \(error)")
             }
         }
     }
@@ -2100,6 +2104,8 @@ class TransactionViewModel: ObservableObject {
     }
 
     func calculateAllBalances() -> [NSManagedObjectID: Double] {
+        print("🔄 Starting calculateAllBalances...")
+        
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
         fetchRequest.resultType = .dictionaryResultType
         
@@ -2117,6 +2123,8 @@ class TransactionViewModel: ObservableObject {
 
         do {
             let results = try context.fetch(fetchRequest)
+            print("🔄 Found \(results.count) transaction groups in calculateAllBalances")
+            
             var balanceDict: [NSManagedObjectID: Double] = [:]
             var einnahmenDict: [NSManagedObjectID: Double] = [:]
             var ausgabenDict: [NSManagedObjectID: Double] = [:]
@@ -2125,6 +2133,7 @@ class TransactionViewModel: ObservableObject {
             // Initialisiere alle Konten mit 0
             let accountFetch = NSFetchRequest<Account>(entityName: "Account")
             if let accounts = try? context.fetch(accountFetch) {
+                print("🔄 Initializing \(accounts.count) accounts with 0 balance")
                 for account in accounts {
                     balanceDict[account.objectID] = 0.0
                     einnahmenDict[account.objectID] = 0.0
@@ -2138,6 +2147,9 @@ class TransactionViewModel: ObservableObject {
                 if let account = result["account"] as? NSManagedObjectID,
                    let balance = result["totalAmount"] as? Double,
                    let type = result["type"] as? String {
+                    
+                    print("🔄 Processing: Account \(account) | Type: \(type) | Amount: \(balance)")
+                    
                     let currentBalance = balanceDict[account] ?? 0.0
                     if type == "einnahme" {
                         balanceDict[account] = currentBalance + balance
@@ -2152,7 +2164,8 @@ class TransactionViewModel: ObservableObject {
                     // "reservierung" wird automatisch durch das Predicate ignoriert
                 }
             }
-            print("Berechnete Kontostände (alle Transaktionen außer Reservierungen):")
+            
+            print("🔄 Final balance calculation results:")
             for (accountID, balance) in balanceDict {
                 var name = "-"
                 let einnahmen = einnahmenDict[accountID] ?? 0.0
@@ -2161,11 +2174,13 @@ class TransactionViewModel: ObservableObject {
                 if let account = try? context.existingObject(with: accountID) as? Account {
                     name = account.name ?? "-"
                 }
-                print("  Konto: \(name) | Einnahmen: \(einnahmen) | Ausgaben: \(ausgaben) | Umbuchungen: \(umbuchungen) | Bilanz: \(balance)")
+                print("  💰 Konto: \(name) | Einnahmen: \(einnahmen) | Ausgaben: \(ausgaben) | Umbuchungen: \(umbuchungen) | Bilanz: \(balance)")
             }
+            
+            print("🔄 calculateAllBalances completed with \(balanceDict.count) accounts")
             return balanceDict
         } catch {
-            print("Fehler beim Berechnen aller Kontostände: \(error.localizedDescription)")
+            print("❌ Fehler beim Berechnen aller Kontostände: \(error.localizedDescription)")
             return [:]
         }
     }
