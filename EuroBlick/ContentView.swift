@@ -956,9 +956,9 @@ struct ContentMainView: View {
             }
         } else {
             VStack {
-                ForEach(Array(accountGroups.enumerated()), id: \.element.objectID) { index, group in
+                if accountGroups.count > 0 {
                     AccountGroupView(
-                        group: group,
+                        group: accountGroups[0],
                         viewModel: viewModel,
                         balances: balances,
                         onAccountTapped: { account in
@@ -968,14 +968,40 @@ struct ContentMainView: View {
                         groupToEdit: $groupToEdit,
                         newGroupName: $newGroupName
                     )
-                    .id("\(group.objectID)-\(index)") // Force unique ID for each view
+                    .id("\(accountGroups[0].objectID)-0")
                     .onAppear {
-                        print("🔄 RENDERING AccountGroupView \(index) for group: \(group.name ?? "-") with ID: \(group.objectID)")
+                        print("🔄 RENDERING AccountGroupView 0 for group: \(accountGroups[0].name ?? "-")")
                     }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
-                            viewModel.deleteAccountGroup(group)
-                            print("Löschen von Kontogruppe \(group.name ?? "unknown") ausgelöst")
+                            viewModel.deleteAccountGroup(accountGroups[0])
+                            print("Löschen von Kontogruppe \(accountGroups[0].name ?? "unknown") ausgelöst")
+                        } label: {
+                            Label("Löschen", systemImage: "trash")
+                        }
+                    }
+                }
+                
+                if accountGroups.count > 1 {
+                    AccountGroupView(
+                        group: accountGroups[1],
+                        viewModel: viewModel,
+                        balances: balances,
+                        onAccountTapped: { account in
+                            onAccountTapped(account)
+                        },
+                        showEditGroupSheet: $showEditGroupSheet,
+                        groupToEdit: $groupToEdit,
+                        newGroupName: $newGroupName
+                    )
+                    .id("\(accountGroups[1].objectID)-1")
+                    .onAppear {
+                        print("🔄 RENDERING AccountGroupView 1 for group: \(accountGroups[1].name ?? "-")")
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            viewModel.deleteAccountGroup(accountGroups[1])
+                            print("Löschen von Kontogruppe \(accountGroups[1].name ?? "unknown") ausgelöst")
                         } label: {
                             Label("Löschen", systemImage: "trash")
                         }
