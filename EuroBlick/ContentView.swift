@@ -957,7 +957,6 @@ struct ContentMainView: View {
         } else {
             VStack {
                 ForEach(Array(accountGroups.enumerated()), id: \.element.objectID) { index, group in
-                    print("🔄 Creating AccountGroupView \(index) for group: \(group.name ?? "-")")
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
