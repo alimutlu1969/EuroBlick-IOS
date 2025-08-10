@@ -737,15 +737,21 @@ struct AccountGroupView: View {
         let accounts = (group.accounts?.allObjects as? [Account]) ?? []
         var totalBalance: Double = 0.0
         
+        print("🔄 calculateGroupBalance() for group: \(group.name ?? "-")")
+        print("🔄 Found \(accounts.count) accounts")
+        
         for account in accounts {
             let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
             let includeInBalance = account.value(forKey: "includeInBalance") as? Bool ?? true
+            
+            print("🔄 Account: \(account.name ?? "-") | Balance: \(balance) | Include: \(includeInBalance)")
             
             if includeInBalance {
                 totalBalance += balance
             }
         }
         
+        print("🔄 Total balance for \(group.name ?? "-"): \(totalBalance)")
         return totalBalance
     }
 }
@@ -1387,6 +1393,7 @@ struct ContentView: View {
             var newBalances: [AccountBalance] = []
             
             print("🔄 refreshBalances() after fetch - viewModel.accountGroups.count: \(self.viewModel.accountGroups.count)")
+            print("🔄 All balances from calculateAllBalances: \(allBalances)")
             
             // Calculate group balances and force UI update
             for group in self.viewModel.accountGroups {
@@ -1410,6 +1417,7 @@ struct ContentView: View {
             
             self.accountBalances = newBalances
             print("🔄 refreshBalances() completed - accountBalances.count: \(newBalances.count)")
+            print("🔄 Final accountBalances: \(newBalances.map { "\($0.name): \($0.balance)" })")
             
             // UI update is handled by the existing notification
         }
