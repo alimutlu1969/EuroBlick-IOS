@@ -674,6 +674,14 @@ struct AccountGroupView: View {
             calculateBalances()
             viewModel.fetchAccountGroups()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DataDidChange"))) { _ in
+            print("🔄 AccountGroupView received DataDidChange - recalculating balances")
+            calculateBalances()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BalanceDataChanged"))) { _ in
+            print("🔄 AccountGroupView received BalanceDataChanged - recalculating balances")
+            calculateBalances()
+        }
         .id(group.objectID)
         .sheet(isPresented: $showSortSheet) {
             AccountSortSheet(group: group, onSave: {
