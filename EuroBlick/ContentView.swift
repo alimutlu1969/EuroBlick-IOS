@@ -957,7 +957,6 @@ struct ContentMainView: View {
         } else {
             VStack {
                 ForEach(accountGroups, id: \.objectID) { group in
-                    print("🔄 Rendering AccountGroupView for group: \(group.name ?? "-") with ID: \(group.objectID)")
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
@@ -970,6 +969,9 @@ struct ContentMainView: View {
                         newGroupName: $newGroupName
                     )
                     .id(group.objectID) // Force unique ID for each view
+                    .onAppear {
+                        print("🔄 Rendering AccountGroupView for group: \(group.name ?? "-") with ID: \(group.objectID)")
+                    }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             viewModel.deleteAccountGroup(group)
