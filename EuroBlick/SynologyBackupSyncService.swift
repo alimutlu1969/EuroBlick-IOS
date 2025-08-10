@@ -587,34 +587,10 @@ class SynologyBackupSyncService: ObservableObject {
             
             debugLog("✅ Manual backup restore completed successfully")
             
-            // Force comprehensive UI refresh on main thread after successful restore
-            await MainActor.run {
-                debugLog("🔄 Starting comprehensive UI refresh after restore...")
-                
-                // Use the nuclear refresh method for maximum reliability
-                viewModel.performNuclearRefresh()
-                
-                // Step 4: Add multiple delayed refreshes to ensure data is properly loaded
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.debugLog("🔄 First delayed refresh...")
-                    self.viewModel.performNuclearRefresh()
-                }
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.debugLog("🔄 Second delayed refresh...")
-                    self.viewModel.performNuclearRefresh()
-                }
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    self.debugLog("🔄 Final delayed refresh...")
-                    self.viewModel.performNuclearRefresh()
-                    self.debugLog("🔄 All refresh cycles completed")
-                }
-                
-                debugLog("🔄 Manual restore - comprehensive UI refresh completed on main thread")
-            }
+            // NO ADDITIONAL UI REFRESH NEEDED - MultiUserSyncManager handles it
+            debugLog("✅ Manual restore completed - UI refresh handled by MultiUserSyncManager")
             
-            // Add a small delay and then verify the data was properly restored
+            // Only verify the data was properly restored
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             
             await MainActor.run {
@@ -1636,12 +1612,8 @@ class SynologyBackupSyncService: ObservableObject {
                     syncStatus = .success
                 }
                 
-                // Refresh UI
-                await MainActor.run {
-                    viewModel.fetchAccountGroups()
-                    viewModel.fetchCategories()
-                    debugLog("🔄 UI refreshed after force restore")
-                }
+                // NO ADDITIONAL UI REFRESH NEEDED - MultiUserSyncManager handles it
+                debugLog("✅ Force restore completed - UI refresh handled by MultiUserSyncManager")
                 
                 // Restart auto-sync if it was running
                 if wasAutoSyncRunning {

@@ -535,32 +535,8 @@ struct SynologyDriveSyncView: View {
         // Download and restore the selected backup
         await syncService.restoreSpecificBackup(backup)
         
-        // Force comprehensive UI refresh after restore
-        await MainActor.run {
-            print("🔄 Starting comprehensive UI refresh after restore...")
-            
-            // Use the nuclear refresh method for maximum reliability
-            viewModel.performNuclearRefresh()
-            
-            // Step 4: Add multiple delayed refreshes to ensure data is properly loaded
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                print("🔄 First delayed refresh...")
-                self.viewModel.performNuclearRefresh()
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                print("🔄 Second delayed refresh...")
-                self.viewModel.performNuclearRefresh()
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                print("🔄 Final delayed refresh...")
-                self.viewModel.performNuclearRefresh()
-                print("🔄 All refresh cycles completed")
-            }
-            
-            print("🔄 Manual restore - comprehensive UI refresh completed on main thread")
-        }
+        // NO ADDITIONAL UI REFRESH NEEDED - MultiUserSyncManager handles it
+        print("✅ Manual restore completed - UI refresh handled by MultiUserSyncManager")
         
         // Restart auto sync
         syncService.startAutoSync()
