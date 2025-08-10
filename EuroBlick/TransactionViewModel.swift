@@ -286,11 +286,11 @@ class TransactionViewModel: ObservableObject {
         }
     }
     
-    // Hole alle Kategorien aus Core Data
+    // Hole alle Kategorien aus Core Data mit intelligenter Sortierung nach Häufigkeit
     func fetchCategories() {
         context.perform {
             let request: NSFetchRequest<Category> = Category.fetchRequest()
-            request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+            // Keine Sortierung hier, wir sortieren nach der Häufigkeit
             do {
                 let fetchedCategories = try self.context.fetch(request)
                 // Filtere leere Kategorien heraus
@@ -298,14 +298,55 @@ class TransactionViewModel: ObservableObject {
                     guard let name = category.name else { return false }
                     return !name.isEmpty
                 }
+                
+                // Sortiere Kategorien nach Häufigkeit der Verwendung
+                let sortedCategories = self.sortCategoriesByUsage(filteredCategories)
+                
                 DispatchQueue.main.async {
-                    self.categories = filteredCategories
-                    print("Fetched \(self.categories.count) categories: \(self.categories.map { $0.name ?? "Unnamed" })")
+                    self.categories = sortedCategories
+                    print("Fetched \(self.categories.count) categories sorted by usage: \(self.categories.map { $0.name ?? "Unnamed" })")
                 }
             } catch {
                 print("Fetch categories error: \(error)")
             }
         }
+    }
+    
+    // Sortiere Kategorien nach Häufigkeit der Verwendung
+    private func sortCategoriesByUsage(_ categories: [Category]) -> [Category] {
+        var categoryUsageCount: [NSManagedObjectID: Int] = [:]
+        
+        // Zähle die Verwendung jeder Kategorie
+        for category in categories {
+            let transactionRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+            transactionRequest.predicate = NSPredicate(format: "category == %@", category)
+            transactionRequest.resultType = .countResultType
+            
+            do {
+                let count = try self.context.count(for: transactionRequest)
+                categoryUsageCount[category.objectID] = count
+            } catch {
+                print("Error counting transactions for category \(category.name ?? "unknown"): \(error)")
+                categoryUsageCount[category.objectID] = 0
+            }
+        }
+        
+        // Sortiere nach Häufigkeit (absteigend) und dann alphabetisch bei gleicher Häufigkeit
+        let sortedCategories = categories.sorted { category1, category2 in
+            let count1 = categoryUsageCount[category1.objectID] ?? 0
+            let count2 = categoryUsageCount[category2.objectID] ?? 0
+            
+            if count1 != count2 {
+                return count1 > count2 // Häufigere Kategorien zuerst
+            } else {
+                // Bei gleicher Häufigkeit alphabetisch sortieren
+                let name1 = category1.name ?? ""
+                let name2 = category2.name ?? ""
+                return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
+            }
+        }
+        
+        return sortedCategories
     }
     
     // Bereinige doppelte Transaktionen
