@@ -253,14 +253,23 @@ class TransactionViewModel: ObservableObject {
             request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
             request.returnsObjectsAsFaults = false
             request.relationshipKeyPathsForPrefetching = ["accounts", "accounts.transactions"]
+            
             do {
                 let fetchedGroups = try self.context.fetch(request)
                 print("DEBUG: Core Data hat \(fetchedGroups.count) Kontogruppen zurückgegeben")
+                
+                // Force load all relationships to prevent faults
                 for group in fetchedGroups {
                     print("DEBUG: - Gruppe: \(group.name ?? "nil") mit \(group.accounts?.count ?? 0) Konten")
                     // Force load relationships
-                    _ = group.accounts?.allObjects
+                    if let accounts = group.accounts?.allObjects as? [Account] {
+                        for account in accounts {
+                            _ = account.name // Force load account properties
+                            _ = account.transactions?.allObjects // Force load transactions
+                        }
+                    }
                 }
+                
                 DispatchQueue.main.async {
                     self.accountGroups = fetchedGroups
                     self.objectWillChange.send()

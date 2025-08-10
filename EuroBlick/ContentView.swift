@@ -1228,6 +1228,14 @@ struct ContentView: View {
                         // und diese entsprechend hochladen
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DataDidChange"))) { _ in
+                    print("🔄 DataDidChange notification received - refreshing balances...")
+                    refreshBalances()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BalanceDataChanged"))) { _ in
+                    print("🔄 BalanceDataChanged notification received - refreshing balances...")
+                    refreshBalances()
+                }
                 .onAppear {
                     NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowSettings"), object: nil, queue: .main) { _ in
                         showSettingsSheet = true

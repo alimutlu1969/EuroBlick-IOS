@@ -1443,6 +1443,14 @@ class SynologyBackupSyncService: ObservableObject {
         
         // After successful restore
         refreshUIAfterSync()
+        
+        // Additional balance recalculation after sync
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.debugLog("🔄 Post-sync balance recalculation...")
+            let _ = self.viewModel.calculateAllBalances()
+            self.viewModel.objectWillChange.send()
+            NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
+        }
     }
     
     public func uploadCurrentState() async throws {
@@ -2070,21 +2078,52 @@ class SynologyBackupSyncService: ObservableObject {
     }
     
     private func refreshUIAfterSync() {
-        debugLog("🔄 Starting GENTLE UI refresh after data sync...")
+        debugLog("🔄 Starting COMPREHENSIVE UI refresh after data sync...")
         
-        // KRITISCH: SANFTER UI-Refresh OHNE Context-Reset
-        // Context-Reset nur bei echten Restore-Operationen, nicht bei normalen Syncs
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            // 1. Fetch neue Daten OHNE Context-Reset
+        // KRITISCH: Verzögerter UI-Refresh um sicherzustellen, dass Core Data bereit ist
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.debugLog("🔄 Phase 1: Core Data verification...")
+            
+            // 1. Verifiziere dass Core Data die neuen Daten hat
+            self.viewModel.getContext().performAndWait {
+                let entities = ["AccountGroup", "Account", "Transaction", "Category"]
+                
+                for entityName in entities {
+                    let fetchRequest = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                    do {
+                        let count = try self.viewModel.getContext().count(for: fetchRequest)
+                        self.debugLog("🔍 Core Data verification: \(entityName) = \(count) objects")
+                    } catch {
+                        self.debugLog("❌ Error verifying \(entityName): \(error)")
+                    }
+                }
+            }
+            
+            // 2. Force fresh data fetch
+            self.debugLog("🔄 Phase 2: Fresh data fetch...")
             self.viewModel.fetchAccountGroups()
             self.viewModel.fetchCategories()
-        
-            // 2. UI-Update
+            
+            // 3. Force balance recalculation
+            self.debugLog("🔄 Phase 3: Balance recalculation...")
+            let _ = self.viewModel.calculateAllBalances()
+            
+            // 4. UI update
+            self.debugLog("🔄 Phase 4: UI update...")
             self.viewModel.objectWillChange.send()
             NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+            NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
             
-            self.debugLog("🔄 GENTLE UI refresh completed - no faults created")
+            // 5. Additional delayed refresh to ensure UI catches up
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.debugLog("🔄 Phase 5: Final UI refresh...")
+                self.viewModel.fetchAccountGroups()
+                self.viewModel.fetchCategories()
+                self.viewModel.objectWillChange.send()
+                NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+                
+                self.debugLog("✅ COMPREHENSIVE UI refresh completed")
+            }
         }
     }
     
