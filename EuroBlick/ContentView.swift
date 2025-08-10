@@ -697,19 +697,27 @@ struct AccountGroupView: View {
     }
 
     private func calculateBalances() {
+        print("🔄 calculateBalances() called for group: \(group.name ?? "-")")
+        
         let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+        print("🔄 Found \(accounts.count) accounts in group")
+        
         accountBalances = accounts
             .sorted { $0.name ?? "" < $1.name ?? "" }
             .map { account in
-                let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
-                print("Account: \(account.name ?? "-") | includeInBalance: \(isAccountIncludedInBalance(account)) | Balance: \(balance)")
+                // Use viewModel.getBalance directly instead of relying on balances parameter
+                let balance = viewModel.getBalance(for: account)
+                print("🔄 Account: \(account.name ?? "-") | includeInBalance: \(isAccountIncludedInBalance(account)) | Balance: \(balance)")
                 return (account, balance)
             }
+        
         // Gruppensaldo = Summe aller eingeschlossenen Konten
-        groupBalance = accountBalances.filter { isAccountIncludedInBalance($0.account) }.reduce(0.0) { total, item in
+        let includedAccounts = accountBalances.filter { isAccountIncludedInBalance($0.account) }
+        groupBalance = includedAccounts.reduce(0.0) { total, item in
             total + item.balance
         }
-        print("Group: \(group.name ?? "-") | GroupBalance: \(groupBalance)")
+        
+        print("🔄 Group: \(group.name ?? "-") | Included accounts: \(includedAccounts.map { $0.account.name ?? "-" }) | GroupBalance: \(groupBalance)")
     }
 }
 
