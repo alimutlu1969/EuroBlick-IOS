@@ -938,7 +938,7 @@ struct ContentMainView: View {
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
-                        balances: accountBalances,
+                        balances: balances,
                         onAccountTapped: { account in
                             onAccountTapped(account)
                         },
