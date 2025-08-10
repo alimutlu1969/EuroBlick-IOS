@@ -675,11 +675,15 @@ struct AccountGroupView: View {
             viewModel.fetchAccountGroups()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DataDidChange"))) { _ in
-            print("🔄 AccountGroupView received DataDidChange - recalculating balances")
+            print("🔄 AccountGroupView received DataDidChange - recalculating balances for group: \(group.name ?? "-")")
             calculateBalances()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BalanceDataChanged"))) { _ in
-            print("🔄 AccountGroupView received BalanceDataChanged - recalculating balances")
+            print("🔄 AccountGroupView received BalanceDataChanged - recalculating balances for group: \(group.name ?? "-")")
+            calculateBalances()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AutoFixUIFaults"))) { _ in
+            print("🔄 AccountGroupView received AutoFixUIFaults - recalculating balances for group: \(group.name ?? "-")")
             calculateBalances()
         }
         .id(group.objectID)
@@ -726,6 +730,11 @@ struct AccountGroupView: View {
         }
         
         print("🔄 Group: \(group.name ?? "-") | Included accounts: \(includedAccounts.map { $0.account.name ?? "-" }) | GroupBalance: \(groupBalance)")
+        
+        // Force UI update
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
+        }
     }
 }
 
@@ -1367,18 +1376,34 @@ struct ContentView: View {
             
             print("🔄 refreshBalances() after fetch - viewModel.accountGroups.count: \(self.viewModel.accountGroups.count)")
             
+            // Calculate group balances and force UI update
             for group in self.viewModel.accountGroups {
                 let accounts = (group.accounts?.allObjects as? [Account]) ?? []
                 print("🔄 Gruppe: \(group.name ?? "-") | Konten: \(accounts.map { $0.name ?? "-" })")
+                
+                // Calculate group balance
+                var groupBalance: Double = 0.0
                 for account in accounts {
                     let balance = allBalances[account.objectID] ?? self.viewModel.getBalance(for: account)
-                    print("🔄   Konto: \(account.name ?? "-") | Balance: \(balance) | includeInBalance: \(account.value(forKey: "includeInBalance") as? Bool ?? true)")
+                    let includeInBalance = account.value(forKey: "includeInBalance") as? Bool ?? true
+                    print("🔄   Konto: \(account.name ?? "-") | Balance: \(balance) | includeInBalance: \(includeInBalance)")
+                    
+                    if includeInBalance {
+                        groupBalance += balance
+                    }
                     newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
                 }
+                print("🔄   Group Balance for \(group.name ?? "-"): \(groupBalance)")
             }
             
             self.accountBalances = newBalances
             print("🔄 refreshBalances() completed - accountBalances.count: \(newBalances.count)")
+            
+            // Force UI update for all AccountGroupViews
+            DispatchQueue.main.async {
+                self.viewModel.objectWillChange.send()
+                NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
+            }
         }
     }
 
