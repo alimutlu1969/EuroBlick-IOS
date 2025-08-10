@@ -1441,12 +1441,13 @@ class SynologyBackupSyncService: ObservableObject {
         // Clean up temp file
         try? FileManager.default.removeItem(at: tempURL)
         
-        // After successful restore
-        refreshUIAfterSync()
+        // After successful restore - NO ADDITIONAL UI REFRESH NEEDED
+        // The MultiUserSyncManager already handles the UI refresh properly
+        debugLog("✅ Restore completed - UI refresh handled by MultiUserSyncManager")
         
-        // Additional balance recalculation after sync
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.debugLog("🔄 Post-sync balance recalculation...")
+        // Only trigger a gentle balance recalculation if needed
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.debugLog("🔄 Post-sync balance verification...")
             let _ = self.viewModel.calculateAllBalances()
             self.viewModel.objectWillChange.send()
             NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
