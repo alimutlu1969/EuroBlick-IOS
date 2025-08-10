@@ -731,9 +731,10 @@ struct AccountGroupView: View {
         
         print("🔄 Group: \(group.name ?? "-") | Included accounts: \(includedAccounts.map { $0.account.name ?? "-" }) | GroupBalance: \(groupBalance)")
         
-        // Force UI update
+        // Force UI update by triggering a state change
         DispatchQueue.main.async {
-            self.objectWillChange.send()
+            // Trigger UI update by changing a state variable
+            self.expanded = self.expanded
         }
     }
 }
