@@ -1230,11 +1230,15 @@ struct ContentView: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DataDidChange"))) { _ in
                     print("🔄 DataDidChange notification received - refreshing balances...")
-                    refreshBalances()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        self.refreshBalances()
+                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BalanceDataChanged"))) { _ in
                     print("🔄 BalanceDataChanged notification received - refreshing balances...")
-                    refreshBalances()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        self.refreshBalances()
+                    }
                 }
                 .onAppear {
                     NotificationCenter.default.addObserver(forName: NSNotification.Name("SideMenuShowSettings"), object: nil, queue: .main) { _ in
@@ -1335,20 +1339,31 @@ struct ContentView: View {
     }
 
     private func refreshBalances() {
-        let allBalances = viewModel.calculateAllBalances()
-        var newBalances: [AccountBalance] = []
+        print("🔄 refreshBalances() called - viewModel.accountGroups.count: \(viewModel.accountGroups.count)")
         
-        for group in viewModel.accountGroups {
-            let accounts = (group.accounts?.allObjects as? [Account]) ?? []
-            print("Gruppe: \(group.name ?? "-") | Konten: \(accounts.map { $0.name ?? "-" })")
-            for account in accounts {
-                let balance = allBalances[account.objectID] ?? viewModel.getBalance(for: account)
-                print("  Konto: \(account.name ?? "-") | Balance: \(balance) | includeInBalance: \(account.value(forKey: "includeInBalance") as? Bool ?? true)")
-                newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
+        // Force fetch account groups first to ensure we have the latest data
+        viewModel.fetchAccountGroups()
+        
+        // Wait a moment for the fetch to complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            let allBalances = self.viewModel.calculateAllBalances()
+            var newBalances: [AccountBalance] = []
+            
+            print("🔄 refreshBalances() after fetch - viewModel.accountGroups.count: \(self.viewModel.accountGroups.count)")
+            
+            for group in self.viewModel.accountGroups {
+                let accounts = (group.accounts?.allObjects as? [Account]) ?? []
+                print("🔄 Gruppe: \(group.name ?? "-") | Konten: \(accounts.map { $0.name ?? "-" })")
+                for account in accounts {
+                    let balance = allBalances[account.objectID] ?? self.viewModel.getBalance(for: account)
+                    print("🔄   Konto: \(account.name ?? "-") | Balance: \(balance) | includeInBalance: \(account.value(forKey: "includeInBalance") as? Bool ?? true)")
+                    newBalances.append(AccountBalance(id: account.objectID, name: account.name ?? "Unbekanntes Konto", balance: balance))
+                }
             }
+            
+            self.accountBalances = newBalances
+            print("🔄 refreshBalances() completed - accountBalances.count: \(newBalances.count)")
         }
-        
-        accountBalances = newBalances
     }
 
     private func migrateExistingAccounts() {
