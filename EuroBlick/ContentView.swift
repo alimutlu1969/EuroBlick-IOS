@@ -714,11 +714,12 @@ struct AccountGroupView: View {
         let accounts = (group.accounts?.allObjects as? [Account]) ?? []
         print("🔄 Found \(accounts.count) accounts in group")
         
+        // Use balances parameter from ContentView instead of calculating again
         accountBalances = accounts
             .sorted { $0.name ?? "" < $1.name ?? "" }
             .map { account in
-                // Use viewModel.getBalance directly instead of relying on balances parameter
-                let balance = viewModel.getBalance(for: account)
+                // Find balance from the balances parameter
+                let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
                 print("🔄 Account: \(account.name ?? "-") | includeInBalance: \(isAccountIncludedInBalance(account)) | Balance: \(balance)")
                 return (account, balance)
             }
@@ -730,12 +731,6 @@ struct AccountGroupView: View {
         }
         
         print("🔄 Group: \(group.name ?? "-") | Included accounts: \(includedAccounts.map { $0.account.name ?? "-" }) | GroupBalance: \(groupBalance)")
-        
-        // Force UI update by triggering a state change
-        DispatchQueue.main.async {
-            // Trigger UI update by changing a state variable
-            self.expanded = self.expanded
-        }
     }
 }
 
@@ -943,7 +938,7 @@ struct ContentMainView: View {
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
-                        balances: balances,
+                        balances: accountBalances,
                         onAccountTapped: { account in
                             onAccountTapped(account)
                         },
@@ -1400,11 +1395,7 @@ struct ContentView: View {
             self.accountBalances = newBalances
             print("🔄 refreshBalances() completed - accountBalances.count: \(newBalances.count)")
             
-            // Force UI update for all AccountGroupViews
-            DispatchQueue.main.async {
-                self.viewModel.objectWillChange.send()
-                NotificationCenter.default.post(name: NSNotification.Name("BalanceDataChanged"), object: nil)
-            }
+            // UI update is handled by the existing notification
         }
     }
 
