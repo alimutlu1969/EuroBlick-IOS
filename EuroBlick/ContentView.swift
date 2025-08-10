@@ -956,7 +956,8 @@ struct ContentMainView: View {
             }
         } else {
             VStack {
-                ForEach(accountGroups, id: \.objectID) { group in
+                ForEach(Array(accountGroups.enumerated()), id: \.element.objectID) { index, group in
+                    print("🔄 Creating AccountGroupView \(index) for group: \(group.name ?? "-")")
                     AccountGroupView(
                         group: group,
                         viewModel: viewModel,
@@ -968,9 +969,9 @@ struct ContentMainView: View {
                         groupToEdit: $groupToEdit,
                         newGroupName: $newGroupName
                     )
-                    .id(group.objectID) // Force unique ID for each view
+                    .id("\(group.objectID)-\(index)") // Force unique ID for each view
                     .onAppear {
-                        print("🔄 Rendering AccountGroupView for group: \(group.name ?? "-") with ID: \(group.objectID)")
+                        print("🔄 RENDERING AccountGroupView \(index) for group: \(group.name ?? "-") with ID: \(group.objectID)")
                     }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
