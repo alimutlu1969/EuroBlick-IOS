@@ -733,11 +733,15 @@ class SynologyBackupSyncService: ObservableObject {
         await MainActor.run {
             isSyncing = true
             syncStatus = .checking
+            syncProgress = 0.0
         }
         
         do {
             // 1. Check local and remote data
+            await updateProgress(0.1, "Checking local data...")
             let localDataExists = await checkLocalDataExists()
+            
+            await updateProgress(0.2, "Fetching remote backups...")
             let remoteBackups = try await fetchRemoteBackups()
             
             await MainActor.run {
@@ -750,24 +754,37 @@ class SynologyBackupSyncService: ObservableObject {
             // 2. Download logic (always safe)
             if hasRemoteData, let newestRemote = remoteBackups.max(by: { $0.timestamp < $1.timestamp }) {
                 if await shouldDownloadConservatively(newestRemote) {
+                    await updateProgress(0.4, "Downloading backup...")
                     await MainActor.run { syncStatus = .downloading }
                     debugLog("📥 AUTO DOWNLOAD → \(newestRemote.filename)")
                     try await downloadAndRestoreBackup(newestRemote)
                     consecutiveUploads = 0 // Reset on successful download
+                    await updateProgress(0.7, "Download completed")
+                } else {
+                    await updateProgress(0.7, "No download needed")
                 }
+            } else {
+                await updateProgress(0.7, "No remote data available")
             }
             
             // 3. Upload logic (only if local data exists and no recent uploads)
             if localDataExists && consecutiveUploads < maxConsecutiveUploads {
                 let shouldUpload = await shouldUploadConservatively()
                 if shouldUpload {
+                    await updateProgress(0.8, "Preparing upload...")
                     await MainActor.run { syncStatus = .uploading }
                     debugLog("📤 AUTO UPLOAD → Starting upload")
                     try await uploadCurrentState()
                     consecutiveUploads += 1
+                    await updateProgress(0.9, "Upload completed")
+                } else {
+                    await updateProgress(0.9, "Upload skipped (conservative)")
                 }
+            } else {
+                await updateProgress(0.9, "Upload not needed")
             }
             
+            await updateProgress(1.0, "Sync completed successfully")
             await MainActor.run {
                 syncStatus = .success
                 lastSyncDate = Date()
