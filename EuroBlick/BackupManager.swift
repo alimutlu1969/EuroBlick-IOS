@@ -287,7 +287,20 @@ class BackupManager: ObservableObject {
         let userID = backup.userID
         let deviceID = backup.deviceID
         
-        return "EuroBlickBackup_user\(userID)_device\(deviceID)_\(timestamp).json"
+        // Hole den aktuellen Username
+        let username = getCurrentUsername()
+        
+        // Erstelle den Dateinamen mit Username
+        if !username.isEmpty {
+            return "EuroBlickBackup_\(username)_user\(userID)_device\(deviceID)_\(timestamp).json"
+        } else {
+            return "EuroBlickBackup_user\(userID)_device\(deviceID)_\(timestamp).json"
+        }
+    }
+    
+    // Hole den aktuellen Username
+    private func getCurrentUsername() -> String {
+        return UserDefaults.standard.string(forKey: "lastAuthenticatedUser") ?? ""
     }
     
     private func calculateDataHash(_ backup: EnhancedBackupData) -> String {
