@@ -1158,9 +1158,9 @@ struct ContentView: View {
     private var accountGroupsListWithNavigation: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 20) {
-                ForEach(viewModel.accountGroups) { group in
+                if viewModel.accountGroups.count > 0 {
                     AccountGroupView(
-                        group: group,
+                        group: viewModel.accountGroups[0],
                         viewModel: viewModel,
                         balances: accountBalances,
                         onAccountTapped: { account in selectedAccount = account },
@@ -1168,9 +1168,36 @@ struct ContentView: View {
                         groupToEdit: $groupToEdit,
                         newGroupName: $newGroupName
                     )
+                    .id("\(viewModel.accountGroups[0].objectID)-0")
+                    .onAppear {
+                        print("🔄 RENDERING AccountGroupView 0 for group: \(viewModel.accountGroups[0].name ?? "-")")
+                    }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
-                            viewModel.deleteAccountGroup(group)
+                            viewModel.deleteAccountGroup(viewModel.accountGroups[0])
+                        } label: {
+                            Label("Löschen", systemImage: "trash")
+                        }
+                    }
+                }
+                
+                if viewModel.accountGroups.count > 1 {
+                    AccountGroupView(
+                        group: viewModel.accountGroups[1],
+                        viewModel: viewModel,
+                        balances: accountBalances,
+                        onAccountTapped: { account in selectedAccount = account },
+                        showEditGroupSheet: $showEditGroupSheet,
+                        groupToEdit: $groupToEdit,
+                        newGroupName: $newGroupName
+                    )
+                    .id("\(viewModel.accountGroups[1].objectID)-1")
+                    .onAppear {
+                        print("🔄 RENDERING AccountGroupView 1 for group: \(viewModel.accountGroups[1].name ?? "-")")
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            viewModel.deleteAccountGroup(viewModel.accountGroups[1])
                         } label: {
                             Label("Löschen", systemImage: "trash")
                         }
