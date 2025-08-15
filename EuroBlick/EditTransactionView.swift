@@ -199,7 +199,7 @@ struct EditTransactionView: View {
             usage: $usage,
             date: $date,
             type: type,
-            categories: viewModel.categories,
+            categories: viewModel.getSortedCategories(),
             accountGroups: viewModel.accountGroups
         )
         .scrollContentBackground(.hidden)

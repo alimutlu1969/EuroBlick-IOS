@@ -308,6 +308,30 @@ class TransactionViewModel: ObservableObject {
         }
     }
     
+    // Hole manuell sortierte Kategorien basierend auf gespeicherter Reihenfolge
+    func getSortedCategories() -> [Category] {
+        let savedOrder = UserDefaults.standard.stringArray(forKey: "categoryOrder") ?? []
+        let allCategories = self.categories
+        
+        // Erstelle eine sortierte Liste basierend auf der gespeicherten Reihenfolge
+        var sorted: [Category] = []
+        var remainingCategories = allCategories
+        
+        // Füge zuerst die gespeicherten Kategorien in der richtigen Reihenfolge hinzu
+        for savedName in savedOrder {
+            if let category = remainingCategories.first(where: { $0.name == savedName }) {
+                sorted.append(category)
+                remainingCategories.removeAll(where: { $0.name == savedName })
+            }
+        }
+        
+        // Füge die restlichen Kategorien alphabetisch hinzu
+        let remainingSorted = remainingCategories.sorted { ($0.name ?? "") < ($1.name ?? "") }
+        sorted.append(contentsOf: remainingSorted)
+        
+        return sorted
+    }
+    
     // Bereinige doppelte Transaktionen
     func removeDuplicateTransactions() {
         context.performAndWait {

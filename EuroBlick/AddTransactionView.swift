@@ -74,7 +74,7 @@ struct AddTransactionView: View {
                                 Button(action: { category = "new" }) {
                                     Text("Neue Kategorie")
                                 }
-                                ForEach(viewModel.categories, id: \.self) { cat in
+                                ForEach(viewModel.getSortedCategories(), id: \.self) { cat in
                                     Button(action: { category = cat.name ?? "" }) {
                                         Text(cat.name ?? "")
                                     }

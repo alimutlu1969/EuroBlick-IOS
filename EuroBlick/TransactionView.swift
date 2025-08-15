@@ -1632,6 +1632,8 @@ struct CategoryManagementView: View {
     @State private var showAlert: Bool = false
     @State private var alertMessage: String = ""
     @State private var addingNewCategory: String = "" // Für neue Kategorie hinzufügen
+    @State private var sortedCategories: [Category] = []
+    @State private var draggedCategory: Category?
 
     var body: some View {
         NavigationStack {
@@ -1664,10 +1666,10 @@ struct CategoryManagementView: View {
                         }
                         
                         // Sektion für bestehende Kategorien
-                        Section(header: Text("Bestehende Kategorien (\(viewModel.categories.count))")
+                        Section(header: Text("Bestehende Kategorien (\(sortedCategories.count))")
                             .foregroundColor(.white)
                             .font(.headline)) {
-                            ForEach(viewModel.categories, id: \.self) { category in
+                            ForEach(sortedCategories, id: \.self) { category in
                                 CategoryRowView(
                                     category: category,
                                     isEditing: editingCategory == category,
@@ -1683,7 +1685,18 @@ struct CategoryManagementView: View {
                                     },
                                     onDelete: { deleteCategory(category) }
                                 )
+                                .onDrag {
+                                    draggedCategory = category
+                                    return NSItemProvider(object: category.name as NSString? ?? NSString())
+                                }
+                                .onDrop(of: [.text], delegate: CategoryDropDelegate(
+                                    category: category,
+                                    draggedCategory: $draggedCategory,
+                                    sortedCategories: $sortedCategories,
+                                    onMove: moveCategory
+                                ))
                             }
+                            .onMove(perform: moveCategories)
                         }
                     }
                     .scrollContentBackground(.hidden)
@@ -1717,6 +1730,9 @@ struct CategoryManagementView: View {
                     .disabled(addingNewCategory.isEmpty)
                 }
             }
+            .onAppear {
+                initializeSortedCategories()
+            }
             .alert(isPresented: $showAlert) {
                 Alert(
                     title: Text("Fehler"),
@@ -1727,6 +1743,67 @@ struct CategoryManagementView: View {
                 )
             }
         }
+    }
+    
+    // Drop Delegate für Drag & Drop Funktionalität
+    struct CategoryDropDelegate: DropDelegate {
+        let category: Category
+        @Binding var draggedCategory: Category?
+        @Binding var sortedCategories: [Category]
+        let onMove: (Category, Category) -> Void
+        
+        func performDrop(info: DropInfo) -> Bool {
+            guard let draggedCategory = draggedCategory else { return false }
+            
+            if draggedCategory != category {
+                onMove(draggedCategory, category)
+            }
+            
+            self.draggedCategory = nil
+            return true
+        }
+        
+        func dropEntered(info: DropInfo) {
+            // Optional: Visuelles Feedback beim Drag
+        }
+        
+        func dropExited(info: DropInfo) {
+            // Optional: Visuelles Feedback beim Drag
+        }
+    }
+    
+    // Initialisiere die sortierten Kategorien beim Erscheinen der View
+    private func initializeSortedCategories() {
+        sortedCategories = loadCategoryOrder()
+    }
+    
+    // Lade die gespeicherte Reihenfolge der Kategorien
+    private func loadCategoryOrder() -> [Category] {
+        return viewModel.getSortedCategories()
+    }
+    
+    // Speichere die neue Reihenfolge der Kategorien
+    private func saveCategoryOrder() {
+        let order = sortedCategories.compactMap { $0.name }
+        UserDefaults.standard.set(order, forKey: "categoryOrder")
+    }
+    
+    // Bewege eine Kategorie an eine neue Position
+    private func moveCategory(from source: Category, to destination: Category) {
+        guard let sourceIndex = sortedCategories.firstIndex(of: source),
+              let destinationIndex = sortedCategories.firstIndex(of: destination) else {
+            return
+        }
+        
+        let category = sortedCategories.remove(at: sourceIndex)
+        sortedCategories.insert(category, at: destinationIndex)
+        saveCategoryOrder()
+    }
+    
+    // Bewege Kategorien mit onMove
+    private func moveCategories(from source: IndexSet, to destination: Int) {
+        sortedCategories.move(fromOffsets: source, toOffset: destination)
+        saveCategoryOrder()
     }
 
     // Neue Methode zum Hinzufügen einer Kategorie
@@ -1749,6 +1826,8 @@ struct CategoryManagementView: View {
         viewModel.addCategory(name: trimmedName) {
             DispatchQueue.main.async {
                 self.addingNewCategory = ""
+                // Aktualisiere die sortierten Kategorien
+                self.sortedCategories = self.loadCategoryOrder()
                 print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
             }
         }
@@ -1783,6 +1862,8 @@ struct CategoryManagementView: View {
                     self.showAlert = true
                     print("Fehler beim Löschen der Kategorie: \(error)")
                 } else {
+                    // Aktualisiere die sortierten Kategorien
+                    self.sortedCategories = self.loadCategoryOrder()
                     print("Kategorie erfolgreich gelöscht: \(category.name ?? "Unbekannt")")
                 }
             }
