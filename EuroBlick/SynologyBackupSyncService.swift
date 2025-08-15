@@ -2478,6 +2478,42 @@ class SynologyBackupSyncService: ObservableObject {
         }
     }
     
+    /// Automatische Bereinigung alter Backups beim App-Start
+    func performAutomaticBackupCleanup() async -> (deletedCount: Int, errorCount: Int) {
+        debugLog("🤖 Automatische Backup-Bereinigung beim App-Start...")
+        
+        // Prüfe, ob automatische Bereinigung aktiviert ist
+        let autoCleanupEnabled = UserDefaults.standard.bool(forKey: "autoBackupCleanupEnabled")
+        if !autoCleanupEnabled {
+            debugLog("⏸️ Automatische Backup-Bereinigung ist deaktiviert")
+            return (0, 0)
+        }
+        
+        // Prüfe, ob die letzte Bereinigung vor mehr als 24 Stunden war
+        let lastCleanupKey = "lastAutomaticBackupCleanup"
+        let lastCleanup = UserDefaults.standard.object(forKey: lastCleanupKey) as? Date ?? Date.distantPast
+        
+        let calendar = Calendar.current
+        let now = Date()
+        let hoursSinceLastCleanup = calendar.dateComponents([.hour], from: lastCleanup, to: now).hour ?? 0
+        
+        if hoursSinceLastCleanup < 24 {
+            debugLog("⏰ Letzte automatische Bereinigung war vor \(hoursSinceLastCleanup) Stunden - überspringe")
+            return (0, 0)
+        }
+        
+        debugLog("🧹 Führe automatische Bereinigung durch (letzte war vor \(hoursSinceLastCleanup) Stunden)")
+        
+        // Führe die Bereinigung durch
+        let result = await cleanupOldBackupsManually()
+        
+        // Speichere das aktuelle Datum als letzte Bereinigung
+        UserDefaults.standard.set(now, forKey: lastCleanupKey)
+        
+        debugLog("✅ Automatische Bereinigung abgeschlossen: \(result.deletedCount) Backups gelöscht")
+        return result
+    }
+    
     /// Manuelle Bereinigung alter Backups (öffentliche Funktion für UI)
     func cleanupOldBackupsManually() async -> (deletedCount: Int, errorCount: Int) {
         debugLog("🧹 Manuelle Bereinigung alter Backups gestartet...")

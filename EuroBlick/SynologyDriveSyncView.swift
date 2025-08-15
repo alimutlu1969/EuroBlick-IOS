@@ -21,6 +21,7 @@ struct SynologyDriveSyncView: View {
     @State private var cleanupResult: (deletedCount: Int, errorCount: Int) = (0, 0)
     @State private var showEnhancedAnalysis = false
     @State private var enhancedAnalysisReport: BackupAnalysisReport?
+    @State private var autoCleanupEnabled: Bool = UserDefaults.standard.bool(forKey: "autoBackupCleanupEnabled")
     
     var body: some View {
         NavigationView {
@@ -68,6 +69,27 @@ struct SynologyDriveSyncView: View {
                             icon: "arrow.triangle.merge"
                         )
                     }
+                    
+                    // Automatische Backup-Bereinigung Einstellung
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Automatische Backup-Bereinigung")
+                                    .font(.headline)
+                                Text("Löscht alte Backups (1+ Tag) täglich beim App-Start")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $autoCleanupEnabled)
+                                .onChange(of: autoCleanupEnabled) { _, newValue in
+                                    UserDefaults.standard.set(newValue, forKey: "autoBackupCleanupEnabled")
+                                }
+                        }
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
                     
                     // Available Backups
                     if !syncService.availableBackups.isEmpty {

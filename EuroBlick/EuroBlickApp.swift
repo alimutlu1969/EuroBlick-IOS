@@ -64,10 +64,11 @@ struct AppContentView: View {
     @StateObject private var viewModel = TransactionViewModel()
     @StateObject private var multiUserManager = MultiUserSyncManager()
     @State private var syncService: SynologyBackupSyncService?
+    @State private var isInitializing = true
     
     var body: some View {
         Group {
-            if let syncService = syncService {
+            if let syncService = syncService, !isInitializing {
                 LoginView()
                     .environmentObject(viewModel)
                     .environmentObject(syncService)
@@ -75,9 +76,17 @@ struct AppContentView: View {
             } else {
                 ZStack {
                     Color.black.ignoresSafeArea()
-                    ProgressView("Initialisiere Sync...")
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .foregroundColor(.white)
+                    VStack(spacing: 16) {
+                        ProgressView("Initialisiere Sync...")
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .foregroundColor(.white)
+                        
+                        if isInitializing {
+                            Text("Bereinige alte Backups...")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
                 }
             }
         }
@@ -85,6 +94,31 @@ struct AppContentView: View {
             if syncService == nil {
                 // Erstelle den SynologyBackupSyncService nach der View-Initialisierung
                 syncService = SynologyBackupSyncService(viewModel: viewModel)
+                
+                // Führe automatische Backup-Bereinigung durch
+                Task {
+                    await performAutomaticCleanup()
+                }
+            }
+        }
+    }
+    
+    private func performAutomaticCleanup() async {
+        guard let syncService = syncService else { return }
+        
+        do {
+            let result = await syncService.performAutomaticBackupCleanup()
+            
+            await MainActor.run {
+                if result.deletedCount > 0 {
+                    print("🧹 Automatische Backup-Bereinigung: \(result.deletedCount) Backups gelöscht")
+                }
+                isInitializing = false
+            }
+        } catch {
+            await MainActor.run {
+                print("❌ Fehler bei automatischer Backup-Bereinigung: \(error)")
+                isInitializing = false
             }
         }
     }
