@@ -1671,7 +1671,7 @@ struct CategoryManagementView: View {
                         Section(header: Text("Bestehende Kategorien für \(accountGroup?.name ?? "alle Gruppen") (\(sortedCategories.count))")
                             .foregroundColor(.white)
                             .font(.headline)) {
-                            ForEach(sortedCategories, id: \.self) { category in
+                            ForEach(sortedCategories, id: \.objectID) { category in
                                 CategoryRowView(
                                     category: category,
                                     isEditing: editingCategory == category,
@@ -1860,10 +1860,18 @@ struct CategoryManagementView: View {
         let movedCategories = source.map { sortedCategories[$0].name ?? "Unknown" }
         print("📋 Verschobene Kategorien: \(movedCategories)")
         
-        sortedCategories.move(fromOffsets: source, toOffset: destination)
+        // Erstelle eine Kopie der aktuellen Liste
+        var newSortedCategories = sortedCategories
+        
+        // Führe die Verschiebung durch
+        newSortedCategories.move(fromOffsets: source, toOffset: destination)
+        
+        // Aktualisiere die State Variable
+        sortedCategories = newSortedCategories
         hasUnsavedChanges = true
         
         print("✅ onMove: Kategorien erfolgreich verschoben")
+        print("📋 Neue Reihenfolge: \(sortedCategories.map { $0.name ?? "Unknown" })")
     }
 
     // Neue Methode zum Hinzufügen einer Kategorie
