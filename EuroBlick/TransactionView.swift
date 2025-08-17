@@ -1671,7 +1671,7 @@ struct CategoryManagementView: View {
                         Section(header: Text("Bestehende Kategorien für \(accountGroup?.name ?? "alle Gruppen") (\(sortedCategories.count))")
                             .foregroundColor(.white)
                             .font(.headline)) {
-                            ForEach(sortedCategories, id: \.objectID) { category in
+                            ForEach(Array(sortedCategories.enumerated()), id: \.element.objectID) { index, category in
                                 CategoryRowView(
                                     category: category,
                                     isEditing: editingCategory == category,
@@ -1687,8 +1687,18 @@ struct CategoryManagementView: View {
                                     },
                                     onDelete: { deleteCategory(category) }
                                 )
+                                .onDrag {
+                                    // Speichere den Index der gezogenen Kategorie
+                                    UserDefaults.standard.set(index, forKey: "draggedCategoryIndex")
+                                    return NSItemProvider(object: category.name as NSString? ?? NSString())
+                                }
+                                .onDrop(of: [.text], delegate: CategoryDropDelegate(
+                                    category: category,
+                                    targetIndex: index,
+                                    sortedCategories: $sortedCategories,
+                                    hasUnsavedChanges: $hasUnsavedChanges
+                                ))
                             }
-                            .onMove(perform: moveCategories)
                         }
                     }
                     .scrollContentBackground(.hidden)
@@ -1803,7 +1813,57 @@ struct CategoryManagementView: View {
         }
     }
     
-
+    // Drop Delegate für Drag & Drop Funktionalität
+    struct CategoryDropDelegate: DropDelegate {
+        let category: Category
+        let targetIndex: Int
+        @Binding var sortedCategories: [Category]
+        @Binding var hasUnsavedChanges: Bool
+        
+        func performDrop(info: DropInfo) -> Bool {
+            // Hole den Index der gezogenen Kategorie
+            let draggedIndex = UserDefaults.standard.integer(forKey: "draggedCategoryIndex")
+            
+            // Prüfe, ob es eine gültige Verschiebung ist
+            guard draggedIndex != targetIndex && draggedIndex < sortedCategories.count else {
+                print("⚠️ Ungültige Drag & Drop Operation")
+                return false
+            }
+            
+            print("🔄 Drag & Drop: Verschiebe von Index \(draggedIndex) nach Index \(targetIndex)")
+            
+            // Hole die gezogene Kategorie
+            let draggedCategory = sortedCategories[draggedIndex]
+            print("📋 Gezogene Kategorie: \(draggedCategory.name ?? "Unknown")")
+            
+            // Erstelle eine neue Liste
+            var newSortedCategories = sortedCategories
+            
+            // Entferne die Kategorie von der ursprünglichen Position
+            newSortedCategories.remove(at: draggedIndex)
+            
+            // Füge sie an der neuen Position ein
+            let newIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex
+            newSortedCategories.insert(draggedCategory, at: newIndex)
+            
+            // Aktualisiere die State Variable
+            sortedCategories = newSortedCategories
+            hasUnsavedChanges = true
+            
+            print("✅ Drag & Drop: Kategorie erfolgreich verschoben")
+            print("📋 Neue Reihenfolge: \(sortedCategories.map { $0.name ?? "Unknown" })")
+            
+            return true
+        }
+        
+        func dropEntered(info: DropInfo) {
+            // Optional: Visuelles Feedback beim Drag
+        }
+        
+        func dropExited(info: DropInfo) {
+            // Optional: Visuelles Feedback beim Drag
+        }
+    }
     
     // Initialisiere die sortierten Kategorien beim Erscheinen der View
     private func initializeSortedCategories() {
@@ -1852,27 +1912,7 @@ struct CategoryManagementView: View {
     
 
     
-    // Bewege Kategorien mit onMove
-    private func moveCategories(from source: IndexSet, to destination: Int) {
-        print("🔄 onMove: Verschiebe von \(source) nach \(destination)")
-        
-        // Hole die Namen der verschobenen Kategorien für Debug
-        let movedCategories = source.map { sortedCategories[$0].name ?? "Unknown" }
-        print("📋 Verschobene Kategorien: \(movedCategories)")
-        
-        // Erstelle eine Kopie der aktuellen Liste
-        var newSortedCategories = sortedCategories
-        
-        // Führe die Verschiebung durch
-        newSortedCategories.move(fromOffsets: source, toOffset: destination)
-        
-        // Aktualisiere die State Variable
-        sortedCategories = newSortedCategories
-        hasUnsavedChanges = true
-        
-        print("✅ onMove: Kategorien erfolgreich verschoben")
-        print("📋 Neue Reihenfolge: \(sortedCategories.map { $0.name ?? "Unknown" })")
-    }
+
 
     // Neue Methode zum Hinzufügen einer Kategorie
     private func addNewCategory() {
