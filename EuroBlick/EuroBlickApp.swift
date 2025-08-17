@@ -106,20 +106,13 @@ struct AppContentView: View {
     private func performAutomaticCleanup() async {
         guard let syncService = syncService else { return }
         
-        do {
-            let result = await syncService.performAutomaticBackupCleanup()
-            
-            await MainActor.run {
-                if result.deletedCount > 0 {
-                    print("🧹 Automatische Backup-Bereinigung: \(result.deletedCount) Backups gelöscht")
-                }
-                isInitializing = false
+        let result = await syncService.performAutomaticBackupCleanup()
+        
+        await MainActor.run {
+            if result.deletedCount > 0 {
+                print("🧹 Automatische Backup-Bereinigung: \(result.deletedCount) Backups gelöscht")
             }
-        } catch {
-            await MainActor.run {
-                print("❌ Fehler bei automatischer Backup-Bereinigung: \(error)")
-                isInitializing = false
-            }
+            isInitializing = false
         }
     }
 }
