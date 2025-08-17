@@ -1781,6 +1781,45 @@ class TransactionViewModel: ObservableObject {
             let finalPurpose = payrollResult.usage.isEmpty ? purpose : payrollResult.usage
             let payrollCategory = payrollResult.category
 
+            // Konvertiere den Betrag zuerst
+            var amount: Double?
+            for formatter in numberFormatters {
+                if let number = formatter.number(from: amountString) {
+                    amount = number.doubleValue
+                    break
+                }
+            }
+            
+            guard let finalAmount = amount else {
+                print("Zeile \(lineNumber + 2): Ungültiger Betrag: \(amountString)")
+                continue
+            }
+
+            // Normalisiere das Datum
+            var normalizedDate: Date?
+            for formatter in dateFormatters {
+                if let date = formatter.date(from: raw) {
+                    normalizedDate = date
+                    break
+                }
+            }
+            
+            guard var finalDate = normalizedDate else {
+                print("Zeile \(lineNumber + 2): Ungültiges Datum: \(raw)")
+                continue
+            }
+            
+            // Korrigiere das Jahr, falls es falsch geparst wurde (z.B. 0025 statt 2025)
+            let components = calendar.dateComponents([.year, .month, .day], from: finalDate)
+            if let year = components.year, year < 100 {
+                var correctedComponents = components
+                correctedComponents.year = year + 2000
+                if let correctedDate = calendar.date(from: correctedComponents) {
+                    finalDate = correctedDate
+                    print("Zeile \(lineNumber + 2): Jahr korrigiert von \(year) zu \(correctedComponents.year ?? year)")
+                }
+            }
+
             // Verarbeitet Reservierungs-Transaktionen und extrahiert den Namen
             let reservationResult = processReservationTransaction(purpose: finalPurpose, nameFromCSV: nameFromCSV, amount: finalAmount)
             let finalUsage = reservationResult.isReservation ? reservationResult.usage : finalPurpose
@@ -1795,20 +1834,6 @@ class TransactionViewModel: ObservableObject {
             
             // Bestimme den finalen Verwendungszweck (Priorität: Firma > Reservierung > Lohn > Original)
             let finalFinalUsage = isSpecialCompany ? companyUsage : finalUsage
-
-            // Konvertiere den Betrag
-            var amount: Double?
-            for formatter in numberFormatters {
-                if let number = formatter.number(from: amountString) {
-                    amount = number.doubleValue
-                    break
-                }
-            }
-            
-            guard let finalAmount = amount else {
-                print("Zeile \(lineNumber + 2): Ungültiger Betrag: \(amountString)")
-                continue
-            }
             
             // Spezielle Behandlung für 50€ Reservierungen - prüfe nochmal mit finalAmount
             if finalAmount == 50.0 && !isReservation {
@@ -1868,31 +1893,6 @@ class TransactionViewModel: ObservableObject {
                     ))
                     
                     continue // Überspringe den normalen Verarbeitungsweg
-                }
-            }
-
-            // Normalisiere das Datum
-            var normalizedDate: Date?
-            for formatter in dateFormatters {
-                if let date = formatter.date(from: raw) {
-                    normalizedDate = date
-                    break
-                }
-            }
-            
-            guard var finalDate = normalizedDate else {
-                print("Zeile \(lineNumber + 2): Ungültiges Datum: \(raw)")
-                continue
-            }
-            
-            // Korrigiere das Jahr, falls es falsch geparst wurde (z.B. 0025 statt 2025)
-            let components = calendar.dateComponents([.year, .month, .day], from: finalDate)
-            if let year = components.year, year < 100 {
-                var correctedComponents = components
-                correctedComponents.year = year + 2000
-                if let correctedDate = calendar.date(from: correctedComponents) {
-                    finalDate = correctedDate
-                    print("Zeile \(lineNumber + 2): Jahr korrigiert von \(year) zu \(correctedComponents.year ?? year)")
                 }
             }
 
@@ -3134,7 +3134,7 @@ class TransactionViewModel: ObservableObject {
                 )
                 
                 if reservationResult.isReservation {
-                    print("🔧 Korrigiere Transaktion: \(transaction.id?.uuidString ?? "nil") - \(usage) (50€)")
+                    print("🔧 Korrigiere Transaktion: \(transaction.id.uuidString) - \(usage) (50€)")
                     
                     // Ändere den Typ zu Reservierung
                     transaction.type = "reservierung"
