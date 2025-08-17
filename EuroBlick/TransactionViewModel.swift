@@ -1843,7 +1843,7 @@ class TransactionViewModel: ObservableObject {
                     // Überschreibe die vorherigen Ergebnisse
                     let finalUsage = recheckResult.usage
                     let reservationCategory = recheckResult.category
-                    let isReservation = recheckResult.isReservation
+                    _ = recheckResult.isReservation // Ignoriere, da wir bereits wissen, dass es eine Reservierung ist
                     
                     // Bestimme den finalen Verwendungszweck und Kategorie
                     let finalUsageForTransaction: String
@@ -3124,7 +3124,7 @@ class TransactionViewModel: ObservableObject {
             var correctedCount = 0
             for transaction in transactions {
                 let usage = transaction.usage ?? ""
-                let categoryName = transaction.categoryRelationship?.name ?? ""
+                _ = transaction.categoryRelationship?.name ?? "" // Ignoriere, da nicht verwendet
                 
                 // Prüfe, ob es sich um eine Reservierung handelt
                 let reservationResult = processReservationTransaction(
