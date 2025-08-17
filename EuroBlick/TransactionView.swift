@@ -1672,32 +1672,63 @@ struct CategoryManagementView: View {
                             .foregroundColor(.white)
                             .font(.headline)) {
                             ForEach(Array(sortedCategories.enumerated()), id: \.element.objectID) { index, category in
-                                CategoryRowView(
-                                    category: category,
-                                    isEditing: editingCategory == category,
-                                    newCategoryName: $newCategoryName,
-                                    onEdit: {
-                                        editingCategory = category
-                                        newCategoryName = category.name ?? ""
-                                    },
-                                    onSave: { saveEditedCategory(category) },
-                                    onCancel: {
-                                        editingCategory = nil
-                                        newCategoryName = ""
-                                    },
-                                    onDelete: { deleteCategory(category) }
-                                )
-                                .onDrag {
-                                    // Speichere den Index der gezogenen Kategorie
-                                    UserDefaults.standard.set(index, forKey: "draggedCategoryIndex")
-                                    return NSItemProvider(object: category.name as NSString? ?? NSString())
+                                VStack(spacing: 0) {
+                                    // Drop-Zone vor der Kategorie (außer bei der ersten)
+                                    if index > 0 {
+                                        Rectangle()
+                                            .fill(Color.clear)
+                                            .frame(height: 20)
+                                            .onDrop(of: [.text], delegate: CategoryDropDelegate(
+                                                category: category,
+                                                targetIndex: index,
+                                                isBeforeCategory: true,
+                                                sortedCategories: $sortedCategories,
+                                                hasUnsavedChanges: $hasUnsavedChanges
+                                            ))
+                                    }
+                                    
+                                    CategoryRowView(
+                                        category: category,
+                                        isEditing: editingCategory == category,
+                                        newCategoryName: $newCategoryName,
+                                        onEdit: {
+                                            editingCategory = category
+                                            newCategoryName = category.name ?? ""
+                                        },
+                                        onSave: { saveEditedCategory(category) },
+                                        onCancel: {
+                                            editingCategory = nil
+                                            newCategoryName = ""
+                                        },
+                                        onDelete: { deleteCategory(category) }
+                                    )
+                                    .onDrag {
+                                        // Speichere den Index der gezogenen Kategorie
+                                        UserDefaults.standard.set(index, forKey: "draggedCategoryIndex")
+                                        return NSItemProvider(object: category.name as NSString? ?? NSString())
+                                    }
+                                    .onDrop(of: [.text], delegate: CategoryDropDelegate(
+                                        category: category,
+                                        targetIndex: index,
+                                        isBeforeCategory: false,
+                                        sortedCategories: $sortedCategories,
+                                        hasUnsavedChanges: $hasUnsavedChanges
+                                    ))
+                                    
+                                    // Drop-Zone nach der Kategorie (außer bei der letzten)
+                                    if index < sortedCategories.count - 1 {
+                                        Rectangle()
+                                            .fill(Color.clear)
+                                            .frame(height: 20)
+                                            .onDrop(of: [.text], delegate: CategoryDropDelegate(
+                                                category: category,
+                                                targetIndex: index + 1,
+                                                isBeforeCategory: true,
+                                                sortedCategories: $sortedCategories,
+                                                hasUnsavedChanges: $hasUnsavedChanges
+                                            ))
+                                    }
                                 }
-                                .onDrop(of: [.text], delegate: CategoryDropDelegate(
-                                    category: category,
-                                    targetIndex: index,
-                                    sortedCategories: $sortedCategories,
-                                    hasUnsavedChanges: $hasUnsavedChanges
-                                ))
                             }
                         }
                     }
@@ -1817,6 +1848,7 @@ struct CategoryManagementView: View {
     struct CategoryDropDelegate: DropDelegate {
         let category: Category
         let targetIndex: Int
+        let isBeforeCategory: Bool
         @Binding var sortedCategories: [Category]
         @Binding var hasUnsavedChanges: Bool
         
@@ -1830,7 +1862,7 @@ struct CategoryManagementView: View {
                 return false
             }
             
-            print("🔄 Drag & Drop: Verschiebe von Index \(draggedIndex) nach Index \(targetIndex)")
+            print("🔄 Drag & Drop: Verschiebe von Index \(draggedIndex) nach Index \(targetIndex) (isBeforeCategory: \(isBeforeCategory))")
             
             // Hole die gezogene Kategorie
             let draggedCategory = sortedCategories[draggedIndex]
@@ -1842,9 +1874,19 @@ struct CategoryManagementView: View {
             // Entferne die Kategorie von der ursprünglichen Position
             newSortedCategories.remove(at: draggedIndex)
             
-            // Füge sie an der neuen Position ein
-            let newIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex
-            newSortedCategories.insert(draggedCategory, at: newIndex)
+            // Berechne die neue Position
+            let newIndex: Int
+            if isBeforeCategory {
+                // Einfügen vor der Zielkategorie
+                newIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex
+            } else {
+                // Einfügen nach der Zielkategorie
+                newIndex = draggedIndex < targetIndex ? targetIndex : targetIndex + 1
+            }
+            
+            // Stelle sicher, dass der Index gültig ist
+            let finalIndex = max(0, min(newIndex, newSortedCategories.count))
+            newSortedCategories.insert(draggedCategory, at: finalIndex)
             
             // Aktualisiere die State Variable
             sortedCategories = newSortedCategories
