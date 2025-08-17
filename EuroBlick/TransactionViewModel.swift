@@ -1782,7 +1782,7 @@ class TransactionViewModel: ObservableObject {
             let payrollCategory = payrollResult.category
 
             // Verarbeitet Reservierungs-Transaktionen und extrahiert den Namen
-            let reservationResult = processReservationTransaction(purpose: finalPurpose, nameFromCSV: nameFromCSV)
+            let reservationResult = processReservationTransaction(purpose: finalPurpose, nameFromCSV: nameFromCSV, amount: finalAmount)
             let finalUsage = reservationResult.isReservation ? reservationResult.usage : finalPurpose
             let reservationCategory = reservationResult.category
             let isReservation = reservationResult.isReservation
@@ -1808,6 +1808,67 @@ class TransactionViewModel: ObservableObject {
             guard let finalAmount = amount else {
                 print("Zeile \(lineNumber + 2): Ungültiger Betrag: \(amountString)")
                 continue
+            }
+            
+            // Spezielle Behandlung für 50€ Reservierungen - prüfe nochmal mit finalAmount
+            if finalAmount == 50.0 && !isReservation {
+                let recheckResult = processReservationTransaction(purpose: finalFinalUsage, nameFromCSV: nameFromCSV, amount: finalAmount)
+                if recheckResult.isReservation {
+                    print("Zeile \(lineNumber + 2): 50€-Reservierung bei zweiter Prüfung erkannt!")
+                    // Überschreibe die vorherigen Ergebnisse
+                    let finalUsage = recheckResult.usage
+                    let reservationCategory = recheckResult.category
+                    let isReservation = recheckResult.isReservation
+                    
+                    // Bestimme den finalen Verwendungszweck und Kategorie
+                    let finalUsageForTransaction: String
+                    let categoryName: String
+                    
+                    if !reservationCategory.isEmpty {
+                        categoryName = reservationCategory
+                        finalUsageForTransaction = finalUsage
+                        print("Zeile \(lineNumber + 2): 50€-Reservierung - Kategorie automatisch gesetzt: \(categoryName)")
+                    } else {
+                        categoryName = "Reservierung"
+                        finalUsageForTransaction = finalUsage
+                        print("Zeile \(lineNumber + 2): 50€-Reservierung - Standard-Kategorie verwendet")
+                    }
+                    
+                    // Erstelle die Transaktion direkt hier
+                    let fetchRequest: NSFetchRequest<Category> = Category.fetchRequest()
+                    fetchRequest.predicate = NSPredicate(format: "name == %@", categoryName)
+                    let categories = try context.fetch(fetchRequest)
+                    let categoryObject: Category
+                    if let existingCategory = categories.first {
+                        categoryObject = existingCategory
+                    } else {
+                        categoryObject = Category(context: context)
+                        categoryObject.name = categoryName
+                    }
+                    
+                    let transaction = Transaction(context: context)
+                    transaction.id = UUID()
+                    transaction.date = finalDate
+                    transaction.type = "reservierung"
+                    transaction.amount = finalAmount
+                    transaction.categoryRelationship = categoryObject
+                    transaction.usage = finalUsageForTransaction
+                    transaction.account = accountInContext
+                    
+                    print("Zeile \(lineNumber + 2): 50€-Reservierungs-Transaktion erstellt: id=\(transaction.id.uuidString), Datum=\(finalDate), Betrag=\(finalAmount), Typ=reservierung, Kategorie=\(categoryName), Usage=\(finalUsageForTransaction)")
+                    
+                    importedTransactions.append(ImportResult.TransactionInfo(
+                        date: raw,
+                        amount: finalAmount,
+                        account: accountInContext.name ?? "",
+                        usage: finalUsageForTransaction,
+                        category: categoryName,
+                        isSuspicious: false,
+                        existingTransaction: nil
+                    ))
+                    
+                    continue // Überspringe den normalen Verarbeitungsweg
+                }
             }
 
             // Normalisiere das Datum
@@ -2737,16 +2798,29 @@ class TransactionViewModel: ObservableObject {
     }
 
     // Verarbeitet Reservierungs-Transaktionen und extrahiert den Namen
-    private func processReservationTransaction(purpose: String, nameFromCSV: String) -> (usage: String, category: String, isReservation: Bool) {
+    private func processReservationTransaction(purpose: String, nameFromCSV: String, amount: Double? = nil) -> (usage: String, category: String, isReservation: Bool) {
         let purposeLower = purpose.lowercased()
+        let nameLower = nameFromCSV.lowercased()
         
-        // Erkenne Reservierungs-Transaktionen
+        // Erweiterte Erkennung von Reservierungs-Transaktionen
         let reservationKeywords = ["reservierung", "anzahlung", "kaution", "deposit", "vorauszahlung", "buchung", "reservation"]
         let isReservationTransaction = reservationKeywords.contains { keyword in
-            purposeLower.contains(keyword)
+            purposeLower.contains(keyword) || nameLower.contains(keyword)
         }
         
-        if isReservationTransaction {
+        // Spezielle Erkennung für 50€ Reservierungen (häufig bei Gästen)
+        let is50EuroReservation = amount == 50.0 && (
+            purposeLower.contains("50") || 
+            nameLower.contains("50") ||
+            // Einfache Namen ohne spezielle Wörter, aber mit 50€
+            (nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines).count > 0 && 
+             nameFromCSV.trimmingCharacters(in: .whitespacesAndNewlines).count < 50 &&
+             !purposeLower.contains("einzahlung") &&
+             !purposeLower.contains("bargeld") &&
+             !purposeLower.contains("automat"))
+        )
+        
+        if isReservationTransaction || is50EuroReservation {
             // Extrahiere den Namen - zuerst aus CSV, dann aus Verwendungszweck
             var personName: String?
             
@@ -2789,7 +2863,8 @@ class TransactionViewModel: ObservableObject {
                 finalUsage = "Reservierung"
             }
             
-            print("Reservierungs-Transaktion erkannt: Original='\(purpose)', Name aus CSV='\(nameFromCSV)', Extrahierter Name='\(personName ?? "nil")', Final='\(finalUsage)'")
+            let detectionType = is50EuroReservation ? "50€-Reservierung" : "Standard-Reservierung"
+            print("\(detectionType) erkannt: Original='\(purpose)', Name aus CSV='\(nameFromCSV)', Betrag=\(amount ?? 0), Extrahierter Name='\(personName ?? "nil")', Final='\(finalUsage)'")
             
             return (usage: finalUsage, category: "Reservierung", isReservation: true)
         }
@@ -3032,6 +3107,74 @@ class TransactionViewModel: ObservableObject {
             } catch {
                 print("Fehler beim Bereinigen der SB-Zahlungen: \(error)")
             }
+        }
+    }
+    
+    // Korrigiere bestehende Reservierungen, die falsch kategorisiert wurden
+    func correctExistingReservations() {
+        print("🔧 Starte Korrektur bestehender Reservierungen...")
+        
+        let fetchRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "amount == %f AND type != %@", 50.0, "reservierung")
+        
+        do {
+            let transactions = try context.fetch(fetchRequest)
+            print("🔧 Gefunden \(transactions.count) 50€-Transaktionen, die keine Reservierungen sind")
+            
+            var correctedCount = 0
+            for transaction in transactions {
+                let usage = transaction.usage ?? ""
+                let categoryName = transaction.categoryRelationship?.name ?? ""
+                
+                // Prüfe, ob es sich um eine Reservierung handelt
+                let reservationResult = processReservationTransaction(
+                    purpose: usage, 
+                    nameFromCSV: "", 
+                    amount: transaction.amount
+                )
+                
+                if reservationResult.isReservation {
+                    print("🔧 Korrigiere Transaktion: \(transaction.id?.uuidString ?? "nil") - \(usage) (50€)")
+                    
+                    // Ändere den Typ zu Reservierung
+                    transaction.type = "reservierung"
+                    
+                    // Aktualisiere die Kategorie
+                    let categoryFetchRequest: NSFetchRequest<Category> = Category.fetchRequest()
+                    categoryFetchRequest.predicate = NSPredicate(format: "name == %@", "Reservierung")
+                    
+                    if let reservationCategory = try? context.fetch(categoryFetchRequest).first {
+                        transaction.categoryRelationship = reservationCategory
+                    } else {
+                        // Erstelle die Reservierung-Kategorie falls sie nicht existiert
+                        let newCategory = Category(context: context)
+                        newCategory.name = "Reservierung"
+                        transaction.categoryRelationship = newCategory
+                    }
+                    
+                    // Aktualisiere den Verwendungszweck
+                    transaction.usage = reservationResult.usage
+                    
+                    correctedCount += 1
+                }
+            }
+            
+            if correctedCount > 0 {
+                try context.save()
+                print("🔧 \(correctedCount) Reservierungen korrigiert")
+                
+                // UI aktualisieren
+                DispatchQueue.main.async {
+                    self.objectWillChange.send()
+                    self.fetchAccountGroups()
+                    self.transactionsUpdated.toggle()
+                }
+            } else {
+                print("🔧 Keine Reservierungen zu korrigieren gefunden")
+            }
+            
+        } catch {
+            print("❌ Fehler beim Korrigieren der Reservierungen: \(error)")
         }
     }
     

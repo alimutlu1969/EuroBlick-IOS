@@ -6,10 +6,13 @@ struct DataCleanupView: View {
     
     @State private var isCleaningDuplicates = false
     @State private var isFixingIcons = false
+    @State private var isFixingReservations = false
     @State private var showDuplicateResult = false
     @State private var showIconResult = false
+    @State private var showReservationResult = false
     @State private var duplicateResultMessage = ""
     @State private var iconResultMessage = ""
+    @State private var reservationResultMessage = ""
     
     var body: some View {
         NavigationStack {
@@ -56,6 +59,17 @@ struct DataCleanupView: View {
                             fixIconsAndColors()
                         }
                     )
+                    
+                    // Reservierungen korrigieren
+                    CleanupActionCard(
+                        icon: "calendar.badge.plus",
+                        title: "Reservierungen korrigieren",
+                        description: "Erkennt und korrigiert 50€-Transaktionen, die als Reservierungen kategorisiert werden sollten",
+                        isProcessing: isFixingReservations,
+                        action: {
+                            fixReservations()
+                        }
+                    )
                 }
                 .padding(.horizontal)
                 
@@ -81,6 +95,11 @@ struct DataCleanupView: View {
         } message: {
             Text(iconResultMessage)
         }
+        .alert("Reservierungs-Korrektur", isPresented: $showReservationResult) {
+            Button("OK") { }
+        } message: {
+            Text(reservationResultMessage)
+        }
     }
     
     private func cleanupDuplicateGroups() {
@@ -104,6 +123,18 @@ struct DataCleanupView: View {
                 iconResultMessage = "Icons und Farben wurden erfolgreich korrigiert."
                 showIconResult = true
             }
+        }
+    }
+    
+    private func fixReservations() {
+        isFixingReservations = true
+        
+        viewModel.correctExistingReservations()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            isFixingReservations = false
+            reservationResultMessage = "Reservierungen wurden erfolgreich korrigiert. 50€-Transaktionen wurden als Reservierungen kategorisiert."
+            showReservationResult = true
         }
     }
 }
