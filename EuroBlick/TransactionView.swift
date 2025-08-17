@@ -445,7 +445,7 @@ struct TransactionView: View {
                 )
             }
             .sheet(isPresented: $showCategoryManagementSheet) {
-                CategoryManagementView(viewModel: viewModel, accountGroup: account.group)
+                CategoryManagementView(viewModel: viewModel)
             }
             .sheet(isPresented: $showAccountSelectionSheet) {
                 NavigationView {
@@ -1626,7 +1626,6 @@ struct CustomSegmentedPicker: UIViewRepresentable {
 
 struct CategoryManagementView: View {
     @ObservedObject var viewModel: TransactionViewModel
-    let accountGroup: AccountGroup?
     @Environment(\.dismiss) var dismiss
     @State private var editingCategory: Category?
     @State private var newCategoryName: String = ""
@@ -1634,6 +1633,7 @@ struct CategoryManagementView: View {
     @State private var alertMessage: String = ""
     @State private var addingNewCategory: String = "" // Für neue Kategorie hinzufügen
     @State private var sortedCategories: [Category] = []
+    @State private var draggedCategory: Category?
     @State private var hasUnsavedChanges: Bool = false
     @State private var showSaveSuccess: Bool = false
 
@@ -1668,7 +1668,7 @@ struct CategoryManagementView: View {
                         }
                         
                         // Sektion für bestehende Kategorien
-                        Section(header: Text("Bestehende Kategorien für \(accountGroup?.name ?? "alle Gruppen") (\(sortedCategories.count))")
+                        Section(header: Text("Bestehende Kategorien (\(sortedCategories.count))")
                             .foregroundColor(.white)
                             .font(.headline)) {
                             ForEach(sortedCategories, id: \.self) { category in
@@ -1687,6 +1687,16 @@ struct CategoryManagementView: View {
                                     },
                                     onDelete: { deleteCategory(category) }
                                 )
+                                .onDrag {
+                                    draggedCategory = category
+                                    return NSItemProvider(object: category.name as NSString? ?? NSString())
+                                }
+                                .onDrop(of: [.text], delegate: CategoryDropDelegate(
+                                    category: category,
+                                    draggedCategory: $draggedCategory,
+                                    sortedCategories: $sortedCategories,
+                                    onMove: moveCategory
+                                ))
                             }
                             .onMove(perform: moveCategories)
                         }
@@ -1803,35 +1813,47 @@ struct CategoryManagementView: View {
         }
     }
     
-
+    // Drop Delegate für Drag & Drop Funktionalität
+    struct CategoryDropDelegate: DropDelegate {
+        let category: Category
+        @Binding var draggedCategory: Category?
+        @Binding var sortedCategories: [Category]
+        let onMove: (Category, Category) -> Void
+        
+        func performDrop(info: DropInfo) -> Bool {
+            guard let draggedCategory = draggedCategory else { return false }
+            
+            if draggedCategory != category {
+                onMove(draggedCategory, category)
+            }
+            
+            self.draggedCategory = nil
+            return true
+        }
+        
+        func dropEntered(info: DropInfo) {
+            // Optional: Visuelles Feedback beim Drag
+        }
+        
+        func dropExited(info: DropInfo) {
+            // Optional: Visuelles Feedback beim Drag
+        }
+    }
     
     // Initialisiere die sortierten Kategorien beim Erscheinen der View
     private func initializeSortedCategories() {
         sortedCategories = loadCategoryOrder()
-        hasUnsavedChanges = false
     }
     
     // Lade die gespeicherte Reihenfolge der Kategorien
     private func loadCategoryOrder() -> [Category] {
-        if let accountGroup = accountGroup {
-            // Lade Kategorien für spezifische Kontogruppe
-            return viewModel.getSortedCategories(for: accountGroup)
-        } else {
-            // Fallback: Alle Kategorien
-            return viewModel.getSortedCategories()
-        }
+        return viewModel.getSortedCategories()
     }
     
     // Speichere die neue Reihenfolge der Kategorien
     private func saveCategoryOrder() {
         let order = sortedCategories.compactMap { $0.name }
-        if let accountGroup = accountGroup {
-            let groupName = accountGroup.name ?? "Unknown"
-            UserDefaults.standard.set(order, forKey: "categoryOrder_\(groupName)")
-        } else {
-            UserDefaults.standard.set(order, forKey: "categoryOrder")
-        }
-        hasUnsavedChanges = true
+        UserDefaults.standard.set(order, forKey: "categoryOrder")
     }
     
     // Speichere alle Änderungen
@@ -1844,13 +1866,20 @@ struct CategoryManagementView: View {
             showSaveSuccess = true
         }
         
-        // Aktualisiere die sortierten Kategorien mit der neuen Reihenfolge
-        sortedCategories = loadCategoryOrder()
-        
         print("✅ Kategorie-Reihenfolge gespeichert")
     }
     
-
+    // Bewege eine Kategorie an eine neue Position
+    private func moveCategory(from source: Category, to destination: Category) {
+        guard let sourceIndex = sortedCategories.firstIndex(of: source),
+              let destinationIndex = sortedCategories.firstIndex(of: destination) else {
+            return
+        }
+        
+        let category = sortedCategories.remove(at: sourceIndex)
+        sortedCategories.insert(category, at: destinationIndex)
+        hasUnsavedChanges = true
+    }
     
     // Bewege Kategorien mit onMove
     private func moveCategories(from source: IndexSet, to destination: Int) {
@@ -1875,27 +1904,13 @@ struct CategoryManagementView: View {
             return
         }
         
-        if let accountGroup = accountGroup {
-            // Füge Kategorie für spezifische Kontogruppe hinzu
-            viewModel.addCategory(name: trimmedName, for: accountGroup) {
-                DispatchQueue.main.async {
-                    self.addingNewCategory = ""
-                    // Aktualisiere die sortierten Kategorien
-                    self.sortedCategories = self.loadCategoryOrder()
-                    self.hasUnsavedChanges = true
-                    print("Neue Kategorie '\(trimmedName)' für Gruppe '\(accountGroup.name ?? "Unknown")' erfolgreich hinzugefügt")
-                }
-            }
-        } else {
-            // Fallback: Füge allgemeine Kategorie hinzu
-            viewModel.addCategory(name: trimmedName) {
-                DispatchQueue.main.async {
-                    self.addingNewCategory = ""
-                    // Aktualisiere die sortierten Kategorien
-                    self.sortedCategories = self.loadCategoryOrder()
-                    self.hasUnsavedChanges = true
-                    print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
-                }
+        viewModel.addCategory(name: trimmedName) {
+            DispatchQueue.main.async {
+                self.addingNewCategory = ""
+                // Aktualisiere die sortierten Kategorien
+                self.sortedCategories = self.loadCategoryOrder()
+                self.hasUnsavedChanges = true
+                print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
             }
         }
     }
