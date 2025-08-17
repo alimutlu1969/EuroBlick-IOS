@@ -1851,7 +1851,6 @@ struct CategoryManagementView: View {
     private func loadCategoryOrder() -> [Category] {
         if let accountGroup = accountGroup {
             // Lade Kategorien für spezifische Kontogruppe
-            viewModel.fetchCategories(for: accountGroup)
             return viewModel.getSortedCategories(for: accountGroup)
         } else {
             // Fallback: Alle Kategorien
@@ -1881,12 +1880,8 @@ struct CategoryManagementView: View {
             showSaveSuccess = true
         }
         
-        // Aktualisiere die ViewModel-Kategorien
-        if let accountGroup = accountGroup {
-            viewModel.fetchCategories(for: accountGroup)
-        } else {
-            viewModel.fetchCategories()
-        }
+        // Aktualisiere die sortierten Kategorien mit der neuen Reihenfolge
+        sortedCategories = loadCategoryOrder()
         
         print("✅ Kategorie-Reihenfolge gespeichert")
     }

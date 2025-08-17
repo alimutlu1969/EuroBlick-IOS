@@ -368,7 +368,15 @@ class TransactionViewModel: ObservableObject {
     // Hole manuell sortierte Kategorien basierend auf gespeicherter Reihenfolge
     func getSortedCategories() -> [Category] {
         let savedOrder = UserDefaults.standard.stringArray(forKey: "categoryOrder") ?? []
-        let allCategories = self.categories
+        
+        // Lade alle Kategorien direkt aus Core Data
+        let request: NSFetchRequest<Category> = Category.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        
+        guard let allCategories = try? self.context.fetch(request) else {
+            print("⚠️ Fehler beim Laden der Kategorien für Sortierung")
+            return []
+        }
         
         // Erstelle eine sortierte Liste basierend auf der gespeicherten Reihenfolge
         var sorted: [Category] = []
@@ -400,8 +408,15 @@ class TransactionViewModel: ObservableObject {
             return self.getSortedCategories()
         }
         
-        // Sichere Filterung nach accountGroup
-        let allCategories = self.categories.filter { $0.accountGroup == accountGroup }
+        // Lade Kategorien direkt aus Core Data für diese Kontogruppe
+        let request: NSFetchRequest<Category> = Category.fetchRequest()
+        request.predicate = NSPredicate(format: "accountGroup == %@", accountGroup)
+        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        
+        guard let allCategories = try? self.context.fetch(request) else {
+            print("⚠️ Fehler beim Laden der Kategorien für Gruppe '\(groupName)' - verwende alle Kategorien")
+            return self.getSortedCategories()
+        }
         
         // Erstelle eine sortierte Liste basierend auf der gespeicherten Reihenfolge
         var sorted: [Category] = []
