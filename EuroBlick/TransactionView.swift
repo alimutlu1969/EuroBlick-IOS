@@ -445,7 +445,7 @@ struct TransactionView: View {
                 )
             }
             .sheet(isPresented: $showCategoryManagementSheet) {
-                CategoryManagementView(viewModel: viewModel)
+                CategoryManagementView(viewModel: viewModel, accountGroup: account.group)
             }
             .sheet(isPresented: $showAccountSelectionSheet) {
                 NavigationView {
@@ -1626,6 +1626,7 @@ struct CustomSegmentedPicker: UIViewRepresentable {
 
 struct CategoryManagementView: View {
     @ObservedObject var viewModel: TransactionViewModel
+    let accountGroup: AccountGroup?
     @Environment(\.dismiss) var dismiss
     @State private var editingCategory: Category?
     @State private var newCategoryName: String = ""
@@ -1668,7 +1669,7 @@ struct CategoryManagementView: View {
                         }
                         
                         // Sektion für bestehende Kategorien
-                        Section(header: Text("Bestehende Kategorien (\(sortedCategories.count))")
+                        Section(header: Text(accountGroup != nil ? "Kategorien für \(accountGroup!.name ?? "Gruppe") (\(sortedCategories.count))" : "Bestehende Kategorien (\(sortedCategories.count))")
                             .foregroundColor(.white)
                             .font(.headline)) {
                             ForEach(sortedCategories, id: \.self) { category in
@@ -1847,13 +1848,18 @@ struct CategoryManagementView: View {
     
     // Lade die gespeicherte Reihenfolge der Kategorien
     private func loadCategoryOrder() -> [Category] {
-        return viewModel.getSortedCategories()
+        if let accountGroup = accountGroup {
+            return viewModel.getSortedCategories(for: accountGroup)
+        } else {
+            return viewModel.getSortedCategories()
+        }
     }
     
     // Speichere die neue Reihenfolge der Kategorien
     private func saveCategoryOrder() {
         let order = sortedCategories.compactMap { $0.name }
-        UserDefaults.standard.set(order, forKey: "categoryOrder")
+        let key = accountGroup != nil ? "categoryOrder_\(accountGroup!.name ?? "default")" : "categoryOrder"
+        UserDefaults.standard.set(order, forKey: key)
     }
     
     // Speichere alle Änderungen
@@ -1898,18 +1904,36 @@ struct CategoryManagementView: View {
         let trimmedName = addingNewCategory.trimmingCharacters(in: .whitespacesAndNewlines)
         
         // Prüfe ob Kategorie bereits existiert
-        if viewModel.categories.contains(where: { $0.name?.lowercased() == trimmedName.lowercased() }) {
-            alertMessage = "Eine Kategorie mit diesem Namen existiert bereits."
-            showAlert = true
-            return
-        }
-        
-        viewModel.addCategory(name: trimmedName) {
-            DispatchQueue.main.async {
-                self.addingNewCategory = ""
-                // Aktualisiere die sortierten Kategorien
-                self.sortedCategories = self.loadCategoryOrder()
-                print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
+        if let accountGroup = accountGroup {
+            // Prüfe nur in der aktuellen Gruppe
+            let groupCategories = viewModel.getSortedCategories(for: accountGroup)
+            if groupCategories.contains(where: { $0.name?.lowercased() == trimmedName.lowercased() }) {
+                alertMessage = "Eine Kategorie mit diesem Namen existiert bereits in dieser Gruppe."
+                showAlert = true
+                return
+            }
+            viewModel.addCategory(name: trimmedName, for: accountGroup) {
+                DispatchQueue.main.async {
+                    self.addingNewCategory = ""
+                    // Aktualisiere die sortierten Kategorien
+                    self.sortedCategories = self.loadCategoryOrder()
+                    print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
+                }
+            }
+        } else {
+            // Prüfe global
+            if viewModel.categories.contains(where: { $0.name?.lowercased() == trimmedName.lowercased() }) {
+                alertMessage = "Eine Kategorie mit diesem Namen existiert bereits."
+                showAlert = true
+                return
+            }
+            viewModel.addCategory(name: trimmedName) {
+                DispatchQueue.main.async {
+                    self.addingNewCategory = ""
+                    // Aktualisiere die sortierten Kategorien
+                    self.sortedCategories = self.loadCategoryOrder()
+                    print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
+                }
             }
         }
     }
