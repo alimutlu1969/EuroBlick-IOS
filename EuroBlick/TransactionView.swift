@@ -1909,7 +1909,6 @@ struct CategoryManagementView: View {
                 self.addingNewCategory = ""
                 // Aktualisiere die sortierten Kategorien
                 self.sortedCategories = self.loadCategoryOrder()
-                self.hasUnsavedChanges = true
                 print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
             }
         }
@@ -1946,7 +1945,6 @@ struct CategoryManagementView: View {
                 } else {
                     // Aktualisiere die sortierten Kategorien
                     self.sortedCategories = self.loadCategoryOrder()
-                    self.hasUnsavedChanges = true
                     print("Kategorie erfolgreich gelöscht: \(category.name ?? "Unbekannt")")
                 }
             }
