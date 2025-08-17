@@ -74,7 +74,7 @@ struct AddTransactionView: View {
                                 Button(action: { category = "new" }) {
                                     Text("Neue Kategorie")
                                 }
-                                ForEach(viewModel.getSortedCategories(), id: \.self) { cat in
+                                ForEach(getCategoriesForAccount(), id: \.self) { cat in
                                     Button(action: { category = cat.name ?? "" }) {
                                         Text(cat.name ?? "")
                                     }
@@ -262,10 +262,20 @@ struct AddTransactionView: View {
         
         // Wenn eine neue Kategorie erstellt wird, speichere sie zuerst
         if category == "new" && !newCategory.isEmpty {
-            viewModel.addCategory(name: newCategory) {
-                print("Neue Kategorie '\(newCategory)' gespeichert")
-                // Nach dem Speichern der Kategorie die Transaktion hinzufügen
-                self.saveTransaction(adjustedAmount: adjustedAmount, finalCategory: finalCategory)
+            if let accountGroup = account.group {
+                // Füge Kategorie für spezifische Kontogruppe hinzu
+                viewModel.addCategory(name: newCategory, for: accountGroup) {
+                    print("Neue Kategorie '\(newCategory)' für Gruppe '\(accountGroup.name ?? "Unknown")' gespeichert")
+                    // Nach dem Speichern der Kategorie die Transaktion hinzufügen
+                    self.saveTransaction(adjustedAmount: adjustedAmount, finalCategory: finalCategory)
+                }
+            } else {
+                // Fallback: Füge allgemeine Kategorie hinzu
+                viewModel.addCategory(name: newCategory) {
+                    print("Neue Kategorie '\(newCategory)' gespeichert")
+                    // Nach dem Speichern der Kategorie die Transaktion hinzufügen
+                    self.saveTransaction(adjustedAmount: adjustedAmount, finalCategory: finalCategory)
+                }
             }
         } else {
             // Wenn keine neue Kategorie, direkt die Transaktion speichern
@@ -297,6 +307,18 @@ struct AddTransactionView: View {
         }
     }
 
+    // Hole Kategorien für das aktuelle Konto
+    private func getCategoriesForAccount() -> [Category] {
+        if let accountGroup = account.group {
+            // Lade Kategorien für die spezifische Kontogruppe
+            viewModel.fetchCategories(for: accountGroup)
+            return viewModel.getSortedCategories(for: accountGroup)
+        } else {
+            // Fallback: Alle Kategorien
+            return viewModel.getSortedCategories()
+        }
+    }
+    
     // Vorschlagsliste für Verwendungszwecke generieren
     private var usageSuggestions: [String] {
         let allTransactions = viewModel.accountGroups.flatMap { group in

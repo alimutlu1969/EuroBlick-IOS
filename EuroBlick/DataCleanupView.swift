@@ -7,12 +7,21 @@ struct DataCleanupView: View {
     @State private var isCleaningDuplicates = false
     @State private var isFixingIcons = false
     @State private var isFixingReservations = false
+    @State private var isDistributingCategories = false
+    @State private var isCreatingDefaultCategories = false
+    @State private var isResettingCoreData = false
     @State private var showDuplicateResult = false
     @State private var showIconResult = false
     @State private var showReservationResult = false
+    @State private var showCategoryDistributionResult = false
+    @State private var showDefaultCategoriesResult = false
+    @State private var showCoreDataResetResult = false
     @State private var duplicateResultMessage = ""
     @State private var iconResultMessage = ""
     @State private var reservationResultMessage = ""
+    @State private var categoryDistributionResultMessage = ""
+    @State private var defaultCategoriesResultMessage = ""
+    @State private var coreDataResetResultMessage = ""
     
     var body: some View {
         NavigationStack {
@@ -70,6 +79,39 @@ struct DataCleanupView: View {
                             fixReservations()
                         }
                     )
+                    
+                    // Kategorien auf Kontogruppen verteilen
+                    CleanupActionCard(
+                        icon: "folder.badge.plus",
+                        title: "Kategorien verteilen",
+                        description: "Verteilt bestehende Kategorien basierend auf Transaktionen auf die entsprechenden Kontogruppen",
+                        isProcessing: isDistributingCategories,
+                        action: {
+                            distributeCategories()
+                        }
+                    )
+                    
+                    // Standard-Kategorien erstellen
+                    CleanupActionCard(
+                        icon: "tag.badge.plus",
+                        title: "Standard-Kategorien erstellen",
+                        description: "Erstellt spezifische Standard-Kategorien für jede Kontogruppe (Drinks/Kaffee)",
+                        isProcessing: isCreatingDefaultCategories,
+                        action: {
+                            createDefaultCategories()
+                        }
+                    )
+                    
+                    // Core Data Reset (nur bei Problemen)
+                    CleanupActionCard(
+                        icon: "exclamationmark.triangle.fill",
+                        title: "Core Data Reset",
+                        description: "⚠️ LÖSCHT ALLE DATEN! Nur verwenden bei Schema-Problemen",
+                        isProcessing: isResettingCoreData,
+                        action: {
+                            resetCoreData()
+                        }
+                    )
                 }
                 .padding(.horizontal)
                 
@@ -99,6 +141,21 @@ struct DataCleanupView: View {
             Button("OK") { }
         } message: {
             Text(reservationResultMessage)
+        }
+        .alert("Kategorien-Verteilung", isPresented: $showCategoryDistributionResult) {
+            Button("OK") { }
+        } message: {
+            Text(categoryDistributionResultMessage)
+        }
+        .alert("Standard-Kategorien", isPresented: $showDefaultCategoriesResult) {
+            Button("OK") { }
+        } message: {
+            Text(defaultCategoriesResultMessage)
+        }
+        .alert("Core Data Reset", isPresented: $showCoreDataResetResult) {
+            Button("OK") { }
+        } message: {
+            Text(coreDataResetResultMessage)
         }
     }
     
@@ -135,6 +192,43 @@ struct DataCleanupView: View {
             isFixingReservations = false
             reservationResultMessage = "Reservierungen wurden erfolgreich korrigiert. 50€-Transaktionen wurden als Reservierungen kategorisiert."
             showReservationResult = true
+        }
+    }
+    
+    private func distributeCategories() {
+        isDistributingCategories = true
+        
+        viewModel.distributeCategoriesToAccountGroups()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            isDistributingCategories = false
+            categoryDistributionResultMessage = "Kategorien wurden erfolgreich auf Kontogruppen verteilt basierend auf bestehenden Transaktionen."
+            showCategoryDistributionResult = true
+        }
+    }
+    
+    private func createDefaultCategories() {
+        isCreatingDefaultCategories = true
+        
+        viewModel.createDefaultCategoriesForGroups()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            isCreatingDefaultCategories = false
+            defaultCategoriesResultMessage = "Standard-Kategorien wurden erfolgreich für alle Kontogruppen erstellt."
+            showDefaultCategoriesResult = true
+        }
+    }
+    
+    private func resetCoreData() {
+        isResettingCoreData = true
+        
+        // Führe Core Data Reset durch
+        PersistenceController.shared.resetCoreData()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            isResettingCoreData = false
+            coreDataResetResultMessage = "Core Data wurde zurückgesetzt. Alle Daten wurden gelöscht. Bitte starte die App neu."
+            showCoreDataResetResult = true
         }
     }
 }

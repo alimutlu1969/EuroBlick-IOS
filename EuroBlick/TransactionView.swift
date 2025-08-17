@@ -445,7 +445,7 @@ struct TransactionView: View {
                 )
             }
             .sheet(isPresented: $showCategoryManagementSheet) {
-                CategoryManagementView(viewModel: viewModel)
+                CategoryManagementView(viewModel: viewModel, accountGroup: account.group)
             }
             .sheet(isPresented: $showAccountSelectionSheet) {
                 NavigationView {
@@ -1626,6 +1626,7 @@ struct CustomSegmentedPicker: UIViewRepresentable {
 
 struct CategoryManagementView: View {
     @ObservedObject var viewModel: TransactionViewModel
+    let accountGroup: AccountGroup?
     @Environment(\.dismiss) var dismiss
     @State private var editingCategory: Category?
     @State private var newCategoryName: String = ""
@@ -1634,6 +1635,8 @@ struct CategoryManagementView: View {
     @State private var addingNewCategory: String = "" // Für neue Kategorie hinzufügen
     @State private var sortedCategories: [Category] = []
     @State private var draggedCategory: Category?
+    @State private var hasUnsavedChanges: Bool = false
+    @State private var showSaveSuccess: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -1666,7 +1669,7 @@ struct CategoryManagementView: View {
                         }
                         
                         // Sektion für bestehende Kategorien
-                        Section(header: Text("Bestehende Kategorien (\(sortedCategories.count))")
+                        Section(header: Text("Bestehende Kategorien für \(accountGroup?.name ?? "alle Gruppen") (\(sortedCategories.count))")
                             .foregroundColor(.white)
                             .font(.headline)) {
                             ForEach(sortedCategories, id: \.self) { category in
@@ -1701,14 +1704,39 @@ struct CategoryManagementView: View {
                     }
                     .scrollContentBackground(.hidden)
                     
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        Text("Schließen")
+                    // Änderungen Speichern Button
+                    if hasUnsavedChanges {
+                        Button(action: {
+                            saveChanges()
+                        }) {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                Text("Änderungen Speichern")
+                            }
                             .foregroundColor(.white)
                             .padding()
                             .frame(maxWidth: .infinity)
-                            .background(Color.red)
+                            .background(Color.green)
+                            .cornerRadius(10)
+                        }
+                        .padding(.horizontal)
+                        .padding(.bottom, 10)
+                    }
+                    
+                    Button(action: {
+                        if hasUnsavedChanges {
+                            // Zeige Bestätigungsdialog
+                            alertMessage = "Möchten Sie die Änderungen verwerfen?"
+                            showAlert = true
+                        } else {
+                            dismiss()
+                        }
+                    }) {
+                        Text(hasUnsavedChanges ? "Verwerfen" : "Schließen")
+                            .foregroundColor(.white)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(hasUnsavedChanges ? Color.orange : Color.red)
                             .cornerRadius(10)
                     }
                     .padding(.horizontal)
@@ -1734,14 +1762,55 @@ struct CategoryManagementView: View {
                 initializeSortedCategories()
             }
             .alert(isPresented: $showAlert) {
-                Alert(
-                    title: Text("Fehler"),
-                    message: Text(alertMessage),
-                    dismissButton: .default(Text("OK")) {
-                        alertMessage = ""
-                    }
-                )
+                if alertMessage.contains("verwerfen") {
+                    Alert(
+                        title: Text("Änderungen verwerfen?"),
+                        message: Text(alertMessage),
+                        primaryButton: .destructive(Text("Verwerfen")) {
+                            dismiss()
+                        },
+                        secondaryButton: .cancel(Text("Abbrechen")) {
+                            alertMessage = ""
+                        }
+                    )
+                } else {
+                    Alert(
+                        title: Text("Fehler"),
+                        message: Text(alertMessage),
+                        dismissButton: .default(Text("OK")) {
+                            alertMessage = ""
+                        }
+                    )
+                }
             }
+            .overlay(
+                Group {
+                    if showSaveSuccess {
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("Änderungen gespeichert!")
+                                    .foregroundColor(.green)
+                                    .font(.headline)
+                            }
+                            .padding()
+                            .background(Color.black.opacity(0.8))
+                            .cornerRadius(10)
+                            .padding(.bottom, 100)
+                        }
+                        .transition(.opacity)
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                withAnimation {
+                                    showSaveSuccess = false
+                                }
+                            }
+                        }
+                    }
+                }
+            )
         }
     }
     
@@ -1775,17 +1844,51 @@ struct CategoryManagementView: View {
     // Initialisiere die sortierten Kategorien beim Erscheinen der View
     private func initializeSortedCategories() {
         sortedCategories = loadCategoryOrder()
+        hasUnsavedChanges = false
     }
     
     // Lade die gespeicherte Reihenfolge der Kategorien
     private func loadCategoryOrder() -> [Category] {
-        return viewModel.getSortedCategories()
+        if let accountGroup = accountGroup {
+            // Lade Kategorien für spezifische Kontogruppe
+            viewModel.fetchCategories(for: accountGroup)
+            return viewModel.getSortedCategories(for: accountGroup)
+        } else {
+            // Fallback: Alle Kategorien
+            return viewModel.getSortedCategories()
+        }
     }
     
     // Speichere die neue Reihenfolge der Kategorien
     private func saveCategoryOrder() {
         let order = sortedCategories.compactMap { $0.name }
-        UserDefaults.standard.set(order, forKey: "categoryOrder")
+        if let accountGroup = accountGroup {
+            let groupName = accountGroup.name ?? "Unknown"
+            UserDefaults.standard.set(order, forKey: "categoryOrder_\(groupName)")
+        } else {
+            UserDefaults.standard.set(order, forKey: "categoryOrder")
+        }
+        hasUnsavedChanges = true
+    }
+    
+    // Speichere alle Änderungen
+    private func saveChanges() {
+        saveCategoryOrder()
+        hasUnsavedChanges = false
+        
+        // Zeige Erfolgsmeldung
+        withAnimation {
+            showSaveSuccess = true
+        }
+        
+        // Aktualisiere die ViewModel-Kategorien
+        if let accountGroup = accountGroup {
+            viewModel.fetchCategories(for: accountGroup)
+        } else {
+            viewModel.fetchCategories()
+        }
+        
+        print("✅ Kategorie-Reihenfolge gespeichert")
     }
     
     // Bewege eine Kategorie an eine neue Position
@@ -1797,13 +1900,13 @@ struct CategoryManagementView: View {
         
         let category = sortedCategories.remove(at: sourceIndex)
         sortedCategories.insert(category, at: destinationIndex)
-        saveCategoryOrder()
+        hasUnsavedChanges = true
     }
     
     // Bewege Kategorien mit onMove
     private func moveCategories(from source: IndexSet, to destination: Int) {
         sortedCategories.move(fromOffsets: source, toOffset: destination)
-        saveCategoryOrder()
+        hasUnsavedChanges = true
     }
 
     // Neue Methode zum Hinzufügen einer Kategorie
@@ -1823,12 +1926,27 @@ struct CategoryManagementView: View {
             return
         }
         
-        viewModel.addCategory(name: trimmedName) {
-            DispatchQueue.main.async {
-                self.addingNewCategory = ""
-                // Aktualisiere die sortierten Kategorien
-                self.sortedCategories = self.loadCategoryOrder()
-                print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
+        if let accountGroup = accountGroup {
+            // Füge Kategorie für spezifische Kontogruppe hinzu
+            viewModel.addCategory(name: trimmedName, for: accountGroup) {
+                DispatchQueue.main.async {
+                    self.addingNewCategory = ""
+                    // Aktualisiere die sortierten Kategorien
+                    self.sortedCategories = self.loadCategoryOrder()
+                    self.hasUnsavedChanges = true
+                    print("Neue Kategorie '\(trimmedName)' für Gruppe '\(accountGroup.name ?? "Unknown")' erfolgreich hinzugefügt")
+                }
+            }
+        } else {
+            // Fallback: Füge allgemeine Kategorie hinzu
+            viewModel.addCategory(name: trimmedName) {
+                DispatchQueue.main.async {
+                    self.addingNewCategory = ""
+                    // Aktualisiere die sortierten Kategorien
+                    self.sortedCategories = self.loadCategoryOrder()
+                    self.hasUnsavedChanges = true
+                    print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
+                }
             }
         }
     }
@@ -1864,6 +1982,7 @@ struct CategoryManagementView: View {
                 } else {
                     // Aktualisiere die sortierten Kategorien
                     self.sortedCategories = self.loadCategoryOrder()
+                    self.hasUnsavedChanges = true
                     print("Kategorie erfolgreich gelöscht: \(category.name ?? "Unbekannt")")
                 }
             }

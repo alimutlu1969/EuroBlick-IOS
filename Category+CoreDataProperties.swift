@@ -17,6 +17,7 @@ extension Category {
     }
 
     @NSManaged public var name: String?
+    @NSManaged public var accountGroup: AccountGroup?
     @NSManaged public var transactions: NSSet?
 
 }

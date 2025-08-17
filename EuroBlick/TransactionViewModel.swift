@@ -139,6 +139,7 @@ class TransactionViewModel: ObservableObject {
     // Initialisiere die Daten (nur Kategorien, keine Kontogruppen/Konten)
     func initializeData() {
         context.perform {
+            // Sichere Initialisierung
             // Bereinige doppelte Kategorien zuerst
             self.removeDuplicateCategories()
             // Bereinige ungültige Transaktionen
@@ -147,6 +148,8 @@ class TransactionViewModel: ObservableObject {
             self.correctTransactionYears()
             
             self.fetchCategories()
+            
+            // Erstelle Standard-Kategorien (ohne accountGroup Prüfung)
             let defaultCategoryNames = [
                 "Personal", "EC-Umbuchung", "Kasa", "KV-Beiträge", "Priv. KV",
                 "Strom/Gas", "Verpackung", "Steuerberater", "Werbekosten",
@@ -168,6 +171,7 @@ class TransactionViewModel: ObservableObject {
                     }
                 }
             }
+            
             self.saveContext(self.context) { error in
                 if let error = error {
                     print("Fehler beim Speichern der initialisierten Daten: \(error)")
@@ -308,10 +312,96 @@ class TransactionViewModel: ObservableObject {
         }
     }
     
+    // Prüfe, ob das neue Core Data Schema verfügbar ist
+    private func isNewSchemaAvailable() -> Bool {
+        // Sichere Prüfung über Core Data Modelle
+        // Prüfe, ob die Category Entity die accountGroup Property hat
+        let entityDescription = NSEntityDescription.entity(forEntityName: "Category", in: self.context)
+        let hasAccountGroupProperty = entityDescription?.propertiesByName["accountGroup"] != nil
+        
+        if hasAccountGroupProperty {
+            // Zusätzliche Prüfung: Versuche eine sichere Abfrage
+            if let _ = try? self.context.fetch(Category.fetchRequest()) {
+                print("✅ Neues Core Data Schema verfügbar")
+                return true
+            } else {
+                print("⚠️ Core Data Schema nicht vollständig migriert")
+                return false
+            }
+        } else {
+            print("⚠️ Altes Core Data Schema - accountGroup Property nicht verfügbar")
+            return false
+        }
+    }
+    
+    // Hole Kategorien für eine spezifische Kontogruppe
+    func fetchCategories(for accountGroup: AccountGroup) {
+        context.perform {
+            // Prüfe zuerst, ob das neue Schema verfügbar ist
+            if !self.isNewSchemaAvailable() {
+                print("⚠️ Core Data Schema noch nicht migriert - verwende alle Kategorien")
+                self.fetchCategories()
+                return
+            }
+            
+            let request: NSFetchRequest<Category> = Category.fetchRequest()
+            request.predicate = NSPredicate(format: "accountGroup == %@", accountGroup)
+            request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+            
+            if let fetchedCategories = try? self.context.fetch(request) {
+                // Filtere leere Kategorien heraus
+                let filteredCategories = fetchedCategories.filter { category in
+                    guard let name = category.name else { return false }
+                    return !name.isEmpty
+                }
+                DispatchQueue.main.async {
+                    self.categories = filteredCategories
+                    print("Fetched \(self.categories.count) categories for group '\(accountGroup.name ?? "Unknown")': \(self.categories.map { $0.name ?? "Unnamed" })")
+                }
+            } else {
+                print("⚠️ Fehler beim Laden der Kategorien für Gruppe - verwende alle Kategorien")
+                self.fetchCategories()
+            }
+        }
+    }
+    
     // Hole manuell sortierte Kategorien basierend auf gespeicherter Reihenfolge
     func getSortedCategories() -> [Category] {
         let savedOrder = UserDefaults.standard.stringArray(forKey: "categoryOrder") ?? []
         let allCategories = self.categories
+        
+        // Erstelle eine sortierte Liste basierend auf der gespeicherten Reihenfolge
+        var sorted: [Category] = []
+        var remainingCategories = allCategories
+        
+        // Füge zuerst die gespeicherten Kategorien in der richtigen Reihenfolge hinzu
+        for savedName in savedOrder {
+            if let category = remainingCategories.first(where: { $0.name == savedName }) {
+                sorted.append(category)
+                remainingCategories.removeAll(where: { $0.name == savedName })
+            }
+        }
+        
+        // Füge die restlichen Kategorien alphabetisch hinzu
+        let remainingSorted = remainingCategories.sorted { ($0.name ?? "") < ($1.name ?? "") }
+        sorted.append(contentsOf: remainingSorted)
+        
+        return sorted
+    }
+    
+    // Hole manuell sortierte Kategorien für eine spezifische Kontogruppe
+    func getSortedCategories(for accountGroup: AccountGroup) -> [Category] {
+        let groupName = accountGroup.name ?? "Unknown"
+        let savedOrder = UserDefaults.standard.stringArray(forKey: "categoryOrder_\(groupName)") ?? []
+        
+        // Prüfe zuerst, ob das neue Schema verfügbar ist
+        if !isNewSchemaAvailable() {
+            print("⚠️ Core Data Schema noch nicht migriert - verwende alle Kategorien")
+            return self.getSortedCategories()
+        }
+        
+        // Sichere Filterung nach accountGroup
+        let allCategories = self.categories.filter { $0.accountGroup == accountGroup }
         
         // Erstelle eine sortierte Liste basierend auf der gespeicherten Reihenfolge
         var sorted: [Category] = []
@@ -441,6 +531,54 @@ class TransactionViewModel: ObservableObject {
             } else {
                 print("Kategorie \(name) existiert bereits")
                 completion?()
+            }
+        }
+    }
+    
+    // Füge eine neue Kategorie für eine spezifische Kontogruppe hinzu
+    func addCategory(name: String, for accountGroup: AccountGroup, completion: (() -> Void)? = nil) {
+        context.perform {
+            guard !name.isEmpty else {
+                print("Fehler: Kategoriename darf nicht leer sein")
+                completion?()
+                return
+            }
+            
+            // Prüfe zuerst, ob das neue Schema verfügbar ist
+            if !self.isNewSchemaAvailable() {
+                print("⚠️ Core Data Schema noch nicht migriert - erstelle Kategorie ohne accountGroup")
+                self.addCategory(name: name, completion: completion)
+                return
+            }
+            
+            do {
+                // Prüfe, ob die Kategorie bereits für diese Kontogruppe existiert
+                let request: NSFetchRequest<Category> = Category.fetchRequest()
+                request.predicate = NSPredicate(format: "name == %@ AND accountGroup == %@", name, accountGroup)
+                let existing = try self.context.fetch(request)
+                
+                if existing.isEmpty {
+                    let newCategory = Category(context: self.context)
+                    newCategory.name = name
+                    newCategory.accountGroup = accountGroup
+                    
+                    self.saveContext(self.context) { error in
+                        if let error = error {
+                            print("Fehler beim Speichern der neuen Kategorie: \(error)")
+                            completion?()
+                            return
+                        }
+                        self.fetchCategories(for: accountGroup)
+                        print("Kategorie \(name) für Gruppe '\(accountGroup.name ?? "Unknown")' hinzugefügt")
+                        completion?()
+                    }
+                } else {
+                    print("Kategorie \(name) existiert bereits für Gruppe '\(accountGroup.name ?? "Unknown")'")
+                    completion?()
+                }
+            } catch {
+                print("⚠️ Fehler beim Erstellen der Kategorie für Gruppe - erstelle ohne accountGroup: \(error)")
+                self.addCategory(name: name, completion: completion)
             }
         }
     }
@@ -3106,6 +3244,116 @@ class TransactionViewModel: ObservableObject {
                 }
             } catch {
                 print("Fehler beim Bereinigen der SB-Zahlungen: \(error)")
+            }
+        }
+    }
+    
+    // Verteile bestehende Kategorien auf Kontogruppen basierend auf Transaktionen
+    func distributeCategoriesToAccountGroups() {
+        print("🔧 Starte Verteilung der Kategorien auf Kontogruppen...")
+        
+        context.perform {
+            do {
+                // Hole alle Kategorien ohne Kontogruppe
+                let fetchRequest: NSFetchRequest<Category> = Category.fetchRequest()
+                fetchRequest.predicate = NSPredicate(format: "accountGroup == nil")
+                
+                let orphanedCategories = try self.context.fetch(fetchRequest)
+                print("🔧 Gefunden \(orphanedCategories.count) Kategorien ohne Kontogruppe")
+                
+                var distributedCount = 0
+                
+                for category in orphanedCategories {
+                    // Finde Transaktionen mit dieser Kategorie
+                    let transactionRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
+                    transactionRequest.predicate = NSPredicate(format: "categoryRelationship == %@", category)
+                    
+                    if let transactions = try? self.context.fetch(transactionRequest) {
+                        // Gruppiere Transaktionen nach Kontogruppe
+                        var groupCounts: [AccountGroup: Int] = [:]
+                        
+                        for transaction in transactions {
+                            if let account = transaction.account, let group = account.group {
+                                groupCounts[group, default: 0] += 1
+                            }
+                        }
+                        
+                        // Weise die Kategorie der Kontogruppe mit den meisten Transaktionen zu
+                        if let mostUsedGroup = groupCounts.max(by: { $0.value < $1.value })?.key {
+                            category.accountGroup = mostUsedGroup
+                            distributedCount += 1
+                            print("🔧 Kategorie '\(category.name ?? "Unknown")' zu Gruppe '\(mostUsedGroup.name ?? "Unknown")' zugeordnet (\(groupCounts[mostUsedGroup] ?? 0) Transaktionen)")
+                        }
+                    }
+                }
+                
+                if distributedCount > 0 {
+                    try self.context.save()
+                    print("🔧 \(distributedCount) Kategorien auf Kontogruppen verteilt")
+                    
+                    // UI aktualisieren
+                    DispatchQueue.main.async {
+                        self.objectWillChange.send()
+                        self.fetchAccountGroups()
+                        self.fetchCategories()
+                    }
+                } else {
+                    print("🔧 Keine Kategorien zu verteilen gefunden")
+                }
+                
+            } catch {
+                print("⚠️ Core Data Schema noch nicht migriert - überspringe Kategorien-Verteilung: \(error)")
+            }
+        }
+    }
+    
+    // Erstelle Standard-Kategorien für Kontogruppen
+    func createDefaultCategoriesForGroups() {
+        print("🔧 Erstelle Standard-Kategorien für Kontogruppen...")
+        
+        context.perform {
+            let groups = self.accountGroups
+            
+            for group in groups {
+                let groupName = group.name ?? "Unknown"
+                print("🔧 Erstelle Standard-Kategorien für Gruppe: \(groupName)")
+                
+                // Standard-Kategorien basierend auf Gruppenname
+                let defaultCategories: [String]
+                
+                if groupName.lowercased().contains("drinks") {
+                    defaultCategories = [
+                        "Wareneinkauf", "Personal", "Raumkosten", "Instandhaltung", 
+                        "Reparatur", "Verpackung", "Werbekosten", "Sonstiges", "Reservierung"
+                    ]
+                } else if groupName.lowercased().contains("kaffee") {
+                    defaultCategories = [
+                        "Lebensmittel", "Personal", "Raumkosten", "Instandhaltung", 
+                        "Reparatur", "Verpackung", "Werbekosten", "Sonstiges", "Reservierung"
+                    ]
+                } else {
+                    // Allgemeine Kategorien für unbekannte Gruppen
+                    defaultCategories = [
+                        "Personal", "Raumkosten", "Instandhaltung", "Reparatur", 
+                        "Verpackung", "Werbekosten", "Sonstiges", "Reservierung"
+                    ]
+                }
+                
+                // Erstelle Kategorien für diese Gruppe
+                for categoryName in defaultCategories {
+                    // Prüfe, ob das neue Schema verfügbar ist
+                    if self.isNewSchemaAvailable() {
+                        self.addCategory(name: categoryName, for: group) {
+                            print("🔧 Standard-Kategorie '\(categoryName)' für Gruppe '\(groupName)' erstellt")
+                        }
+                    } else {
+                        print("⚠️ Core Data Schema noch nicht migriert - erstelle Kategorie ohne accountGroup")
+                        // Fallback: Erstelle Kategorie ohne accountGroup
+                        self.addCategory(name: categoryName) {
+                            print("🔧 Standard-Kategorie '\(categoryName)' (ohne Gruppe) erstellt")
+                        }
+                    }
+                }
             }
         }
     }

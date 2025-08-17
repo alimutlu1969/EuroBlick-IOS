@@ -39,6 +39,18 @@ struct EditTransactionView: View {
     private let umbuchungColorSelected = Color(red: 0.118, green: 0.565, blue: 1.0)
     private let defaultColor = Color.gray
 
+    // Hole Kategorien für das aktuelle Konto
+    private func getCategoriesForAccount() -> [Category] {
+        if let accountGroup = transaction.account?.group {
+            // Lade Kategorien für die spezifische Kontogruppe
+            viewModel.fetchCategories(for: accountGroup)
+            return viewModel.getSortedCategories(for: accountGroup)
+        } else {
+            // Fallback: Alle Kategorien
+            return viewModel.getSortedCategories()
+        }
+    }
+
     init(viewModel: TransactionViewModel, transaction: Transaction) {
         self.viewModel = viewModel
         self.transaction = transaction
@@ -199,7 +211,7 @@ struct EditTransactionView: View {
             usage: $usage,
             date: $date,
             type: type,
-            categories: viewModel.getSortedCategories(),
+            categories: getCategoriesForAccount(),
             accountGroups: viewModel.accountGroups
         )
         .scrollContentBackground(.hidden)
