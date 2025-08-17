@@ -445,7 +445,7 @@ struct TransactionView: View {
                 )
             }
             .sheet(isPresented: $showCategoryManagementSheet) {
-                CategoryManagementView(viewModel: viewModel, accountGroup: account.group)
+                CategoryManagementView(viewModel: viewModel)
             }
             .sheet(isPresented: $showAccountSelectionSheet) {
                 NavigationView {
@@ -1626,7 +1626,6 @@ struct CustomSegmentedPicker: UIViewRepresentable {
 
 struct CategoryManagementView: View {
     @ObservedObject var viewModel: TransactionViewModel
-    let accountGroup: AccountGroup?
     @Environment(\.dismiss) var dismiss
     @State private var editingCategory: Category?
     @State private var newCategoryName: String = ""
@@ -1669,7 +1668,7 @@ struct CategoryManagementView: View {
                         }
                         
                         // Sektion für bestehende Kategorien
-                        Section(header: Text("Bestehende Kategorien für \(accountGroup?.name ?? "alle Gruppen") (\(sortedCategories.count))")
+                        Section(header: Text("Bestehende Kategorien (\(sortedCategories.count))")
                             .foregroundColor(.white)
                             .font(.headline)) {
                             ForEach(sortedCategories, id: \.self) { category in
@@ -1848,24 +1847,13 @@ struct CategoryManagementView: View {
     
     // Lade die gespeicherte Reihenfolge der Kategorien
     private func loadCategoryOrder() -> [Category] {
-        if let accountGroup = accountGroup {
-            // Lade Kategorien für spezifische Kontogruppe
-            return viewModel.getSortedCategories(for: accountGroup)
-        } else {
-            // Fallback: Alle Kategorien
-            return viewModel.getSortedCategories()
-        }
+        return viewModel.getSortedCategories()
     }
     
     // Speichere die neue Reihenfolge der Kategorien
     private func saveCategoryOrder() {
         let order = sortedCategories.compactMap { $0.name }
-        if let accountGroup = accountGroup {
-            let groupName = accountGroup.name ?? "Unknown"
-            UserDefaults.standard.set(order, forKey: "categoryOrder_\(groupName)")
-        } else {
-            UserDefaults.standard.set(order, forKey: "categoryOrder")
-        }
+        UserDefaults.standard.set(order, forKey: "categoryOrder")
     }
     
     // Speichere alle Änderungen
@@ -1916,27 +1904,13 @@ struct CategoryManagementView: View {
             return
         }
         
-        if let accountGroup = accountGroup {
-            // Füge Kategorie für spezifische Kontogruppe hinzu
-            viewModel.addCategory(name: trimmedName, for: accountGroup) {
-                DispatchQueue.main.async {
-                    self.addingNewCategory = ""
-                    // Aktualisiere die sortierten Kategorien
-                    self.sortedCategories = self.loadCategoryOrder()
-                    self.hasUnsavedChanges = true
-                    print("Neue Kategorie '\(trimmedName)' für Gruppe '\(accountGroup.name ?? "Unknown")' erfolgreich hinzugefügt")
-                }
-            }
-        } else {
-            // Fallback: Füge allgemeine Kategorie hinzu
-            viewModel.addCategory(name: trimmedName) {
-                DispatchQueue.main.async {
-                    self.addingNewCategory = ""
-                    // Aktualisiere die sortierten Kategorien
-                    self.sortedCategories = self.loadCategoryOrder()
-                    self.hasUnsavedChanges = true
-                    print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
-                }
+        viewModel.addCategory(name: trimmedName) {
+            DispatchQueue.main.async {
+                self.addingNewCategory = ""
+                // Aktualisiere die sortierten Kategorien
+                self.sortedCategories = self.loadCategoryOrder()
+                self.hasUnsavedChanges = true
+                print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
             }
         }
     }
