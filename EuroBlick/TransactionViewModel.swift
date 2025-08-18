@@ -469,7 +469,7 @@ class TransactionViewModel: ObservableObject {
         }
     }
     
-    // Berechne den Kontostand für ein Konto
+    // Berechne den Kontostand für ein Konto (inkl. Bargeldeinzahlungen für Tagesbilanz)
     func getBalance(for account: Account) -> Double {
         let context = self.context
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
@@ -506,6 +506,10 @@ class TransactionViewModel: ObservableObject {
                     } else if type == "umbuchung" {
                         totalBalance += amount // Umbuchungen werden auch addiert
                         summeUmbuchungen += amount
+                    } else if type == "bargeldeinzahlung" {
+                        // Bargeldeinzahlungen: Nur in Tagesbilanz, nicht in Auswertungsbilanz
+                        totalBalance += amount
+                        print("💰 Bargeldeinzahlung in getBalance: \(amount)€ zu Tagesbilanz hinzugefügt")
                     }
                     // "reservierung" wird durch Predicate ignoriert
                 }
@@ -514,6 +518,54 @@ class TransactionViewModel: ObservableObject {
             return totalBalance
         } catch {
             print("Fehler beim Berechnen des Kontostands: \(error.localizedDescription)")
+            return 0.0
+        }
+    }
+    
+    // Berechne die Auswertungsbilanz für ein Konto (ohne Bargeldeinzahlungen)
+    func getEvaluationBalance(for account: Account) -> Double {
+        let context = self.context
+        let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
+
+        // Auswertungsbilanz schließt Bargeldeinzahlungen aus, da sie bereits im Bargeldkonto gebucht wurden
+        fetchRequest.predicate = NSPredicate(format: "account == %@ AND type != %@ AND type != %@", account, "reservierung", "bargeldeinzahlung")
+        fetchRequest.resultType = .dictionaryResultType
+
+        let expressionDesc = NSExpressionDescription()
+        expressionDesc.name = "totalAmount"
+        expressionDesc.expression = NSExpression(forFunction: "sum:", arguments: [NSExpression(forKeyPath: "amount")])
+        expressionDesc.expressionResultType = .doubleAttributeType
+
+        fetchRequest.propertiesToGroupBy = ["type"]
+        fetchRequest.propertiesToFetch = ["type", expressionDesc]
+
+        do {
+            let results = try context.fetch(fetchRequest)
+            var totalBalance: Double = 0.0
+            var summeEinnahmen: Double = 0.0
+            var summeAusgaben: Double = 0.0
+            var summeUmbuchungen: Double = 0.0
+            
+            for result in results {
+                if let type = result["type"] as? String,
+                   let amount = result["totalAmount"] as? Double {
+                    if type == "einnahme" {
+                        totalBalance += amount
+                        summeEinnahmen += amount
+                    } else if type == "ausgabe" {
+                        totalBalance += amount // Korrigiert: addiere, da bereits negativ
+                        summeAusgaben += amount
+                    } else if type == "umbuchung" {
+                        totalBalance += amount // Umbuchungen werden auch addiert
+                        summeUmbuchungen += amount
+                    }
+                    // "reservierung" und "bargeldeinzahlung" werden durch Predicate ignoriert
+                }
+            }
+            print("getEvaluationBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance) (ohne Bargeldeinzahlungen)")
+            return totalBalance
+        } catch {
+            print("Fehler beim Berechnen der Auswertungsbilanz: \(error.localizedDescription)")
             return 0.0
         }
     }
@@ -2102,31 +2154,29 @@ class TransactionViewModel: ObservableObject {
             }
 
             // Prüfe auf verdächtige Transaktionen (nicht für Reservierungen)
-            let isSuspiciousTransaction = !isReservation && (categoryName == "SB-Einzahlung" || 
-                                        categoryName == "Geldautomat" ||
-                                        (finalUsageForTransaction.lowercased().contains("sb-einzahlung")) ||
-                                        (finalUsageForTransaction.lowercased().contains("einzahlung")) || 
-                                        (finalUsageForTransaction.lowercased().contains("bargeld")))
+            // Nur bei sehr ähnlichen Transaktionen mit gleichem Betrag und ähnlichem Zweck
+            let isSuspiciousTransaction = !isReservation && 
+                                        (categoryName == "SB-Einzahlung" || categoryName == "Geldautomat") &&
+                                        (finalUsageForTransaction.lowercased().contains("sb-einzahlung") ||
+                                         finalUsageForTransaction.lowercased().contains("bargeldeinzahlung"))
             
             print("Zeile \(lineNumber + 2): Prüfe verdächtige Transaktion - Kategorie: '\(categoryName)', Zweck: '\(finalUsageForTransaction)', Reservierung: \(isReservation), verdächtig: \(isSuspiciousTransaction)")
             
             if isSuspiciousTransaction {
                 print("Zeile \(lineNumber + 2): Verdächtige Transaktion erkannt - starte Duplikatsuche")
                 
-                // Suche nach ähnlichen Transaktionen
+                // Suche nach sehr ähnlichen Transaktionen (gleicher Betrag + sehr ähnlicher Zweck)
                 let transactionFetchRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
                 var predicates: [NSPredicate] = [
                     NSPredicate(format: "abs(amount - %f) < 0.01", finalAmount),
                     NSPredicate(format: "account == %@", accountInContext)
                 ]
                 
-                // Erweiterte Suche nach ähnlichen Zwecken
+                // Nur bei sehr ähnlichen Zwecken (exakte Übereinstimmung oder sehr ähnlich)
                 let usagePredicates = [
+                    NSPredicate(format: "usage == %@", finalUsageForTransaction),
                     NSPredicate(format: "usage CONTAINS[cd] %@", "sb-einzahlung"),
-                    NSPredicate(format: "usage CONTAINS[cd] %@", "einzahlung"),
-                    NSPredicate(format: "usage CONTAINS[cd] %@", "bargeld"),
-                    NSPredicate(format: "categoryRelationship.name == %@", "Geldautomat"),
-                    NSPredicate(format: "categoryRelationship.name == %@", "SB-Einzahlung")
+                    NSPredicate(format: "categoryRelationship.name == %@", "Geldautomat")
                 ]
                 predicates.append(NSCompoundPredicate(orPredicateWithSubpredicates: usagePredicates))
                 
@@ -2163,6 +2213,10 @@ class TransactionViewModel: ObservableObject {
             if isReservation {
                 transaction.type = "reservierung"
                 print("Zeile \(lineNumber + 2): Reservierungs-Transaktion erstellt")
+            } else if categoryName == "Geldautomat" && finalUsageForTransaction.lowercased().contains("sb-einzahlung") {
+                // Bargeldeinzahlungen: Erscheinen in Tagesbilanz, aber nicht in Auswertungsbilanz
+                transaction.type = "bargeldeinzahlung"
+                print("Zeile \(lineNumber + 2): Bargeldeinzahlung-Transaktion erstellt")
             } else {
                 transaction.type = finalAmount > 0 ? "einnahme" : "ausgabe"
             }
@@ -2349,6 +2403,7 @@ class TransactionViewModel: ObservableObject {
         
         // Kontostände berücksichtigen ALLE Transaktionen (auch ausgeschlossene), da sie die physische Realität widerspiegeln
         // Nur Reservierungen werden ausgeschlossen, da sie noch nicht "echt" stattgefunden haben
+        // Bargeldeinzahlungen werden in der Tagesbilanz berücksichtigt, aber nicht in der Auswertungsbilanz
         fetchRequest.predicate = NSPredicate(format: "type != %@", "reservierung")
 
         let sumExpression = NSExpressionDescription()
@@ -2398,6 +2453,10 @@ class TransactionViewModel: ObservableObject {
                     } else if type == "umbuchung" {
                         balanceDict[account] = currentBalance + balance // Umbuchungen werden auch addiert
                         umbuchungenDict[account] = (umbuchungenDict[account] ?? 0.0) + balance
+                    } else if type == "bargeldeinzahlung" {
+                        // Bargeldeinzahlungen: Nur in Tagesbilanz, nicht in Auswertungsbilanz
+                        balanceDict[account] = currentBalance + balance
+                        print("💰 Bargeldeinzahlung: \(balance)€ zu Tagesbilanz hinzugefügt (nicht in Auswertung)")
                     }
                     // "reservierung" wird automatisch durch das Predicate ignoriert
                 }
