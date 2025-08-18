@@ -311,7 +311,6 @@ struct AddTransactionView: View {
     private func getCategoriesForAccount() -> [Category] {
         if let accountGroup = account.group {
             // Lade Kategorien für die spezifische Kontogruppe mit gespeicherter Reihenfolge
-            viewModel.fetchCategories(for: accountGroup)
             return viewModel.getSortedCategories(for: accountGroup)
         } else {
             // Fallback: Alle Kategorien mit gespeicherter Reihenfolge

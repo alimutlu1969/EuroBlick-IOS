@@ -315,26 +315,31 @@ class TransactionViewModel: ObservableObject {
         }
     }
     
-    // Prüfe, ob das neue Core Data Schema verfügbar ist
+    // Prüfe, ob das neue Core Data Schema verfügbar ist (Ergebnis wird gecacht, um Spam zu vermeiden)
+    private var cachedSchemaAvailability: Bool?
     private func isNewSchemaAvailable() -> Bool {
+        if let cached = cachedSchemaAvailability { return cached }
+
         // Sichere Prüfung über Core Data Modelle
-        // Prüfe, ob die Category Entity die accountGroup Property hat
         let entityDescription = NSEntityDescription.entity(forEntityName: "Category", in: self.context)
         let hasAccountGroupProperty = entityDescription?.propertiesByName["accountGroup"] != nil
-        
+
         if hasAccountGroupProperty {
-                            // Zusätzliche Prüfung: Versuche eine sichere Abfrage
-                if let _ = try? self.context.fetch(Category.fetchRequest()) {
-                    print("✅ Neues Core Data Schema verfügbar")
-                    return true
-                } else {
-                    print("⚠️ Core Data Schema nicht vollständig migriert")
-                    return false
-                }
+            // Zusätzliche Prüfung: Versuche eine sichere Abfrage
+            if let _ = try? self.context.fetch(Category.fetchRequest()) {
+                print("✅ Neues Core Data Schema verfügbar")
+                cachedSchemaAvailability = true
+                return true
             } else {
-                print("⚠️ Altes Core Data Schema - accountGroup Property nicht verfügbar")
+                print("⚠️ Core Data Schema nicht vollständig migriert")
+                cachedSchemaAvailability = false
                 return false
             }
+        } else {
+            print("⚠️ Altes Core Data Schema - accountGroup Property nicht verfügbar")
+            cachedSchemaAvailability = false
+            return false
+        }
     }
     
     // Hole Kategorien für eine spezifische Kontogruppe
@@ -342,7 +347,9 @@ class TransactionViewModel: ObservableObject {
         context.perform {
             // Prüfe zuerst, ob das neue Schema verfügbar ist
             if !self.isNewSchemaAvailable() {
-                print("⚠️ Core Data Schema noch nicht migriert - verwende alle Kategorien")
+                if self.categories.isEmpty {
+                    print("⚠️ Core Data Schema noch nicht migriert - verwende alle Kategorien")
+                }
                 self.fetchCategories()
                 return
             }
@@ -380,7 +387,7 @@ class TransactionViewModel: ObservableObject {
         request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
         
         guard let allCategories = try? self.context.fetch(request) else {
-            print("⚠️ Fehler beim Laden der Kategorien für Sortierung")
+            if categories.isEmpty { print("⚠️ Fehler beim Laden der Kategorien für Sortierung") }
             return []
         }
         
@@ -410,7 +417,8 @@ class TransactionViewModel: ObservableObject {
         
         // Prüfe zuerst, ob das neue Schema verfügbar ist
         if !isNewSchemaAvailable() {
-            print("⚠️ Core Data Schema noch nicht migriert - verwende alle Kategorien")
+            // Nur einmal ausgeben, wenn Kategorien leer sind
+            if categories.isEmpty { print("⚠️ Core Data Schema noch nicht migriert - verwende alle Kategorien") }
             return self.getSortedCategories()
         }
         
@@ -420,7 +428,7 @@ class TransactionViewModel: ObservableObject {
         request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
         
         guard let allCategories = try? self.context.fetch(request) else {
-            print("⚠️ Fehler beim Laden der Kategorien für Gruppe '\(groupName)' - verwende alle Kategorien")
+            if categories.isEmpty { print("⚠️ Fehler beim Laden der Kategorien für Gruppe '\(groupName)' - verwende alle Kategorien") }
             return self.getSortedCategories()
         }
         

@@ -42,11 +42,10 @@ struct EditTransactionView: View {
     // Hole Kategorien für das aktuelle Konto
     private func getCategoriesForAccount() -> [Category] {
         if let accountGroup = transaction.account?.group {
-            // Lade Kategorien für die spezifische Kontogruppe
-            viewModel.fetchCategories(for: accountGroup)
+            // Lade Kategorien für die spezifische Kontogruppe (bereits sortiert)
             return viewModel.getSortedCategories(for: accountGroup)
         } else {
-            // Fallback: Alle Kategorien
+            // Fallback: Alle Kategorien (bereits sortiert)
             return viewModel.getSortedCategories()
         }
     }
