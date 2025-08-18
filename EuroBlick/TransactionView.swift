@@ -1637,6 +1637,12 @@ struct CategoryManagementView: View {
     @State private var draggedCategory: Category?
     @State private var hasUnsavedChanges: Bool = false
     @State private var showSaveSuccess: Bool = false
+    
+    private var categorySectionHeader: some View {
+        Text(accountGroup != nil ? "Kategorien für \(accountGroup!.name ?? "Gruppe") (\(sortedCategories.count))" : "Bestehende Kategorien (\(sortedCategories.count))")
+            .foregroundColor(.white)
+            .font(.headline)
+    }
 
     var body: some View {
         NavigationStack {
@@ -1669,9 +1675,7 @@ struct CategoryManagementView: View {
                         }
                         
                         // Sektion für bestehende Kategorien
-                        Section(header: Text(accountGroup != nil ? "Kategorien für \(accountGroup!.name ?? "Gruppe") (\(sortedCategories.count))" : "Bestehende Kategorien (\(sortedCategories.count))")
-                            .foregroundColor(.white)
-                            .font(.headline)) {
+                        Section(header: categorySectionHeader) {
                             ForEach(sortedCategories, id: \.self) { category in
                                 CategoryRowView(
                                     category: category,
@@ -1761,7 +1765,7 @@ struct CategoryManagementView: View {
             .onAppear {
                 initializeSortedCategories()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .DataDidChange)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DataDidChange"))) { _ in
                 // Aktualisiere Kategorien wenn sich Daten ändern
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     initializeSortedCategories()
@@ -1881,7 +1885,7 @@ struct CategoryManagementView: View {
         print("💾 Kategorie-Reihenfolge gespeichert für Key '\(key)': \(order)")
         
         // Benachrichtige das ViewModel über die Änderung
-        NotificationCenter.default.post(name: .DataDidChange, object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
     }
     
     // Speichere alle Änderungen
