@@ -1867,14 +1867,57 @@ struct CategoryManagementView: View {
     
     // Lade die gespeicherte Reihenfolge der Kategorien
     private func loadCategoryOrder() -> [Category] {
+        let key = accountGroup != nil ? "categoryOrder_\(accountGroup!.name ?? "default")" : "categoryOrder"
+        let savedOrder = UserDefaults.standard.stringArray(forKey: key) ?? []
+        
+        print("📋 Gespeicherte Reihenfolge für Key '\(key)': \(savedOrder)")
+        
         if let accountGroup = accountGroup {
-            let categories = viewModel.getSortedCategories(for: accountGroup)
-            print("📋 Lade Kategorien für Gruppe '\(accountGroup.name ?? "Unknown")': \(categories.count) Kategorien")
-            return categories
+            let allCategories = viewModel.getSortedCategories(for: accountGroup)
+            print("📋 Alle Kategorien für Gruppe '\(accountGroup.name ?? "Unknown")': \(allCategories.count) Kategorien")
+            
+            // Sortiere Kategorien nach gespeicherter Reihenfolge
+            var sortedCategories: [Category] = []
+            
+            // Füge zuerst die Kategorien in der gespeicherten Reihenfolge hinzu
+            for categoryName in savedOrder {
+                if let category = allCategories.first(where: { $0.name == categoryName }) {
+                    sortedCategories.append(category)
+                }
+            }
+            
+            // Füge dann die restlichen Kategorien hinzu (falls neue hinzugefügt wurden)
+            for category in allCategories {
+                if !sortedCategories.contains(category) {
+                    sortedCategories.append(category)
+                }
+            }
+            
+            print("📋 Sortierte Kategorien: \(sortedCategories.count) Kategorien")
+            return sortedCategories
         } else {
-            let categories = viewModel.getSortedCategories()
-            print("📋 Lade globale Kategorien: \(categories.count) Kategorien")
-            return categories
+            let allCategories = viewModel.getSortedCategories()
+            print("📋 Alle globalen Kategorien: \(allCategories.count) Kategorien")
+            
+            // Sortiere Kategorien nach gespeicherter Reihenfolge
+            var sortedCategories: [Category] = []
+            
+            // Füge zuerst die Kategorien in der gespeicherten Reihenfolge hinzu
+            for categoryName in savedOrder {
+                if let category = allCategories.first(where: { $0.name == categoryName }) {
+                    sortedCategories.append(category)
+                }
+            }
+            
+            // Füge dann die restlichen Kategorien hinzu (falls neue hinzugefügt wurden)
+            for category in allCategories {
+                if !sortedCategories.contains(category) {
+                    sortedCategories.append(category)
+                }
+            }
+            
+            print("📋 Sortierte globale Kategorien: \(sortedCategories.count) Kategorien")
+            return sortedCategories
         }
     }
     
