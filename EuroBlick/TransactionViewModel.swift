@@ -417,9 +417,27 @@ class TransactionViewModel: ObservableObject {
         
         // Prüfe zuerst, ob das neue Schema verfügbar ist
         if !isNewSchemaAvailable() {
-            // Nur einmal ausgeben, wenn Kategorien leer sind
-            if categories.isEmpty { print("⚠️ Core Data Schema noch nicht migriert - verwende alle Kategorien") }
-            return self.getSortedCategories()
+            // Auch bei altem Schema: Verwende die gruppenspezifische Reihenfolge auf allen Kategorien
+            let allCategories = self.getSortedCategories()
+            let groupOrder = savedOrder
+            
+            // Erstelle eine sortierte Liste basierend auf der gruppenspezifischen Reihenfolge
+            var sorted: [Category] = []
+            var remainingCategories = allCategories
+            
+            // Füge zuerst die gespeicherten Kategorien in der richtigen Reihenfolge hinzu
+            for savedName in groupOrder {
+                if let category = remainingCategories.first(where: { $0.name == savedName }) {
+                    sorted.append(category)
+                    remainingCategories.removeAll(where: { $0.name == savedName })
+                }
+            }
+            
+            // Füge die restlichen Kategorien alphabetisch hinzu
+            let remainingSorted = remainingCategories.sorted { ($0.name ?? "") < ($1.name ?? "") }
+            sorted.append(contentsOf: remainingSorted)
+            
+            return sorted
         }
         
         // Lade Kategorien direkt aus Core Data für diese Kontogruppe
@@ -428,8 +446,24 @@ class TransactionViewModel: ObservableObject {
         request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
         
         guard let allCategories = try? self.context.fetch(request) else {
-            if categories.isEmpty { print("⚠️ Fehler beim Laden der Kategorien für Gruppe '\(groupName)' - verwende alle Kategorien") }
-            return self.getSortedCategories()
+            // Fallback: Verwende alle Kategorien mit gruppenspezifischer Reihenfolge
+            let allCategories = self.getSortedCategories()
+            let groupOrder = savedOrder
+            
+            var sorted: [Category] = []
+            var remainingCategories = allCategories
+            
+            for savedName in groupOrder {
+                if let category = remainingCategories.first(where: { $0.name == savedName }) {
+                    sorted.append(category)
+                    remainingCategories.removeAll(where: { $0.name == savedName })
+                }
+            }
+            
+            let remainingSorted = remainingCategories.sorted { ($0.name ?? "") < ($1.name ?? "") }
+            sorted.append(contentsOf: remainingSorted)
+            
+            return sorted
         }
         
         // Erstelle eine sortierte Liste basierend auf der gespeicherten Reihenfolge
