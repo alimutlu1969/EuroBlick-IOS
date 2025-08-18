@@ -1766,9 +1766,11 @@ struct CategoryManagementView: View {
                 initializeSortedCategories()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DataDidChange"))) { _ in
-                // Aktualisiere Kategorien wenn sich Daten ändern
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    initializeSortedCategories()
+                // Aktualisiere Kategorien nur wenn keine ungespeicherten Änderungen vorhanden sind
+                if !hasUnsavedChanges {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        initializeSortedCategories()
+                    }
                 }
             }
             .alert(isPresented: $showAlert) {
@@ -1884,8 +1886,8 @@ struct CategoryManagementView: View {
         
         print("💾 Kategorie-Reihenfolge gespeichert für Key '\(key)': \(order)")
         
-        // Benachrichtige das ViewModel über die Änderung
-        NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
+        // Keine Notification hier, da wir die Kategorien lokal verwalten
+        // Notification wird nur bei echten Datenänderungen aus anderen Views gesendet
     }
     
     // Speichere alle Änderungen
@@ -1900,10 +1902,7 @@ struct CategoryManagementView: View {
         
         print("✅ Kategorie-Reihenfolge gespeichert")
         
-        // Aktualisiere die Kategorien nach dem Speichern
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.initializeSortedCategories()
-        }
+        // Keine Neuinitialisierung nötig, da die Kategorien bereits korrekt sortiert sind
     }
     
     // Bewege eine Kategorie an eine neue Position
@@ -1954,8 +1953,16 @@ struct CategoryManagementView: View {
             viewModel.addCategory(name: trimmedName, for: accountGroup) {
                 DispatchQueue.main.async {
                     self.addingNewCategory = ""
-                    // Aktualisiere die sortierten Kategorien
-                    self.initializeSortedCategories()
+                    // Aktualisiere die sortierten Kategorien nur wenn keine ungespeicherten Änderungen vorhanden sind
+                    if !self.hasUnsavedChanges {
+                        self.initializeSortedCategories()
+                    } else {
+                        // Füge die neue Kategorie zur aktuellen Liste hinzu
+                        let newCategory = self.viewModel.categories.first { $0.name == trimmedName }
+                        if let newCategory = newCategory {
+                            self.sortedCategories.append(newCategory)
+                        }
+                    }
                     print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
                 }
             }
@@ -1969,8 +1976,16 @@ struct CategoryManagementView: View {
             viewModel.addCategory(name: trimmedName) {
                 DispatchQueue.main.async {
                     self.addingNewCategory = ""
-                    // Aktualisiere die sortierten Kategorien
-                    self.initializeSortedCategories()
+                    // Aktualisiere die sortierten Kategorien nur wenn keine ungespeicherten Änderungen vorhanden sind
+                    if !self.hasUnsavedChanges {
+                        self.initializeSortedCategories()
+                    } else {
+                        // Füge die neue Kategorie zur aktuellen Liste hinzu
+                        let newCategory = self.viewModel.categories.first { $0.name == trimmedName }
+                        if let newCategory = newCategory {
+                            self.sortedCategories.append(newCategory)
+                        }
+                    }
                     print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
                 }
             }
@@ -1992,8 +2007,10 @@ struct CategoryManagementView: View {
                 } else {
                     self.editingCategory = nil
                     self.newCategoryName = ""
-                    // Aktualisiere die sortierten Kategorien nach der Bearbeitung
-                    self.initializeSortedCategories()
+                    // Aktualisiere die sortierten Kategorien nur wenn keine ungespeicherten Änderungen vorhanden sind
+                    if !self.hasUnsavedChanges {
+                        self.initializeSortedCategories()
+                    }
                     print("Kategorie erfolgreich bearbeitet: \(category.name ?? "Unbekannt")")
                 }
             }
@@ -2008,8 +2025,13 @@ struct CategoryManagementView: View {
                     self.showAlert = true
                     print("Fehler beim Löschen der Kategorie: \(error)")
                 } else {
-                    // Aktualisiere die sortierten Kategorien
-                    self.initializeSortedCategories()
+                    // Aktualisiere die sortierten Kategorien nur wenn keine ungespeicherten Änderungen vorhanden sind
+                    if !self.hasUnsavedChanges {
+                        self.initializeSortedCategories()
+                    } else {
+                        // Entferne die gelöschte Kategorie aus der aktuellen Liste
+                        self.sortedCategories.removeAll { $0.name == category.name }
+                    }
                     print("Kategorie erfolgreich gelöscht: \(category.name ?? "Unbekannt")")
                 }
             }
