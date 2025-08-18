@@ -307,14 +307,14 @@ struct AddTransactionView: View {
         }
     }
 
-    // Hole Kategorien für das aktuelle Konto
+    // Hole Kategorien für das aktuelle Konto (mit gespeicherter Reihenfolge)
     private func getCategoriesForAccount() -> [Category] {
         if let accountGroup = account.group {
-            // Lade Kategorien für die spezifische Kontogruppe
+            // Lade Kategorien für die spezifische Kontogruppe mit gespeicherter Reihenfolge
             viewModel.fetchCategories(for: accountGroup)
             return viewModel.getSortedCategories(for: accountGroup)
         } else {
-            // Fallback: Alle Kategorien
+            // Fallback: Alle Kategorien mit gespeicherter Reihenfolge
             return viewModel.getSortedCategories()
         }
     }

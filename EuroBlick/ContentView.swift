@@ -737,21 +737,18 @@ struct AccountGroupView: View {
         let accounts = (group.accounts?.allObjects as? [Account]) ?? []
         var totalBalance: Double = 0.0
         
-        print("🔄 calculateGroupBalance() for group: \(group.name ?? "-")")
-        print("🔄 Found \(accounts.count) accounts")
-        
         for account in accounts {
             let balance = balances.first { $0.id == account.objectID }?.balance ?? viewModel.getBalance(for: account)
             let includeInBalance = account.value(forKey: "includeInBalance") as? Bool ?? true
-            
-            print("🔄 Account: \(account.name ?? "-") | Balance: \(balance) | Include: \(includeInBalance)")
             
             if includeInBalance {
                 totalBalance += balance
             }
         }
         
-        print("🔄 Total balance for \(group.name ?? "-"): \(totalBalance)")
+        // Reduzierte Debug-Ausgabe
+        print("🔄 Group: \(group.name ?? "-") | Balance: \(totalBalance)")
+        
         return totalBalance
     }
 }

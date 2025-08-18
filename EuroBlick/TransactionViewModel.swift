@@ -304,7 +304,10 @@ class TransactionViewModel: ObservableObject {
                 }
                 DispatchQueue.main.async {
                     self.categories = filteredCategories
-                    print("Fetched \(self.categories.count) categories: \(self.categories.map { $0.name ?? "Unnamed" })")
+                    // Reduziere Debug-Ausgaben - nur bei Änderungen
+                    if self.categories.count > 0 {
+                        print("Fetched \(self.categories.count) categories")
+                    }
                 }
             } catch {
                 print("Fetch categories error: \(error)")
@@ -320,18 +323,18 @@ class TransactionViewModel: ObservableObject {
         let hasAccountGroupProperty = entityDescription?.propertiesByName["accountGroup"] != nil
         
         if hasAccountGroupProperty {
-            // Zusätzliche Prüfung: Versuche eine sichere Abfrage
-            if let _ = try? self.context.fetch(Category.fetchRequest()) {
-                print("✅ Neues Core Data Schema verfügbar")
-                return true
+                            // Zusätzliche Prüfung: Versuche eine sichere Abfrage
+                if let _ = try? self.context.fetch(Category.fetchRequest()) {
+                    print("✅ Neues Core Data Schema verfügbar")
+                    return true
+                } else {
+                    print("⚠️ Core Data Schema nicht vollständig migriert")
+                    return false
+                }
             } else {
-                print("⚠️ Core Data Schema nicht vollständig migriert")
+                print("⚠️ Altes Core Data Schema - accountGroup Property nicht verfügbar")
                 return false
             }
-        } else {
-            print("⚠️ Altes Core Data Schema - accountGroup Property nicht verfügbar")
-            return false
-        }
     }
     
     // Hole Kategorien für eine spezifische Kontogruppe
@@ -356,7 +359,10 @@ class TransactionViewModel: ObservableObject {
                 }
                 DispatchQueue.main.async {
                     self.categories = filteredCategories
-                    print("Fetched \(self.categories.count) categories for group '\(accountGroup.name ?? "Unknown")': \(self.categories.map { $0.name ?? "Unnamed" })")
+                    // Reduziere Debug-Ausgaben - nur bei Änderungen
+                    if self.categories.count > 0 {
+                        print("Fetched \(self.categories.count) categories for group '\(accountGroup.name ?? "Unknown")'")
+                    }
                 }
             } else {
                 print("⚠️ Fehler beim Laden der Kategorien für Gruppe - verwende alle Kategorien")
