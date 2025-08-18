@@ -1761,6 +1761,12 @@ struct CategoryManagementView: View {
             .onAppear {
                 initializeSortedCategories()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .DataDidChange)) { _ in
+                // Aktualisiere Kategorien wenn sich Daten ändern
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    initializeSortedCategories()
+                }
+            }
             .alert(isPresented: $showAlert) {
                 if alertMessage.contains("verwerfen") {
                     Alert(
@@ -1843,15 +1849,26 @@ struct CategoryManagementView: View {
     
     // Initialisiere die sortierten Kategorien beim Erscheinen der View
     private func initializeSortedCategories() {
-        sortedCategories = loadCategoryOrder()
+        let loadedCategories = loadCategoryOrder()
+        sortedCategories = loadedCategories
+        print("🔄 Kategorien initialisiert: \(loadedCategories.count) Kategorien geladen")
+        
+        // Debug: Zeige die geladenen Kategorien
+        for (index, category) in loadedCategories.enumerated() {
+            print("  \(index + 1). \(category.name ?? "Unbekannt")")
+        }
     }
     
     // Lade die gespeicherte Reihenfolge der Kategorien
     private func loadCategoryOrder() -> [Category] {
         if let accountGroup = accountGroup {
-            return viewModel.getSortedCategories(for: accountGroup)
+            let categories = viewModel.getSortedCategories(for: accountGroup)
+            print("📋 Lade Kategorien für Gruppe '\(accountGroup.name ?? "Unknown")': \(categories.count) Kategorien")
+            return categories
         } else {
-            return viewModel.getSortedCategories()
+            let categories = viewModel.getSortedCategories()
+            print("📋 Lade globale Kategorien: \(categories.count) Kategorien")
+            return categories
         }
     }
     
@@ -1860,6 +1877,11 @@ struct CategoryManagementView: View {
         let order = sortedCategories.compactMap { $0.name }
         let key = accountGroup != nil ? "categoryOrder_\(accountGroup!.name ?? "default")" : "categoryOrder"
         UserDefaults.standard.set(order, forKey: key)
+        
+        print("💾 Kategorie-Reihenfolge gespeichert für Key '\(key)': \(order)")
+        
+        // Benachrichtige das ViewModel über die Änderung
+        NotificationCenter.default.post(name: .DataDidChange, object: nil)
     }
     
     // Speichere alle Änderungen
@@ -1873,6 +1895,11 @@ struct CategoryManagementView: View {
         }
         
         print("✅ Kategorie-Reihenfolge gespeichert")
+        
+        // Aktualisiere die Kategorien nach dem Speichern
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.initializeSortedCategories()
+        }
     }
     
     // Bewege eine Kategorie an eine neue Position
@@ -1885,12 +1912,20 @@ struct CategoryManagementView: View {
         let category = sortedCategories.remove(at: sourceIndex)
         sortedCategories.insert(category, at: destinationIndex)
         hasUnsavedChanges = true
+        
+        print("🔄 Kategorie '\(category.name ?? "Unknown")' von Position \(sourceIndex) nach \(destinationIndex) verschoben")
     }
     
     // Bewege Kategorien mit onMove
     private func moveCategories(from source: IndexSet, to destination: Int) {
         sortedCategories.move(fromOffsets: source, toOffset: destination)
         hasUnsavedChanges = true
+        
+        print("🔄 Kategorien verschoben: \(source) nach \(destination)")
+        print("📋 Neue Reihenfolge:")
+        for (index, category) in sortedCategories.enumerated() {
+            print("  \(index + 1). \(category.name ?? "Unknown")")
+        }
     }
 
     // Neue Methode zum Hinzufügen einer Kategorie
@@ -1916,7 +1951,7 @@ struct CategoryManagementView: View {
                 DispatchQueue.main.async {
                     self.addingNewCategory = ""
                     // Aktualisiere die sortierten Kategorien
-                    self.sortedCategories = self.loadCategoryOrder()
+                    self.initializeSortedCategories()
                     print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
                 }
             }
@@ -1931,7 +1966,7 @@ struct CategoryManagementView: View {
                 DispatchQueue.main.async {
                     self.addingNewCategory = ""
                     // Aktualisiere die sortierten Kategorien
-                    self.sortedCategories = self.loadCategoryOrder()
+                    self.initializeSortedCategories()
                     print("Neue Kategorie '\(trimmedName)' erfolgreich hinzugefügt")
                 }
             }
@@ -1953,6 +1988,8 @@ struct CategoryManagementView: View {
                 } else {
                     self.editingCategory = nil
                     self.newCategoryName = ""
+                    // Aktualisiere die sortierten Kategorien nach der Bearbeitung
+                    self.initializeSortedCategories()
                     print("Kategorie erfolgreich bearbeitet: \(category.name ?? "Unbekannt")")
                 }
             }
@@ -1968,7 +2005,7 @@ struct CategoryManagementView: View {
                     print("Fehler beim Löschen der Kategorie: \(error)")
                 } else {
                     // Aktualisiere die sortierten Kategorien
-                    self.sortedCategories = self.loadCategoryOrder()
+                    self.initializeSortedCategories()
                     print("Kategorie erfolgreich gelöscht: \(category.name ?? "Unbekannt")")
                 }
             }
