@@ -723,7 +723,7 @@ struct TransactionView: View {
                         self.applyFilter()
                         self.refreshID = UUID()
                         
-                        // Benachrichtige andere Views über die Datenänderung
+                        // Benachrichtige andere Views über Datenänderungen (wichtig für ContentView Balance-Update)
                         NotificationCenter.default.post(name: NSNotification.Name("DataDidChange"), object: nil)
                         
                         print("CSV-Import abgeschlossen: \(importResult.summary)")

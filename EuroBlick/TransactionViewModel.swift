@@ -558,8 +558,11 @@ class TransactionViewModel: ObservableObject {
                         // Bargeldeinzahlungen: Nur in Tagesbilanz, nicht in Auswertungsbilanz
                         totalBalance += amount
                         print("💰 Bargeldeinzahlung in getBalance: \(amount)€ zu Tagesbilanz hinzugefügt")
+                    } else if type == "reservierung" {
+                        // Reservierungen: In Tagesbilanz einschließen, aber nicht in Auswertungsbilanz
+                        totalBalance += amount
+                        print("🏨 Reservierung in getBalance: \(amount)€ zu Tagesbilanz hinzugefügt")
                     }
-                    // "reservierung" wird durch Predicate ignoriert
                 }
             }
             print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance) (alle Transaktionen inkl. Reservierungen)")
