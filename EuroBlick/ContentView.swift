@@ -1156,12 +1156,12 @@ struct ContentView: View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 20) {
                 if viewModel.accountGroups.count > 0 {
-                    AccountGroupView(
-                        group: viewModel.accountGroups[0],
-                        viewModel: viewModel,
-                        balances: accountBalances,
-                        onAccountTapped: { account in selectedAccount = account },
-                        showEditGroupSheet: $showEditGroupSheet,
+                                    AccountGroupView(
+                    group: viewModel.accountGroups[0],
+                    viewModel: viewModel,
+                    balances: [], // Verwende leere balances, damit ViewModel.getBalance verwendet wird
+                    onAccountTapped: { account in selectedAccount = account },
+                    showEditGroupSheet: $showEditGroupSheet,
                         groupToEdit: $groupToEdit,
                         newGroupName: $newGroupName
                     )
