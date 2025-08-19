@@ -2452,10 +2452,10 @@ class TransactionViewModel: ObservableObject {
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
         fetchRequest.resultType = .dictionaryResultType
         
-        // Kontostände berücksichtigen ALLE Transaktionen (auch ausgeschlossene), da sie die physische Realität widerspiegeln
-        // Nur Reservierungen werden ausgeschlossen, da sie noch nicht "echt" stattgefunden haben
+        // Kontostände berücksichtigen ALLE Transaktionen (auch ausgeschlossene und Reservierungen), da sie die physische Realität widerspiegeln
+        // Reservierungen werden jetzt EINGESCHLOSSEN für Tagesbilanz (aber weiterhin ausgeschlossen von Auswertungsbilanz)
         // Bargeldeinzahlungen werden in der Tagesbilanz berücksichtigt, aber nicht in der Auswertungsbilanz
-        fetchRequest.predicate = NSPredicate(format: "type != %@", "reservierung")
+        fetchRequest.predicate = nil  // Alle Transaktionen einschließen
 
         let sumExpression = NSExpressionDescription()
         sumExpression.name = "totalAmount"
@@ -2508,8 +2508,11 @@ class TransactionViewModel: ObservableObject {
                         // Bargeldeinzahlungen: Nur in Tagesbilanz, nicht in Auswertungsbilanz
                         balanceDict[account] = currentBalance + balance
                         print("💰 Bargeldeinzahlung: \(balance)€ zu Tagesbilanz hinzugefügt (nicht in Auswertung)")
+                    } else if type == "reservierung" {
+                        // Reservierungen: In Tagesbilanz einschließen, aber nicht in Auswertungsbilanz
+                        balanceDict[account] = currentBalance + balance
+                        print("🏨 Reservierung in calculateAllBalances: \(balance)€ zu Tagesbilanz hinzugefügt")
                     }
-                    // "reservierung" wird automatisch durch das Predicate ignoriert
                 }
             }
             
