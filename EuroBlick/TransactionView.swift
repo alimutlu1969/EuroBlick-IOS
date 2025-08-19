@@ -164,18 +164,18 @@ struct TransactionView: View {
             let components = calendar.dateComponents([.year, .month, .day], from: transaction.date)
             return calendar.date(from: components) ?? Date()
         })
-        var cumulativeBalance: Double = 0.0
+        // Verwende die tatsächliche Kontobalance anstatt der kumulativen Balance aus gefilterten Transaktionen
+        let actualBalance = viewModel.getBalance(for: account)
         let sortedGroups = grouped.sorted { $0.key < $1.key }
         var result: [TransactionGroup] = []
         for (date, transactions) in sortedGroups {
             // Tagesbilanz: ALLE Transaktionen (inkl. Reservierungen) - für Tagesbilanz
             let dailyBalance = transactions.reduce(0.0) { $0 + $1.amount }
-            cumulativeBalance += dailyBalance
             let group = TransactionGroup(
                 date: date,
                 transactions: transactions.sorted { $0.date > $1.date },
                 dailyBalance: dailyBalance,
-                cumulativeBalance: cumulativeBalance
+                cumulativeBalance: actualBalance  // Verwende die tatsächliche Kontobalance
             )
             result.append(group)
         }
