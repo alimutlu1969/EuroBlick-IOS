@@ -522,9 +522,9 @@ class TransactionViewModel: ObservableObject {
         let context = self.context
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "Transaction")
 
-        // Kontostand berücksichtigt ALLE Transaktionen (auch ausgeschlossene), da es die physische Realität widerspiegelt
-        // Nur Reservierungen werden ausgeschlossen, da sie noch nicht "echt" stattgefunden haben
-        fetchRequest.predicate = NSPredicate(format: "account == %@ AND type != %@", account, "reservierung")
+        // Kontostand berücksichtigt ALLE Transaktionen (inkl. Reservierungen) für ContentView und TransactionView
+        // Reservierungen werden nur in der Auswertungsbilanz ausgeschlossen
+        fetchRequest.predicate = NSPredicate(format: "account == %@", account)
         fetchRequest.resultType = .dictionaryResultType
 
         let expressionDesc = NSExpressionDescription()
@@ -562,7 +562,7 @@ class TransactionViewModel: ObservableObject {
                     // "reservierung" wird durch Predicate ignoriert
                 }
             }
-            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance) (alle Transaktionen außer Reservierungen)")
+            print("getBalance: \(account.name ?? "-") | Einnahmen: \(summeEinnahmen) | Ausgaben: \(summeAusgaben) | Umbuchungen: \(summeUmbuchungen) | Bilanz: \(totalBalance) (alle Transaktionen inkl. Reservierungen)")
             return totalBalance
         } catch {
             print("Fehler beim Berechnen des Kontostands: \(error.localizedDescription)")

@@ -479,6 +479,11 @@ struct TransactionView: View {
             .sheet(isPresented: $showSuspiciousTransactionSheet) {
                 suspiciousTransactionSheet
             }
+            .sheet(isPresented: $showImportResultSheet) {
+                if let importResult = importResult {
+                    ImportResultView(importResult: importResult)
+                }
+            }
             .onAppear {
                 fetchTransactions()
             }
